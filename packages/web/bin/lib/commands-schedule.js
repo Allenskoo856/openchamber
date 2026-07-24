@@ -174,7 +174,7 @@ async function scheduleCommand(options = {}, action = 'help') {
   if (action === 'enable' || action === 'disable') {
     const taskID = assertRequired(options.task, '--task');
     const enabled = action === 'enable';
-    const { task } = await requestControlAction(port, `schedule.${action}`, { ...target, taskId: taskID }, options);
+    const { task } = await requestControlAction(port, 'schedule.toggle', { ...target, taskId: taskID, disabled: !enabled }, options);
     if (isJsonMode(options)) {
       printJson({ task, enabled });
       return;

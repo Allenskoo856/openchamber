@@ -8,7 +8,7 @@ import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createAgentToolRuntime } from './runtime.js';
-import { OPENCHAMBER_CONTROL_ACTION_DEFINITIONS } from '../openchamber-control/actions.js';
+import { OPENCHAMBER_AGENT_TOOL_ACTION_DEFINITIONS, OPENCHAMBER_CONTROL_ACTION_DEFINITIONS } from '../openchamber-control/actions.js';
 
 const temporaryDirectories = [];
 
@@ -48,13 +48,11 @@ describe('agent tool action allowlist', () => {
     'session.fork',
     'session.status',
     'session.messages',
-    'schedule.status',
     'schedule.list',
     'schedule.create',
     'schedule.run',
     'schedule.delete',
-    'schedule.enable',
-    'schedule.disable',
+    'schedule.toggle',
   ])('delegates %s to the shared control service', async (action) => {
     const { runtime, executeAction } = await createRuntime();
     const input = { action, projectId: 'project-1' };
@@ -62,11 +60,14 @@ describe('agent tool action allowlist', () => {
     expect(executeAction).toHaveBeenCalledWith(action, input, '/work/project', {});
   });
 
-  it('rejects actions outside the fixed allowlist without invoking the service', async () => {
+  it.each([
+    'session.delete',
+    'schedule.status',
+  ])('rejects %s outside the agent allowlist without invoking the service', async (action) => {
     const { runtime, executeAction } = await createRuntime();
-    await expect(runtime.execute({ input: { action: 'session.delete' } })).resolves.toEqual(expect.objectContaining({
+    await expect(runtime.execute({ input: { action } })).resolves.toEqual(expect.objectContaining({
       ok: false,
-      action: 'session.delete',
+      action,
       error: expect.objectContaining({ kind: 'usage' }),
     }));
     expect(executeAction).not.toHaveBeenCalled();
@@ -92,9 +93,10 @@ describe('managed agent tool runtime', () => {
     expect(preparedEnv.OPENCHAMBER_AGENT_TOOL_URL).toBe('http://127.0.0.1:3901/api/openchamber/agent-tool');
     expect(preparedEnv.OPENCHAMBER_AGENT_TOOL_TOKEN).toMatch(/^[A-Za-z0-9_-]+$/);
     expect(source).toContain('openchamber: {');
-    for (const { action, description } of OPENCHAMBER_CONTROL_ACTION_DEFINITIONS) {
+    for (const { action, description } of OPENCHAMBER_AGENT_TOOL_ACTION_DEFINITIONS) {
       expect(source).toContain(JSON.stringify({ const: action, description }));
     }
+    expect(source).not.toContain('"schedule.status"');
     const pluginModule = await import(`${pathToFileURL(pluginPath).href}?schema=${Date.now()}`);
     const hooks = await pluginModule.OpenChamberPlugin();
     expect(hooks.tool.openchamber.description).toContain('Session dispatches return immediately by default');

@@ -1,13 +1,15 @@
 import { parse as parseJsonc } from 'jsonc-parser';
 import { pathToFileURL } from 'node:url';
 import {
-  OPENCHAMBER_CONTROL_ACTION_DEFINITIONS,
-  OPENCHAMBER_CONTROL_ACTION_TITLES,
-  OPENCHAMBER_CONTROL_ACTIONS,
+  OPENCHAMBER_AGENT_TOOL_ACTION_DEFINITIONS,
+  OPENCHAMBER_AGENT_TOOL_ACTIONS,
 } from '../openchamber-control/actions.js';
 
 const TOOL_SCHEMA_VERSION = 1;
-const ACTIONS = new Set(OPENCHAMBER_CONTROL_ACTIONS);
+const ACTIONS = new Set(OPENCHAMBER_AGENT_TOOL_ACTIONS);
+const AGENT_TOOL_ACTION_TITLES = Object.fromEntries(
+  OPENCHAMBER_AGENT_TOOL_ACTION_DEFINITIONS.map(({ action, title }) => [action, title]),
+);
 
 const PLUGIN_PARAMETER_PROPERTIES = {
   projectId: { type: 'string', description: 'Configured project ID; do not combine with directory' },
@@ -18,13 +20,13 @@ const PLUGIN_PARAMETER_PROPERTIES = {
   title: { type: 'string' },
   prompt: { type: 'string' },
   model: { type: 'string', description: 'Model in provider/model format' },
-  agent: { type: 'string' },
-  variant: { type: 'string' },
-  worktree: { type: 'string', description: 'New worktree name for session.create' },
+  agent: { type: 'string', description: 'OpenCode agent name; defaults to the build agent. Set only when the user explicitly requests a different agent' },
+  variant: { type: 'string', description: 'Model variant; use only when the user explicitly requests it' },
+  worktree: { type: 'string', description: 'New worktree name for session.create. Omit by default; use only when the user explicitly asks for an isolated worktree. Uncommitted changes do not carry over into a new worktree' },
   branch: { type: 'string', description: 'Branch name for the new worktree' },
   startRef: { type: 'string', description: 'Git ref used to create the new worktree' },
   setUpstream: { type: 'boolean', description: 'Make the new worktree branch track its upstream' },
-  goal: { type: 'boolean', description: 'Run the dispatched prompt in Goal Mode' },
+  goal: { type: 'boolean', description: 'Run the dispatched prompt in Goal Mode; use only when the user explicitly requests it' },
   goalTokenBudget: { type: 'integer', minimum: 1000, maximum: 100_000_000, description: 'Goal token budget; requires goal' },
   wait: { type: 'boolean', description: 'Wait for current session activity to become idle. Omit by default; use only when the user asks or the next step requires the completed result' },
   timeout: { type: 'integer', minimum: 1, maximum: 86_400, description: 'Wait timeout in seconds (default 600); requires wait' },
@@ -41,7 +43,7 @@ const PLUGIN_PARAMETER_PROPERTIES = {
   time: { type: 'string', description: 'Weekly or one-time run time in HH:mm format' },
   cron: { type: 'string', description: 'Cron expression' },
   timezone: { type: 'string', description: 'IANA timezone' },
-  disabled: { type: 'boolean' },
+  disabled: { type: 'boolean', description: 'true disables and false enables; required for schedule.toggle' },
 };
 
 const asNonEmptyString = (value) => {
@@ -70,14 +72,14 @@ const createPluginSource = () => String.raw`
 export const OpenChamberPlugin = async () => ({
   tool: {
     openchamber: {
-      description: "Control OpenChamber projects, sessions, and scheduled tasks. Use one action per call. Scope with projectId or directory; omit both to use the current session directory. Session dispatches return immediately by default. Set wait only when the user asks or the next step requires the completed result. Session and worktree deletion are unavailable.",
+      description: "Control OpenChamber projects, sessions, and scheduled tasks on the user's behalf. Sessions and scheduled tasks you create are for the user to follow and interact with; never use this tool to delegate parts of your own current task. Use one action per call. Scope with projectId or directory; omit both to use the current session directory. Session dispatches return immediately by default. Set wait only when the user asks or the next step requires the completed result. Session and worktree deletion are unavailable.",
       args: {
-        action: { type: "string", enum: ${JSON.stringify(OPENCHAMBER_CONTROL_ACTIONS)}, oneOf: ${JSON.stringify(OPENCHAMBER_CONTROL_ACTION_DEFINITIONS.map(({ action, description }) => ({ const: action, description })))}, description: "OpenChamber action to perform" },
+        action: { type: "string", enum: ${JSON.stringify(OPENCHAMBER_AGENT_TOOL_ACTIONS)}, oneOf: ${JSON.stringify(OPENCHAMBER_AGENT_TOOL_ACTION_DEFINITIONS.map(({ action, description }) => ({ const: action, description })))}, description: "OpenChamber action to perform" },
         parameters: { type: "object", properties: ${JSON.stringify(PLUGIN_PARAMETER_PROPERTIES)}, additionalProperties: false, description: "Inputs for the action; use an empty object when none are needed" },
       },
       async execute(input, context) {
         const args = { ...(input.parameters ?? {}), action: input.action }
-        const actionTitles = ${JSON.stringify(OPENCHAMBER_CONTROL_ACTION_TITLES)}
+        const actionTitles = ${JSON.stringify(AGENT_TOOL_ACTION_TITLES)}
         const title = Object.hasOwn(actionTitles, args.action) ? actionTitles[args.action] : args.action
         context.metadata({
           title,
@@ -91,8 +93,13 @@ export const OpenChamberPlugin = async () => ({
         })
         const endpoint = process.env.OPENCHAMBER_AGENT_TOOL_URL
         const token = process.env.OPENCHAMBER_AGENT_TOOL_TOKEN
+        const failure = (payload) => ({
+          title,
+          output: JSON.stringify(payload),
+          metadata: { openchamber: { schemaVersion: ${TOOL_SCHEMA_VERSION}, action: args.action, description: title, ok: false } },
+        })
         if (!endpoint || !token) {
-          return JSON.stringify({ schemaVersion: ${TOOL_SCHEMA_VERSION}, ok: false, action: args.action, error: { message: "OpenChamber managed tool connection is unavailable" } })
+          return failure({ schemaVersion: ${TOOL_SCHEMA_VERSION}, ok: false, action: args.action, error: { message: "OpenChamber managed tool connection is unavailable" } })
         }
 
         try {
@@ -121,10 +128,10 @@ export const OpenChamberPlugin = async () => ({
             },
           })
           if (valid) return { title, output, metadata: { openchamber: { schemaVersion: ${TOOL_SCHEMA_VERSION}, action: args.action, description: title, ok: result.ok === true } } }
-          return JSON.stringify({ schemaVersion: ${TOOL_SCHEMA_VERSION}, ok: false, action: args.action, error: { message: "OpenChamber returned an invalid response", kind: "runtime", status: response.status } })
+          return failure({ schemaVersion: ${TOOL_SCHEMA_VERSION}, ok: false, action: args.action, error: { message: "OpenChamber returned an invalid response", kind: "runtime", status: response.status } })
         } catch (error) {
           if (context.abort.aborted) throw error
-          return JSON.stringify({ schemaVersion: ${TOOL_SCHEMA_VERSION}, ok: false, action: args.action, error: { message: error instanceof Error ? error.message : String(error), kind: "runtime" } })
+          return failure({ schemaVersion: ${TOOL_SCHEMA_VERSION}, ok: false, action: args.action, error: { message: error instanceof Error ? error.message : String(error), kind: "runtime" } })
         }
       },
     },

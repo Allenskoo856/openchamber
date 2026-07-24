@@ -10,8 +10,7 @@ const CONTROL_ACTIONS = new Set(OPENCHAMBER_CONTROL_ACTIONS);
 const SCHEDULE_TASK_ID_ACTIONS = new Set([
   'schedule.run',
   'schedule.delete',
-  'schedule.enable',
-  'schedule.disable',
+  'schedule.toggle',
 ]);
 
 const asNonEmptyString = (value) => {
@@ -324,7 +323,7 @@ export const createOpenChamberControlService = (dependencies) => {
         });
         switch (action) {
           case 'schedule.list':
-            return { tasks: await scheduledTaskService.list(projectID) };
+            return { scheduler: await scheduledTaskService.status(), tasks: await scheduledTaskService.list(projectID) };
           case 'schedule.create': {
             const result = await scheduledTaskService.upsert(projectID, buildScheduledTask(input));
             return { task: result.task, created: result.created };
@@ -333,10 +332,13 @@ export const createOpenChamberControlService = (dependencies) => {
             return scheduledTaskService.run(projectID, taskID);
           case 'schedule.delete':
             return { deleted: true, tasks: await scheduledTaskService.remove(projectID, taskID) };
-          case 'schedule.enable':
-            return { task: await scheduledTaskService.setEnabled(projectID, taskID, true), enabled: true };
-          case 'schedule.disable':
-            return { task: await scheduledTaskService.setEnabled(projectID, taskID, false), enabled: false };
+          case 'schedule.toggle': {
+            if (typeof input.disabled !== 'boolean') {
+              throw new OpenChamberControlError('disabled is required for schedule.toggle', 400);
+            }
+            const enabled = input.disabled === false;
+            return { task: await scheduledTaskService.setEnabled(projectID, taskID, enabled), enabled };
+          }
         }
       }
       if (action === 'session.create' || action === 'session.send' || action === 'session.fork') {

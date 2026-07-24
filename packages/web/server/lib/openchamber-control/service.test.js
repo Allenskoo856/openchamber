@@ -81,6 +81,26 @@ describe('OpenChamber control service', () => {
     expect(scheduledTaskService.resolveProjectID).toHaveBeenCalledWith({ projectId: 'project-1', directory: undefined });
   });
 
+  it('includes scheduler status alongside listed tasks', async () => {
+    const { service, scheduledTaskService } = createService();
+    scheduledTaskService.list.mockResolvedValue([{ id: 'task-1' }]);
+    await expect(service.execute('schedule.list', {}, '/repo')).resolves.toEqual({
+      scheduler: { enabledScheduledTasksCount: 0 },
+      tasks: [{ id: 'task-1' }],
+    });
+  });
+
+  it('toggles a scheduled task through the required disabled boolean', async () => {
+    const { service, scheduledTaskService } = createService();
+    scheduledTaskService.setEnabled.mockResolvedValue({ id: 'task-1', enabled: false });
+    await expect(service.execute('schedule.toggle', { taskId: 'task-1' }, '/repo')).rejects.toThrow('disabled is required for schedule.toggle');
+    await expect(service.execute('schedule.toggle', { taskId: 'task-1', disabled: true }, '/repo')).resolves.toEqual({
+      task: { id: 'task-1', enabled: false },
+      enabled: false,
+    });
+    expect(scheduledTaskService.setEnabled).toHaveBeenCalledWith('project-1', 'task-1', false);
+  });
+
   it('returns an actionable taskId error before resolving schedule scope', async () => {
     const { service, scheduledTaskService } = createService();
     await expect(service.execute('schedule.run', {}, '/repo')).rejects.toThrow('taskId is required');

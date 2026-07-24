@@ -4,7 +4,10 @@
 
 This module exposes OpenChamber orchestration to agents as one typed OpenCode
 custom tool named `openchamber`. It is injected only when OpenChamber launches
-and owns the OpenCode process.
+and owns the OpenCode process, and only while the persisted
+`agentControlToolEnabled` setting is not `false` (default on; toggled in
+Settings → General → OpenCode CLI and applied on the next managed OpenCode
+restart).
 
 ## Runtime flow
 
@@ -35,6 +38,16 @@ and owns the OpenCode process.
   inferred from the field name.
 - Session dispatches do not wait by default. Agents are told to set `wait` only
   when the user asks or the next step requires the completed result.
+- The tool exposes only agent-relevant actions
+  (`OPENCHAMBER_AGENT_TOOL_ACTIONS`): `schedule.status` stays CLI-only because
+  `schedule.list` already returns scheduler status, and enable/disable are one
+  `schedule.toggle` action driven by the `disabled` boolean.
+- The tool description frames intent: created sessions and scheduled tasks are
+  user-facing work the user follows up with, never a channel for the agent to
+  delegate parts of its own current task.
+- Optional behavior switches (`worktree`, `goal`, `agent`, `variant`, `wait`)
+  state their default and an explicit "only when the user asks" rule so agents
+  do not invent worktrees, goal mode, or waits the user never requested.
 - Detailed combination rules are enforced by the shared control service and
   returned as actionable usage errors only after an invalid call. Per-action
   examples and a repeated per-action parameter schema are intentionally omitted.
