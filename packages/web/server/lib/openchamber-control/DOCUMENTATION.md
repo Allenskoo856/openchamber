@@ -33,6 +33,9 @@ other.
 - Timeout and cancellation are failures, never authoritative idle results.
 - Validation that protects side effects runs before session creation or
   dispatch.
+- Send and fork dispatches without an explicit model/agent/variant reuse the
+  target session's last user-message selection before falling back to the
+  configured defaults; only session creation resolves defaults directly.
 - Usage errors name the missing or conflicting input so CLI and agent-tool
   callers can correct an invalid request without an upfront usage manual.
 - Explicit `projectId` or `directory` scope takes precedence over the managed

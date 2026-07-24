@@ -19,8 +19,8 @@ const PLUGIN_PARAMETER_PROPERTIES = {
   taskId: { type: 'string' },
   title: { type: 'string' },
   prompt: { type: 'string' },
-  model: { type: 'string', description: 'Model in provider/model format' },
-  agent: { type: 'string', description: 'OpenCode agent name; defaults to the build agent. Set only when the user explicitly requests a different agent' },
+  model: { type: 'string', description: 'Model in provider/model format. When the user names no model: for session.create pick a suitable one from models.list favorites or recents (omit if there are none); for send and fork omit it — the session reuses its previous model' },
+  agent: { type: 'string', description: 'OpenCode agent name; new sessions default to the build agent and existing sessions keep their previous one. Set only when the user explicitly requests a different agent' },
   variant: { type: 'string', description: 'Model variant; use only when the user explicitly requests it' },
   worktree: { type: 'string', description: 'New worktree name for session.create. Omit by default; use only when the user explicitly asks for an isolated worktree. Uncommitted changes do not carry over into a new worktree' },
   branch: { type: 'string', description: 'Branch name for the new worktree' },
@@ -72,7 +72,7 @@ const createPluginSource = () => String.raw`
 export const OpenChamberPlugin = async () => ({
   tool: {
     openchamber: {
-      description: "Control OpenChamber projects, sessions, and scheduled tasks on the user's behalf. Sessions and scheduled tasks you create are for the user to follow and interact with; never use this tool to delegate parts of your own current task. Use one action per call. Scope with projectId or directory; omit both to use the current session directory. Session dispatches return immediately by default. Set wait only when the user asks or the next step requires the completed result. Session and worktree deletion are unavailable.",
+      description: "Control OpenChamber projects, sessions, and scheduled tasks on the user's behalf. Sessions and scheduled tasks you create are for the user to follow and interact with; never use this tool to delegate parts of your own current task. Use one action per call. Scope with projectId or directory; omit both to use the current session directory. Session dispatches return immediately by default and you receive no notification when a dispatched session finishes, so never promise to report back on it; the user follows it in OpenChamber; a dispatched session needs no follow-up from you. If the user later asks how it went, use session.messages (add wait to block until it is idle, lastAssistant for just the final answer) — session.send always sends a NEW prompt and never just waits. Set wait only when the user asks or the next step requires the completed result. Session and worktree deletion are unavailable.",
       args: {
         action: { type: "string", enum: ${JSON.stringify(OPENCHAMBER_AGENT_TOOL_ACTIONS)}, oneOf: ${JSON.stringify(OPENCHAMBER_AGENT_TOOL_ACTION_DEFINITIONS.map(({ action, description }) => ({ const: action, description })))}, description: "OpenChamber action to perform" },
         parameters: { type: "object", properties: ${JSON.stringify(PLUGIN_PARAMETER_PROPERTIES)}, additionalProperties: false, description: "Inputs for the action; use an empty object when none are needed" },

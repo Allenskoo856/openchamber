@@ -372,7 +372,7 @@ export const createOpenChamberControlService = (dependencies) => {
         if (!sessionID) throw new OpenChamberControlError('sessionId is required', 400);
         if (!directory) throw new OpenChamberControlError('directory is required', 400);
         if (action === 'session.status') {
-          return { status: 'ok', sessionId: sessionID, directory, sessionStatus: await sessionStatus(client, sessionID, directory) };
+          return { sessionId: sessionID, directory, sessionStatus: await sessionStatus(client, sessionID, directory) };
         }
         if (action === 'session.messages') {
           if (input.timeout !== undefined && input.wait !== true) throw new OpenChamberControlError('timeout requires wait', 400);
@@ -381,11 +381,11 @@ export const createOpenChamberControlService = (dependencies) => {
           const last = input.last === true || input.lastAssistant === true;
           if (input.all === true && (last || input.limit !== undefined)) throw new OpenChamberControlError('all cannot be combined with last or limit', 400);
           if (last && input.limit !== undefined) throw new OpenChamberControlError('last cannot be combined with limit', 400);
-          if (input.wait === true) {
-            await waitForIdle({ client, sessionID, directory, timeoutMs: normalizeWaitTimeoutMs(input.timeout), requireActivity: false, startedAt: now(), signal: options.signal });
-          }
+          const currentStatus = input.wait === true
+            ? await waitForIdle({ client, sessionID, directory, timeoutMs: normalizeWaitTimeoutMs(input.timeout), requireActivity: false, startedAt: now(), signal: options.signal })
+            : await sessionStatus(client, sessionID, directory);
           const limit = input.all === true ? undefined : (last ? 1 : positiveInteger(input.limit, 10, 'limit'));
-          return { status: 'ok', sessionId: sessionID, directory, role, messages: await sessionMessages(client, sessionID, directory, role, limit) };
+          return { sessionId: sessionID, directory, role, sessionStatus: currentStatus, messages: await sessionMessages(client, sessionID, directory, role, limit) };
         }
       }
       throw new OpenChamberControlError(`Unsupported OpenChamber action: ${action || 'missing'}`, 400);

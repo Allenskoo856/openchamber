@@ -208,10 +208,10 @@ describe('OpenChamber control service', () => {
       role: 'all',
       all: true,
     })).resolves.toEqual({
-      status: 'ok',
       sessionId: 'ses_1',
       directory: '/repo',
       role: 'all',
+      sessionStatus: { type: 'idle' },
       messages: [
         { id: 'msg_user', role: 'user', createdAt: 10, completedAt: null, model: null, text: 'Question' },
         { id: 'msg_assistant', role: 'assistant', createdAt: 20, completedAt: 30, model: 'openai/gpt-5.4-mini', text: 'First answer' },

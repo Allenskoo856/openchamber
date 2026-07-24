@@ -103,7 +103,7 @@ describe('managed agent tool runtime', () => {
     expect(hooks.tool.openchamber.description).toContain('Set wait only when the user asks or the next step requires the completed result');
     expect(hooks.tool.openchamber.args.action.oneOf).toContainEqual({
       const: 'session.messages',
-      description: 'Read text-only messages for sessionId; directory and limit 10 are defaults',
+      description: 'Read text-only messages and current sessionStatus for sessionId; directory and limit 10 are defaults',
     });
     expect(hooks.tool.openchamber.args.parameters.properties.wait.description).toBe(
       'Wait for current session activity to become idle. Omit by default; use only when the user asks or the next step requires the completed result',

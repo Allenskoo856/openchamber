@@ -299,6 +299,29 @@ export const createOpenChamberSessionService = (dependencies) => {
     createSessionGoal: createSessionGoalOverride,
   } = dependencies;
 
+  // Last user message of an existing session, as a selection to reuse. Returns
+  // null when the session has no user message carrying a model.
+  const fetchLastUserSelection = async ({ client, sessionID, directory }) => {
+    try {
+      const response = await client.session.messages({ sessionID, directory, limit: 20 });
+      const records = Array.isArray(response?.data) ? response.data : [];
+      for (let index = records.length - 1; index >= 0; index -= 1) {
+        const info = records[index]?.info;
+        if (info?.role !== 'user') continue;
+        const providerID = asNonEmptyString(info.model?.providerID);
+        const modelID = asNonEmptyString(info.model?.modelID);
+        if (!providerID || !modelID) continue;
+        return {
+          model: { providerID, modelID },
+          agent: asNonEmptyString(info.agent),
+          variant: asNonEmptyString(info.model?.variant),
+        };
+      }
+    } catch {
+    }
+    return null;
+  };
+
   const dispatchPrompt = async ({
     client,
     baseUrl,
@@ -310,11 +333,22 @@ export const createOpenChamberSessionService = (dependencies) => {
     requestedModel,
     requestedAgent,
     requestedVariant,
+    reuseSessionSelection = false,
   }) => {
     let model = requestedModel;
     let agent = requestedAgent;
     let variant = requestedVariant;
-    if (!model || !agent || !variant) {
+    if (reuseSessionSelection && (!model || !agent)) {
+      const previous = await fetchLastUserSelection({ client, sessionID, directory });
+      if (previous) {
+        if (!model && previous.model) {
+          model = previous.model;
+          if (variant == null) variant = previous.variant ?? undefined;
+        }
+        if (!agent && previous.agent) agent = previous.agent;
+      }
+    }
+    if (!model || !agent) {
       const inputs = await fetchSelectionInputs({
         buildOpenCodeUrl,
         authHeaders,
@@ -322,9 +356,11 @@ export const createOpenChamberSessionService = (dependencies) => {
         readSettingsFromDiskMigrated,
       });
       const defaults = resolveDefaultSelection(inputs);
-      model = model || defaults.model;
+      if (!model) {
+        model = defaults.model;
+        if (variant == null) variant = defaults.variant;
+      }
       agent = agent || defaults.agent;
-      variant = variant || (requestedModel ? undefined : defaults.variant);
     }
     if (!model) {
       const error = new Error('No model is configured or available for the requested directory');
@@ -560,6 +596,7 @@ export const createOpenChamberSessionService = (dependencies) => {
         requestedModel,
         requestedAgent: asNonEmptyString(payload.agent),
         requestedVariant: asNonEmptyString(payload.variant),
+        reuseSessionSelection: true,
       });
       const result = {
         action,

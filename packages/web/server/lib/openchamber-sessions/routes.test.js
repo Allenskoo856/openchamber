@@ -361,6 +361,53 @@ describe('openchamber session routes', () => {
     }
   });
 
+  it('reuses the previous session selection when send omits model, agent, and variant', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async () => ({ ok: true, text: async () => '' }));
+    globalThis.fetch = fetchMock;
+    try {
+      sessionMessagesMock.mockResolvedValue({
+        data: [
+          {
+            info: {
+              id: 'msg_user',
+              role: 'user',
+              agent: 'plan',
+              model: { providerID: 'anthropic', modelID: 'claude-sonnet-5', variant: 'high' },
+              time: { created: 5 },
+            },
+          },
+          { info: { id: 'msg_before', role: 'assistant', time: { created: 10, completed: 20 } } },
+        ],
+      });
+      const { app } = createApp();
+      const response = await request(app)
+        .post('/api/openchamber/sessions/ses_source/send')
+        .send({ directory: '/repo/app', prompt: 'Continue where you left off' })
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        action: 'send',
+        sessionId: 'ses_source',
+        model: { providerID: 'anthropic', modelID: 'claude-sonnet-5' },
+        agent: 'plan',
+        variant: 'high',
+        promptDispatched: true,
+      });
+      const promptCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/prompt_async'));
+      const promptBody = JSON.parse(promptCall[1].body);
+      expect(promptBody).toMatchObject({
+        model: { providerID: 'anthropic', modelID: 'claude-sonnet-5' },
+        agent: 'plan',
+        variant: 'high',
+      });
+      // The default-selection inputs (config/providers/agents) must not be consulted.
+      expect(fetchMock.mock.calls.every(([url]) => String(url).includes('/prompt_async'))).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('forks from a message, dispatches the prompt, and emits the new session', async () => {
     const originalFetch = globalThis.fetch;
     const emitSessionCreatedEvent = vi.fn();
