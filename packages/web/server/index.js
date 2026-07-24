@@ -1054,7 +1054,11 @@ const openCodeLifecycleRuntime = createOpenCodeLifecycleRuntime({
   buildManagedOpenCodePath,
   getManagedOpenCodeShellEnvSnapshot: getLoginShellEnvSnapshot,
   getActiveSessionCount,
-  getManagedOpenCodeEnv: () => agentToolRuntime?.prepareManagedOpenCodeEnv() || {},
+  getManagedOpenCodeEnv: async () => {
+    const settings = await readSettingsFromDiskMigrated().catch(() => null);
+    if (settings?.agentControlToolEnabled === false) return {};
+    return agentToolRuntime?.prepareManagedOpenCodeEnv() || {};
+  },
 });
 
 const restartOpenCode = (...args) => openCodeLifecycleRuntime.restartOpenCode(...args);
