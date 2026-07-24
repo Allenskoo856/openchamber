@@ -4,6 +4,7 @@ import { createWorktree } from '../git/index.js';
 import { expandSnippets } from '../opencode/snippets.js';
 import { parseScheduledCommandPrompt } from '../scheduled-tasks/runtime.js';
 import { buildGoalIntroText, createSessionGoal } from '../session-goal/create.js';
+import { OpenChamberControlError, asControlError } from '../openchamber-control/error.js';
 
 const asNonEmptyString = (value) => {
   if (typeof value !== 'string') return null;
@@ -286,7 +287,7 @@ const resolveWorktreeInput = (payload) => {
   };
 };
 
-export const registerOpenChamberSessionRoutes = (app, dependencies) => {
+export const createOpenChamberSessionService = (dependencies) => {
   const {
     readSettingsFromDiskMigrated,
     sanitizeProjects,
@@ -406,81 +407,87 @@ export const registerOpenChamberSessionRoutes = (app, dependencies) => {
     return { model, agent, variant, promptDispatched: true, dispatchedAsCommand };
   };
 
-  app.post('/api/openchamber/sessions', express.json({ limit: '1mb' }), async (req, res) => {
-    const payload = req.body && typeof req.body === 'object' ? req.body : {};
+  const create = async (payload = {}) => {
     const title = asNonEmptyString(payload.title);
     const prompt = asNonEmptyString(payload.prompt);
     const goalInput = resolveGoalInput(payload, prompt);
     if (!goalInput.ok) {
-      return res.status(400).json({ error: goalInput.error });
+      throw new OpenChamberControlError(goalInput.error, 400);
     }
     const model = resolveRequestedModel(payload);
     const agent = asNonEmptyString(payload.agent);
     const variant = asNonEmptyString(payload.variant);
 
-    try {
-      const resolvedDirectory = await resolveRequestedDirectory({
-        payload,
-        readSettingsFromDiskMigrated,
-        sanitizeProjects,
-        validateDirectoryPath,
-      });
-      if (!resolvedDirectory.ok) {
-        return res.status(resolvedDirectory.status || 400).json({ error: resolvedDirectory.error });
-      }
+    const resolvedDirectory = await resolveRequestedDirectory({
+      payload,
+      readSettingsFromDiskMigrated,
+      sanitizeProjects,
+      validateDirectoryPath,
+    });
+    if (!resolvedDirectory.ok) {
+      throw new OpenChamberControlError(resolvedDirectory.error, resolvedDirectory.status || 400);
+    }
 
-      const worktreeInput = resolveWorktreeInput(payload);
-      let worktree = null;
-      let sessionDirectory = resolvedDirectory.directory;
-      if (payload?.worktree && !worktreeInput) {
-        return res.status(400).json({ error: 'worktree.name is required when worktree is provided' });
-      }
-      if (worktreeInput) {
-        worktree = await createWorktree(resolvedDirectory.directory, worktreeInput);
-        sessionDirectory = worktree.path;
-      }
+    const worktreeInput = resolveWorktreeInput(payload);
+    let worktree = null;
+    let sessionDirectory = resolvedDirectory.directory;
+    if (payload?.worktree && !worktreeInput) {
+      throw new OpenChamberControlError('worktree.name is required when worktree is provided', 400);
+    }
+    if (worktreeInput) {
+      worktree = await createWorktree(resolvedDirectory.directory, worktreeInput);
+      sessionDirectory = worktree.path;
+    }
 
-      if (typeof waitForOpenCodeReady === 'function') {
-        await waitForOpenCodeReady(10_000, 250);
-      }
+    if (typeof waitForOpenCodeReady === 'function') await waitForOpenCodeReady(10_000, 250);
 
-      const baseUrl = buildOpenCodeUrl('/', '').replace(/\/$/, '');
-      const authHeaders = getOpenCodeAuthHeaders();
-      const client = createOpencodeClient({ baseUrl, headers: authHeaders });
-      const sessionID = await createSession({
+    const baseUrl = buildOpenCodeUrl('/', '').replace(/\/$/, '');
+    const authHeaders = getOpenCodeAuthHeaders();
+    const client = createOpencodeClient({ baseUrl, headers: authHeaders });
+    const sessionID = await createSession({
+      client,
+      baseUrl,
+      authHeaders,
+      directory: sessionDirectory,
+      ...(title ? { title } : {}),
+    });
+
+    let dispatch = { model, agent, variant, promptDispatched: false, dispatchedAsCommand: false };
+    if (prompt) {
+      dispatch = await dispatchPrompt({
         client,
         baseUrl,
         authHeaders,
+        sessionID,
         directory: sessionDirectory,
-        ...(title ? { title } : {}),
+        prompt,
+        goalInput,
+        requestedModel: model,
+        requestedAgent: agent,
+        requestedVariant: variant,
       });
+    }
 
-      let dispatch = {
-        model,
-        agent,
-        variant,
-        promptDispatched: false,
-        dispatchedAsCommand: false,
-      };
-      if (prompt) {
-        dispatch = await dispatchPrompt({
-          client,
-          baseUrl,
-          authHeaders,
-          sessionID,
-          directory: sessionDirectory,
-          prompt,
-          goalInput,
-          requestedModel: model,
-          requestedAgent: agent,
-          requestedVariant: variant,
-        });
-      }
+    const result = {
+      sessionId: sessionID,
+      directory: sessionDirectory,
+      ...(resolvedDirectory.projectId ? { projectId: resolvedDirectory.projectId } : {}),
+      ...(title ? { title } : {}),
+      ...(worktree ? { worktree } : {}),
+      ...(prompt && dispatch.model ? { model: dispatch.model } : {}),
+      ...(prompt && dispatch.agent ? { agent: dispatch.agent } : {}),
+      ...(prompt && dispatch.variant ? { variant: dispatch.variant } : {}),
+      promptDispatched: dispatch.promptDispatched,
+      dispatchedAsCommand: dispatch.dispatchedAsCommand,
+      ...(goalInput.enabled ? { goalEnabled: true } : {}),
+      ...(goalInput.tokenBudget ? { goalTokenBudget: goalInput.tokenBudget } : {}),
+    };
 
-      const result = {
-        sessionId: sessionID,
+    try {
+      emitSessionCreatedEvent?.({
+        sessionID,
         directory: sessionDirectory,
-        ...(resolvedDirectory.projectId ? { projectId: resolvedDirectory.projectId } : {}),
+        ...(resolvedDirectory.projectId ? { projectID: resolvedDirectory.projectId } : {}),
         ...(title ? { title } : {}),
         ...(worktree ? { worktree } : {}),
         ...(prompt && dispatch.model ? { model: dispatch.model } : {}),
@@ -490,43 +497,21 @@ export const registerOpenChamberSessionRoutes = (app, dependencies) => {
         dispatchedAsCommand: dispatch.dispatchedAsCommand,
         ...(goalInput.enabled ? { goalEnabled: true } : {}),
         ...(goalInput.tokenBudget ? { goalTokenBudget: goalInput.tokenBudget } : {}),
-      };
-
-      try {
-        emitSessionCreatedEvent?.({
-          sessionID,
-          directory: sessionDirectory,
-          ...(resolvedDirectory.projectId ? { projectID: resolvedDirectory.projectId } : {}),
-          ...(title ? { title } : {}),
-          ...(worktree ? { worktree } : {}),
-          ...(prompt && dispatch.model ? { model: dispatch.model } : {}),
-          ...(prompt && dispatch.agent ? { agent: dispatch.agent } : {}),
-          ...(prompt && dispatch.variant ? { variant: dispatch.variant } : {}),
-          promptDispatched: dispatch.promptDispatched,
-          dispatchedAsCommand: dispatch.dispatchedAsCommand,
-          ...(goalInput.enabled ? { goalEnabled: true } : {}),
-          ...(goalInput.tokenBudget ? { goalTokenBudget: goalInput.tokenBudget } : {}),
-          createdAt: Date.now(),
-        });
-      } catch {
-      }
-
-      return res.json(result);
-    } catch (error) {
-      console.error('[OpenChamberSessions] failed to create session:', error);
-      const statusCode = Number(error?.statusCode) || 500;
-      return res.status(statusCode).json({ error: error instanceof Error ? error.message : 'Failed to create session' });
+        createdAt: Date.now(),
+      });
+    } catch {
     }
-  });
 
-  const handleExistingSessionAction = (action) => async (req, res) => {
-    const payload = req.body && typeof req.body === 'object' ? req.body : {};
-    const sourceSessionID = asNonEmptyString(req.params.sessionId);
+    return result;
+  };
+
+  const runExisting = async (action, sourceSessionId, payload = {}) => {
+    const sourceSessionID = asNonEmptyString(sourceSessionId);
     const prompt = asNonEmptyString(payload.prompt);
-    if (!sourceSessionID) return res.status(400).json({ error: 'sessionId is required' });
-    if (!prompt) return res.status(400).json({ error: 'prompt is required' });
+    if (!sourceSessionID) throw new OpenChamberControlError('sessionId is required', 400);
+    if (!prompt) throw new OpenChamberControlError('prompt is required', 400);
     const goalInput = resolveGoalInput(payload, prompt);
-    if (!goalInput.ok) return res.status(400).json({ error: goalInput.error });
+    if (!goalInput.ok) throw new OpenChamberControlError(goalInput.error, 400);
     const requestedModel = resolveRequestedModel(payload);
 
     let targetSessionID = sourceSessionID;
@@ -540,7 +525,7 @@ export const registerOpenChamberSessionRoutes = (app, dependencies) => {
         validateDirectoryPath,
       });
       if (!resolvedDirectory.ok) {
-        return res.status(resolvedDirectory.status || 400).json({ error: resolvedDirectory.error });
+        throw new OpenChamberControlError(resolvedDirectory.error, resolvedDirectory.status || 400);
       }
       directory = resolvedDirectory.directory;
       if (typeof waitForOpenCodeReady === 'function') await waitForOpenCodeReady(10_000, 250);
@@ -611,14 +596,15 @@ export const registerOpenChamberSessionRoutes = (app, dependencies) => {
         } catch {
         }
       }
-      return res.json(result);
+      return result;
     } catch (error) {
       const statusCode = Number(error?.statusCode) || 500;
       const forkCreated = action === 'fork' && targetSessionID !== sourceSessionID;
       const goalConfigured = error?.goalConfigured === true;
-      console.error(`[OpenChamberSessions] failed to ${action} session:`, error);
-      return res.status(statusCode).json({
-        error: error instanceof Error ? error.message : `Failed to ${action} session`,
+      throw new OpenChamberControlError(
+        error instanceof Error ? error.message : `Failed to ${action} session`,
+        statusCode,
+        {
         ...(forkCreated || goalConfigured
           ? {
             partial: true,
@@ -627,18 +613,65 @@ export const registerOpenChamberSessionRoutes = (app, dependencies) => {
             directory,
           }
           : {}),
-      });
+        },
+      );
     }
   };
+
+  return {
+    create,
+    send: (sessionID, payload) => runExisting('send', sessionID, payload),
+    fork: (sessionID, payload) => runExisting('fork', sessionID, payload),
+  };
+};
+
+const sendServiceError = (res, error, fallback) => {
+  const controlError = asControlError(error, fallback);
+  return res.status(controlError.statusCode).json({
+    error: controlError.message,
+    ...(controlError.partial === true ? {
+      partial: true,
+      partialAction: controlError.partialAction,
+      sessionId: controlError.sessionId,
+      directory: controlError.directory,
+    } : {}),
+  });
+};
+
+export const registerOpenChamberSessionRoutes = (app, dependencies) => {
+  const service = dependencies.sessionService || createOpenChamberSessionService(dependencies);
+
+  app.post('/api/openchamber/sessions', express.json({ limit: '1mb' }), async (req, res) => {
+    try {
+      return res.json(await service.create(req.body && typeof req.body === 'object' ? req.body : {}));
+    } catch (error) {
+      console.error('[OpenChamberSessions] failed to create session:', error);
+      return sendServiceError(res, error, 'Failed to create session');
+    }
+  });
 
   app.post(
     '/api/openchamber/sessions/:sessionId/send',
     express.json({ limit: '1mb' }),
-    handleExistingSessionAction('send'),
+    async (req, res) => {
+      try {
+        return res.json(await service.send(req.params.sessionId, req.body));
+      } catch (error) {
+        console.error('[OpenChamberSessions] failed to send session:', error);
+        return sendServiceError(res, error, 'Failed to send session');
+      }
+    },
   );
   app.post(
     '/api/openchamber/sessions/:sessionId/fork',
     express.json({ limit: '1mb' }),
-    handleExistingSessionAction('fork'),
+    async (req, res) => {
+      try {
+        return res.json(await service.fork(req.params.sessionId, req.body));
+      } catch (error) {
+        console.error('[OpenChamberSessions] failed to fork session:', error);
+        return sendServiceError(res, error, 'Failed to fork session');
+      }
+    },
   );
 };

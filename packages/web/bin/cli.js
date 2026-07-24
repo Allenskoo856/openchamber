@@ -75,21 +75,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PACKAGE_JSON = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-const isDesktopShimRuntime = () => {
-  if (process.env.OPENCHAMBER_DESKTOP_CLI_SHIM === '1') return true;
-  if (process.env.ELECTRON_RUN_AS_NODE !== '1') return false;
-  return /OpenChamber(?:\.app)?/i.test(process.execPath || '');
-};
-
-const assertDesktopShimCommandAllowed = (command) => {
-  if (!isDesktopShimRuntime()) return;
-  if (command === 'serve' || command === 'restart' || command === 'startup' || command === 'update') {
-    throw new TunnelCliError(
-      'This desktop-installed CLI controls the running OpenChamber Desktop app and cannot start or manage a standalone web server. Install the standalone OpenChamber CLI to use this command.',
-      EXIT_CODE.USAGE_ERROR,
-    );
-  }
-};
 
 let onCancelCleanup = null;
 let activeCommandOptions = null;
@@ -204,7 +189,6 @@ const commands = {
 
   projects: projectsCommand,
 
-
   logs: logsCommand,
 
   startup: startupCommand,
@@ -293,15 +277,11 @@ async function main() {
       await commands.projects(options, 'help');
     } else if (command === 'control') {
       showControlHelp();
-    } else if (isDesktopShimRuntime()) {
-      showControlHelp();
     } else {
       showHelp();
     }
     return;
   }
-
-  assertDesktopShimCommandAllowed(command);
 
   if (command === 'tunnel') {
     await commands.tunnel(options, subcommand, tunnelAction);
@@ -444,8 +424,6 @@ if (isCliExecution) {
 export {
   main,
   commands,
-  assertDesktopShimCommandAllowed,
-  isDesktopShimRuntime,
   parseArgs,
   assertAuthenticatedNetworkExposure,
   resolveServeHost,

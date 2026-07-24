@@ -9,25 +9,17 @@ import { pathToFileURL } from 'url';
 
 import { isModuleCliExecution, normalizeCliEntryPath } from './cli-entry.js';
 import { requestJson } from './lib/cli-http.js';
+import { requestControlAction } from './lib/cli-control.js';
 import { inspectTunnelAttachability } from './lib/cli-lifecycle.js';
-import { buildTaskPayload, formatGoal } from './lib/commands-schedule.js';
+import { formatGoal } from './lib/commands-schedule.js';
 import {
   buildSessionCreatePayload,
   buildSessionPromptPayload,
-  buildSessionListEndpoint,
-  buildSessionMessagesEndpoint,
-  buildSessionStatusEndpoint,
-  extractTextMessages,
-  filterVisibleSessions,
   formatSessionLine,
-  normalizeWaitTimeoutMs,
-  resolveSessionStatus,
   sessionCommand,
-  waitForSessionIdle,
 } from './lib/commands-session.js';
 import { formatModelsOutput } from './lib/commands-models.js';
 import { formatProjectLine } from './lib/commands-projects.js';
-import { normalizeProjects } from './lib/cli-projects.js';
 import { resolveTargetPort } from './lib/cli-api-target.js';
 import { DEFAULT_TUNNEL_PROVIDER_CAPABILITIES } from './lib/cli-tunnel-capabilities.js';
 import {
@@ -36,7 +28,6 @@ import {
 } from '../server/lib/tunnels/types.js';
 import {
   assertAuthenticatedNetworkExposure,
-  assertDesktopShimCommandAllowed,
   commands,
   discoverOpenChamberInstanceOnPort,
   discoverLifecycleInstances,
@@ -47,38 +38,9 @@ import {
   getPidFilePath,
   isOpenchamberCmdline,
   isOpenchamberProcessRunning,
-  main,
   parseArgs,
   resolveServeHost,
 } from './cli.js';
-
-function withEnv(name, value, fn) {
-  const previous = process.env[name];
-  if (typeof value === 'string') {
-    process.env[name] = value;
-  } else {
-    delete process.env[name];
-  }
-  try {
-    return fn();
-  } finally {
-    if (typeof previous === 'string') {
-      process.env[name] = previous;
-    } else {
-      delete process.env[name];
-    }
-  }
-}
-
-async function withArgv(argv, fn) {
-  const previous = process.argv;
-  process.argv = ['node', 'openchamber', ...argv];
-  try {
-    return await fn();
-  } finally {
-    process.argv = previous;
-  }
-}
 
 async function withTempOpenChamberDataDir(fn) {
   const previous = process.env.OPENCHAMBER_DATA_DIR;
@@ -118,20 +80,6 @@ async function captureStdout(fn) {
   } finally {
     process.stdout.write = originalWrite;
   }
-}
-
-async function captureConsoleLog(fn) {
-  const originalLog = console.log;
-  let output = '';
-  console.log = (...args) => {
-    output += `${args.join(' ')}\n`;
-  };
-  try {
-    await fn();
-  } finally {
-    console.log = originalLog;
-  }
-  return output;
 }
 
 async function startMockOpenChamberServer(options = {}) {
@@ -320,34 +268,7 @@ describe('cli args', () => {
     expect(parsed.options.timezone).toBe('Europe/Kyiv');
   });
 
-  it('builds scheduled task payloads from CLI options', () => {
-    const payload = buildTaskPayload({
-      name: 'Daily review',
-      prompt: 'Review the repo',
-      model: 'openai/gpt-5.5',
-      daily: '09:30',
-      timezone: 'Europe/Kyiv',
-      agent: 'build',
-    });
-
-    expect(payload).toEqual({
-      name: 'Daily review',
-      enabled: true,
-      schedule: {
-        kind: 'daily',
-        times: ['09:30'],
-        timezone: 'Europe/Kyiv',
-      },
-      execution: {
-        prompt: 'Review the repo',
-        providerID: 'openai',
-        modelID: 'gpt-5.5',
-        agent: 'build',
-      },
-    });
-  });
-
-  it('builds goal-enabled scheduled task payloads', () => {
+  it('parses goal-enabled scheduled task options', () => {
     const parsed = parseArgs([
       'schedule',
       'create',
@@ -368,45 +289,12 @@ describe('cli args', () => {
 
     expect(parsed.options.goal).toBe(true);
     expect(parsed.options.goalTokenBudget).toBe('200000');
-    expect(buildTaskPayload(parsed.options).execution).toEqual({
-      prompt: 'Complete and verify the migration',
-      providerID: 'openai',
-      modelID: 'gpt-5.5',
-      goalEnabled: true,
-      goalTokenBudget: 200000,
-    });
-  });
-
-  it('validates scheduled goal token budgets', () => {
-    const base = {
-      name: 'Goal task',
-      prompt: 'Complete the goal',
-      model: 'openai/gpt-5.5',
-      daily: '09:30',
-    };
-
-    expect(() => buildTaskPayload({ ...base, goalTokenBudget: '200000' })).toThrow('--goal-token-budget requires --goal.');
-    for (const value of ['0', '-1', '999', '1.5', '100000001', 'nope']) {
-      expect(() => buildTaskPayload({ ...base, goal: true, goalTokenBudget: value })).toThrow(
-        '--goal-token-budget must be an integer from 1000 to 100000000.',
-      );
-    }
   });
 
   it('formats scheduled goal state compactly', () => {
     expect(formatGoal({})).toBe('goal:no');
     expect(formatGoal({ goalEnabled: true })).toBe('goal:yes');
     expect(formatGoal({ goalEnabled: true, goalTokenBudget: 200000 })).toBe('goal:yes budget:200000');
-  });
-
-  it('rejects ambiguous scheduled task schedule selectors', () => {
-    expect(() => buildTaskPayload({
-      name: 'Bad schedule',
-      prompt: 'Run',
-      model: 'openai/gpt-5.5',
-      daily: '09:30',
-      cron: '* * * * *',
-    })).toThrow('Provide exactly one of --daily, --weekly, --once, or --cron.');
   });
 
   it('parses session create options', () => {
@@ -529,7 +417,6 @@ describe('cli args', () => {
     expect(parsed.sessionAction).toBe('list');
     expect(parsed.options.directory).toBe('/repo');
     expect(parsed.options.limit).toBe(5);
-    expect(buildSessionListEndpoint(parsed.options)).toBe('/api/session?directory=%2Frepo');
   });
 
   it('parses session status and message options', () => {
@@ -625,59 +512,6 @@ describe('cli args', () => {
     });
   });
 
-  it('builds directory-scoped session read endpoints', () => {
-    expect(buildSessionStatusEndpoint('/repo worktree')).toBe('/api/session/status?directory=%2Frepo+worktree');
-    expect(buildSessionMessagesEndpoint('ses_123', '/repo worktree', 10)).toBe(
-      '/api/session/ses_123/message?directory=%2Frepo+worktree&limit=10',
-    );
-    expect(buildSessionMessagesEndpoint('ses_123', '/repo', undefined)).toBe(
-      '/api/session/ses_123/message?directory=%2Frepo',
-    );
-  });
-
-  it('resolves omitted successful statuses as idle', () => {
-    expect(resolveSessionStatus({}, 'ses_idle')).toEqual({ type: 'idle' });
-    expect(resolveSessionStatus({ ses_busy: { type: 'busy' } }, 'ses_busy')).toEqual({ type: 'busy' });
-    expect(resolveSessionStatus(null, 'ses_unknown')).toBeNull();
-  });
-
-  it('projects only ordered text parts from session messages', () => {
-    const messages = extractTextMessages([
-      {
-        info: { id: 'msg_assistant', role: 'assistant', providerID: 'openai', modelID: 'gpt-5.4-mini', time: { created: 20, completed: 30 } },
-        parts: [
-          { type: 'reasoning', text: 'hidden reasoning' },
-          { type: 'text', text: 'First ' },
-          { type: 'tool', state: {} },
-          { type: 'text', text: 'answer' },
-        ],
-      },
-      {
-        info: { id: 'msg_user', role: 'user', time: { created: 10 } },
-        parts: [{ type: 'text', text: 'Question' }],
-      },
-      {
-        info: { id: 'msg_tool_only', role: 'assistant', time: { created: 15 } },
-        parts: [{ type: 'tool', state: {} }],
-      },
-    ]);
-
-    expect(messages).toEqual([
-      { id: 'msg_user', role: 'user', createdAt: 10, completedAt: null, model: null, text: 'Question' },
-      {
-        id: 'msg_assistant',
-        role: 'assistant',
-        createdAt: 20,
-        completedAt: 30,
-        model: 'openai/gpt-5.4-mini',
-        text: 'First answer',
-      },
-    ]);
-    expect(extractTextMessages([
-      { info: { id: 'msg_user', role: 'user', time: { created: 10 } }, parts: [{ type: 'text', text: 'Question' }] },
-    ], 'assistant')).toEqual([]);
-  });
-
   it('validates session message selectors before HTTP', async () => {
     await expect(sessionCommand({ session: 'ses_123', directory: '/repo', all: true, last: true }, 'messages'))
       .rejects.toThrow('--all cannot be combined with --last or --limit.');
@@ -697,52 +531,6 @@ describe('cli args', () => {
       .rejects.toThrow('--message is only valid for session fork.');
     await expect(sessionCommand({ session: 'ses_123', directory: '/repo', prompt: 'Run', lastAssistant: true }, 'fork'))
       .rejects.toThrow('--last-assistant requires --wait for session fork.');
-  });
-
-  it('validates session wait timeout seconds', () => {
-    expect(normalizeWaitTimeoutMs(undefined)).toBe(600_000);
-    expect(normalizeWaitTimeoutMs('30')).toBe(30_000);
-    for (const value of ['0', '1.5', 'nope', '86401']) {
-      expect(() => normalizeWaitTimeoutMs(value)).toThrow();
-    }
-  });
-
-  it('waits through active status until the session becomes idle', async () => {
-    const statuses = [{ type: 'busy' }, { type: 'retry' }, { type: 'idle' }];
-    let elapsed = 0;
-    await expect(waitForSessionIdle({
-      timeoutMs: 10_000,
-      fetchStatus: async () => statuses.shift(),
-      now: () => elapsed,
-      wait: async (duration) => { elapsed += duration; },
-    })).resolves.toEqual({ type: 'idle' });
-  });
-
-  it('does not accept initial idle for a newly dispatched prompt without completion evidence', async () => {
-    let elapsed = 0;
-    let completionChecks = 0;
-    await expect(waitForSessionIdle({
-      timeoutMs: 10_000,
-      requireActivity: true,
-      fetchStatus: async () => ({ type: 'idle' }),
-      hasCompletedResult: async () => {
-        completionChecks += 1;
-        return completionChecks >= 2;
-      },
-      now: () => elapsed,
-      wait: async (duration) => { elapsed += duration; },
-    })).resolves.toEqual({ type: 'idle' });
-    expect(completionChecks).toBe(2);
-  });
-
-  it('fails a session wait after its deadline', async () => {
-    let elapsed = 0;
-    await expect(waitForSessionIdle({
-      timeoutMs: 1_000,
-      fetchStatus: async () => ({ type: 'busy' }),
-      now: () => elapsed,
-      wait: async (duration) => { elapsed += duration; },
-    })).rejects.toThrow('Session did not become idle within 1 seconds.');
   });
 
   it('parses models command', () => {
@@ -767,13 +555,6 @@ describe('cli args', () => {
     })).toBe('- `Openchamber` — `path_repo` — `/repo/openchamber`');
   });
 
-  it('normalizes projects from settings', () => {
-    expect(normalizeProjects({ projects: [
-      { id: 'path_repo', label: 'Openchamber', path: '/repo/openchamber' },
-      { id: '', path: '/missing/id' },
-    ] })).toEqual([{ id: 'path_repo', label: 'Openchamber', path: '/repo/openchamber' }]);
-  });
-
   it('formats model defaults and favorites compactly', () => {
     expect(formatModelsOutput({
       defaultModel: 'opencode-go/deepseek-v4-flash',
@@ -790,11 +571,11 @@ describe('cli args', () => {
 
   it('formats compact session list lines', () => {
     expect(formatSessionLine({
-      title: 'CLI shim changed default smoke',
+      title: 'Default model smoke test',
       agent: 'build',
       directory: '/repo',
       model: { providerID: 'opencode-go', id: 'deepseek-v4-flash', variant: 'default' },
-    })).toBe('- `CLI shim changed default smoke` — `opencode-go/deepseek-v4-flash`, `build` — `/repo`');
+    })).toBe('- `Default model smoke test` — `opencode-go/deepseek-v4-flash`, `build` — `/repo`');
     expect(formatSessionLine({
       title: 'Working session',
       agent: 'build',
@@ -802,17 +583,6 @@ describe('cli args', () => {
       model: { providerID: 'openai', id: 'gpt-5.4-mini' },
       status: { type: 'busy' },
     })).toContain('status:busy');
-  });
-
-  it('excludes archived sessions by default', () => {
-    const sessions = [
-      { id: 'active', time: {} },
-      { id: 'archived', time: { archived: 123 } },
-      { id: 'missing-time' },
-    ];
-
-    expect(filterVisibleSessions(sessions).map((session) => session.id)).toEqual(['active', 'missing-time']);
-    expect(filterVisibleSessions(sessions, { all: true }).map((session) => session.id)).toEqual(['active', 'archived', 'missing-time']);
   });
 
   it('parses tunnel auto-start server options', () => {
@@ -844,53 +614,6 @@ describe('cli args', () => {
 
     expect(parsed.options.hostname).toBe('app.example.com');
     expect(parsed.options.host).toBeUndefined();
-  });
-});
-
-describe('desktop CLI shim guard', () => {
-  it('blocks standalone server commands from the desktop-installed shim', () => {
-    withEnv('OPENCHAMBER_DESKTOP_CLI_SHIM', '1', () => {
-      expect(() => assertDesktopShimCommandAllowed('serve')).toThrow('desktop-installed CLI controls the running OpenChamber Desktop app');
-      expect(() => assertDesktopShimCommandAllowed('session')).not.toThrow();
-      expect(() => assertDesktopShimCommandAllowed('schedule')).not.toThrow();
-      expect(() => assertDesktopShimCommandAllowed('models')).not.toThrow();
-      expect(() => assertDesktopShimCommandAllowed('projects')).not.toThrow();
-      expect(() => assertDesktopShimCommandAllowed('status')).not.toThrow();
-    });
-  });
-
-  it('shows command-specific help from the desktop-installed shim', async () => {
-    const previous = process.env.OPENCHAMBER_DESKTOP_CLI_SHIM;
-    process.env.OPENCHAMBER_DESKTOP_CLI_SHIM = '1';
-    try {
-      const output = await withArgv(['session', '--help'], () => captureStdout(() => main()));
-
-      expect(output).toContain('OpenChamber Session Commands');
-      expect(output).not.toContain('OpenChamber Control Commands');
-    } finally {
-      if (typeof previous === 'string') {
-        process.env.OPENCHAMBER_DESKTOP_CLI_SHIM = previous;
-      } else {
-        delete process.env.OPENCHAMBER_DESKTOP_CLI_SHIM;
-      }
-    }
-  });
-
-  it('keeps connect-url out of desktop control help', async () => {
-    const previous = process.env.OPENCHAMBER_DESKTOP_CLI_SHIM;
-    process.env.OPENCHAMBER_DESKTOP_CLI_SHIM = '1';
-    try {
-      const output = await withArgv(['--help'], () => captureConsoleLog(() => main()));
-
-      expect(output).toContain('OpenChamber Control Commands');
-      expect(output).not.toContain('connect-url');
-    } finally {
-      if (typeof previous === 'string') {
-        process.env.OPENCHAMBER_DESKTOP_CLI_SHIM = previous;
-      } else {
-        delete process.env.OPENCHAMBER_DESKTOP_CLI_SHIM;
-      }
-    }
   });
 });
 
@@ -1046,6 +769,27 @@ describe('compatibility exports', () => {
 });
 
 describe('CLI HTTP helpers', () => {
+  it('sends one typed request to the shared control endpoint', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options = {}) => {
+      expect(new URL(String(url)).pathname).toBe('/api/openchamber/control');
+      expect(options.method).toBe('POST');
+      expect(JSON.parse(options.body)).toEqual({
+        action: 'session.status',
+        input: { sessionId: 'ses_1', directory: '/repo' },
+      });
+      return createMockJsonResponse({ status: 'ok', sessionStatus: { type: 'idle' } });
+    };
+    try {
+      await expect(requestControlAction(45677, 'session.status', {
+        sessionId: 'ses_1',
+        directory: '/repo',
+      })).resolves.toEqual({ status: 'ok', sessionStatus: { type: 'idle' } });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('retries UI-authenticated API requests with the stored instance password', async () => {
     await withTempOpenChamberDataDir(async () => {
       const port = 45678;

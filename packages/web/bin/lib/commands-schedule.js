@@ -1,8 +1,7 @@
 import { TunnelCliError, EXIT_CODE } from './cli-errors.js';
-import { requestJson } from './cli-http.js';
 import { resolveTargetPort } from './cli-api-target.js';
 import { parseGoalTokenBudget } from './cli-goal.js';
-import { resolveProjectIdForDirectory } from './cli-projects.js';
+import { requestControlAction } from './cli-control.js';
 import {
   intro as clackIntro,
   outro as clackOutro,
@@ -24,110 +23,6 @@ const assertRequired = (value, flagName) => {
     throw new TunnelCliError(`Missing required ${flagName}.`, EXIT_CODE.USAGE_ERROR);
   }
   return normalized;
-};
-
-const assertOk = (response, body, fallback) => {
-  if (response?.ok) return;
-  const message = asNonEmptyString(body?.error) || fallback;
-  const exitCode = response?.status === 400 || response?.status === 404
-    ? EXIT_CODE.USAGE_ERROR
-    : EXIT_CODE.GENERAL_ERROR;
-  throw new TunnelCliError(message, exitCode);
-};
-
-const resolveProjectID = async (port, options) => {
-  const projectID = asNonEmptyString(options.project);
-  const directory = asNonEmptyString(options.directory);
-  if (projectID && directory) {
-    throw new TunnelCliError('Provide only one of --project or --dir.', EXIT_CODE.USAGE_ERROR);
-  }
-  if (projectID) return projectID;
-  if (directory) return resolveProjectIdForDirectory(port, directory, options);
-  throw new TunnelCliError('Missing required --project or --dir.', EXIT_CODE.USAGE_ERROR);
-};
-
-const parseModel = (value) => {
-  const model = assertRequired(value, '--model');
-  const slashIndex = model.indexOf('/');
-  if (slashIndex <= 0 || slashIndex === model.length - 1) {
-    throw new TunnelCliError('--model must be in provider/model format.', EXIT_CODE.USAGE_ERROR);
-  }
-  return {
-    providerID: model.slice(0, slashIndex),
-    modelID: model.slice(slashIndex + 1),
-  };
-};
-
-const parseWeekdays = (value) => {
-  const raw = assertRequired(value, '--weekly');
-  const weekdays = raw.split(',').map((entry) => Number.parseInt(entry.trim(), 10));
-  if (weekdays.length === 0 || weekdays.some((entry) => !Number.isInteger(entry) || entry < 0 || entry > 6)) {
-    throw new TunnelCliError('--weekly must be a comma-separated list of weekdays from 0 to 6.', EXIT_CODE.USAGE_ERROR);
-  }
-  return Array.from(new Set(weekdays)).sort((a, b) => a - b);
-};
-
-const buildSchedule = (options) => {
-  const selectors = [options.daily, options.weekly, options.once, options.cron]
-    .filter((value) => asNonEmptyString(value)).length;
-  if (selectors !== 1) {
-    throw new TunnelCliError('Provide exactly one of --daily, --weekly, --once, or --cron.', EXIT_CODE.USAGE_ERROR);
-  }
-
-  const timezone = asNonEmptyString(options.timezone);
-  if (asNonEmptyString(options.daily)) {
-    return {
-      kind: 'daily',
-      times: [assertRequired(options.daily, '--daily')],
-      ...(timezone ? { timezone } : {}),
-    };
-  }
-
-  if (asNonEmptyString(options.weekly)) {
-    return {
-      kind: 'weekly',
-      weekdays: parseWeekdays(options.weekly),
-      times: [assertRequired(options.time, '--time')],
-      ...(timezone ? { timezone } : {}),
-    };
-  }
-
-  if (asNonEmptyString(options.once)) {
-    return {
-      kind: 'once',
-      date: assertRequired(options.once, '--once'),
-      time: assertRequired(options.time, '--time'),
-      ...(timezone ? { timezone } : {}),
-    };
-  }
-
-  return {
-    kind: 'cron',
-    cron: assertRequired(options.cron, '--cron'),
-    ...(timezone ? { timezone } : {}),
-  };
-};
-
-const buildTaskPayload = (options) => {
-  const { providerID, modelID } = parseModel(options.model);
-  const agent = asNonEmptyString(options.agent);
-  const variant = asNonEmptyString(options.variant);
-  const goalEnabled = options.goal === true;
-  const goalTokenBudget = parseGoalTokenBudget(options);
-  return {
-    name: assertRequired(options.name, '--name'),
-    enabled: options.disabled !== true,
-    schedule: buildSchedule(options),
-    execution: {
-      prompt: assertRequired(options.prompt, '--prompt'),
-      providerID,
-      modelID,
-      ...(agent ? { agent } : {}),
-      ...(variant ? { variant } : {}),
-      ...(goalEnabled ? { goalEnabled: true } : {}),
-      ...(goalTokenBudget !== undefined ? { goalTokenBudget } : {}),
-    },
-  };
 };
 
 const formatGoal = (execution) => {
@@ -173,24 +68,6 @@ const outputTasks = (options, tasks) => {
   clackOutro(`${normalizedTasks.length} task(s)`);
 };
 
-const updateTaskEnabled = async (port, options, projectID, taskID, enabled) => {
-  const listResult = await requestJson(port, `/api/projects/${encodeURIComponent(projectID)}/scheduled-tasks`, options);
-  assertOk(listResult.response, listResult.body, 'Failed to load scheduled tasks');
-  const tasks = Array.isArray(listResult.body?.tasks) ? listResult.body.tasks : [];
-  const task = tasks.find((entry) => entry?.id === taskID);
-  if (!task) {
-    throw new TunnelCliError('Task not found', EXIT_CODE.USAGE_ERROR);
-  }
-
-  const saveResult = await requestJson(port, `/api/projects/${encodeURIComponent(projectID)}/scheduled-tasks`, {
-    ...options,
-    method: 'PUT',
-    body: JSON.stringify({ task: { ...task, enabled } }),
-  });
-  assertOk(saveResult.response, saveResult.body, enabled ? 'Failed to enable scheduled task' : 'Failed to disable scheduled task');
-  return saveResult.body?.task || { ...task, enabled };
-};
-
 async function scheduleCommand(options = {}, action = 'help') {
   if (action === 'help') {
     process.stdout.write(`OpenChamber Schedule Commands\n\nUSAGE:\n  openchamber schedule status [OPTIONS]\n  openchamber schedule list (--project <projectId> | --dir <path>) [OPTIONS]\n  openchamber schedule create (--project <projectId> | --dir <path>) --name <name> --prompt <prompt> --model <provider/model> (--daily <HH:mm> | --weekly <0,1,2> --time <HH:mm> | --once <YYYY-MM-DD> --time <HH:mm> | --cron <expr>) [OPTIONS]\n  openchamber schedule run (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]\n  openchamber schedule delete (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]\n  openchamber schedule enable (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]\n  openchamber schedule disable (--project <projectId> | --dir <path>) --task <taskId> [OPTIONS]\n\nOPTIONS:\n  --project <projectId>   Project id from openchamber projects\n  --dir <path>            Resolve project by directory\n  -p, --port <port>       OpenChamber server port\n  --timezone <zone>       IANA timezone for created tasks\n  --agent <id>            Agent to use when running task\n  --variant <id>          Model variant to use when running task\n  --goal                  Continue the scheduled session toward a goal\n  --goal-token-budget <n> Goal token budget (1000-100000000; requires --goal)\n  --disabled              Create task disabled\n  --json                  Output machine-readable JSON\n  -q, --quiet             Print concise output\n`);
@@ -198,10 +75,13 @@ async function scheduleCommand(options = {}, action = 'help') {
   }
 
   const port = await resolveTargetPort(options);
+  const target = {
+    ...(asNonEmptyString(options.project) ? { projectId: options.project.trim() } : {}),
+    ...(asNonEmptyString(options.directory) ? { directory: options.directory.trim() } : {}),
+  };
 
   if (action === 'status') {
-    const { response, body } = await requestJson(port, '/api/openchamber/scheduled-tasks/status', options);
-    assertOk(response, body, 'Failed to load scheduled task status');
+    const body = await requestControlAction(port, 'schedule.status', {}, options);
     if (isJsonMode(options)) {
       printJson(body || {});
       return;
@@ -218,22 +98,31 @@ async function scheduleCommand(options = {}, action = 'help') {
   }
 
   if (action === 'list') {
-    const projectID = await resolveProjectID(port, options);
-    const { response, body } = await requestJson(port, `/api/projects/${encodeURIComponent(projectID)}/scheduled-tasks`, options);
-    assertOk(response, body, 'Failed to load scheduled tasks');
+    const body = await requestControlAction(port, 'schedule.list', target, options);
     outputTasks(options, body?.tasks);
     return;
   }
 
   if (action === 'create') {
-    const projectID = await resolveProjectID(port, options);
-    const task = buildTaskPayload(options);
-    const { response, body } = await requestJson(port, `/api/projects/${encodeURIComponent(projectID)}/scheduled-tasks`, {
-      ...options,
-      method: 'PUT',
-      body: JSON.stringify({ task }),
-    });
-    assertOk(response, body, 'Failed to create scheduled task');
+    const goalTokenBudget = parseGoalTokenBudget(options);
+    const input = {
+      ...target,
+      name: options.name,
+      prompt: options.prompt,
+      model: options.model,
+      daily: options.daily,
+      weekly: options.weekly,
+      once: options.once,
+      time: options.time,
+      cron: options.cron,
+      timezone: options.timezone,
+      agent: options.agent,
+      variant: options.variant,
+      goal: options.goal === true,
+      ...(goalTokenBudget !== undefined ? { goalTokenBudget } : {}),
+      disabled: options.disabled === true,
+    };
+    const body = await requestControlAction(port, 'schedule.create', input, options);
     if (isJsonMode(options)) {
       printJson({ task: body?.task, created: body?.created === true });
       return;
@@ -243,19 +132,14 @@ async function scheduleCommand(options = {}, action = 'help') {
       return;
     }
     clackIntro('Scheduled Task Created');
-    logStatus('success', body?.task?.name || task.name, `id: ${body?.task?.id || 'unknown'}; ${formatGoal(body?.task?.execution || task.execution)}; ${formatSchedule(body?.task?.schedule || task.schedule)}`);
+    logStatus('success', body?.task?.name || options.name, `id: ${body?.task?.id || 'unknown'}; ${formatGoal(body?.task?.execution)}; ${formatSchedule(body?.task?.schedule)}`);
     clackOutro('created');
     return;
   }
 
   if (action === 'run') {
-    const projectID = await resolveProjectID(port, options);
     const taskID = assertRequired(options.task, '--task');
-    const { response, body } = await requestJson(port, `/api/projects/${encodeURIComponent(projectID)}/scheduled-tasks/${encodeURIComponent(taskID)}/run`, {
-      ...options,
-      method: 'POST',
-    });
-    assertOk(response, body, 'Failed to run scheduled task');
+    const body = await requestControlAction(port, 'schedule.run', { ...target, taskId: taskID }, options);
     if (isJsonMode(options)) {
       printJson({ task: body?.task, sessionId: body?.sessionId });
       return;
@@ -271,13 +155,8 @@ async function scheduleCommand(options = {}, action = 'help') {
   }
 
   if (action === 'delete') {
-    const projectID = await resolveProjectID(port, options);
     const taskID = assertRequired(options.task, '--task');
-    const { response, body } = await requestJson(port, `/api/projects/${encodeURIComponent(projectID)}/scheduled-tasks/${encodeURIComponent(taskID)}`, {
-      ...options,
-      method: 'DELETE',
-    });
-    assertOk(response, body, 'Failed to delete scheduled task');
+    const body = await requestControlAction(port, 'schedule.delete', { ...target, taskId: taskID }, options);
     if (isJsonMode(options)) {
       printJson({ deleted: true, tasks: body?.tasks || [] });
       return;
@@ -293,10 +172,9 @@ async function scheduleCommand(options = {}, action = 'help') {
   }
 
   if (action === 'enable' || action === 'disable') {
-    const projectID = await resolveProjectID(port, options);
     const taskID = assertRequired(options.task, '--task');
     const enabled = action === 'enable';
-    const task = await updateTaskEnabled(port, options, projectID, taskID, enabled);
+    const { task } = await requestControlAction(port, `schedule.${action}`, { ...target, taskId: taskID }, options);
     if (isJsonMode(options)) {
       printJson({ task, enabled });
       return;
@@ -314,4 +192,4 @@ async function scheduleCommand(options = {}, action = 'help') {
   throw new TunnelCliError(`Unknown schedule command '${action}'.`, EXIT_CODE.USAGE_ERROR);
 }
 
-export { scheduleCommand, buildTaskPayload, buildSchedule, resolveProjectID, formatGoal };
+export { scheduleCommand, formatGoal };

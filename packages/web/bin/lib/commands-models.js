@@ -1,18 +1,12 @@
 import { TunnelCliError, EXIT_CODE } from './cli-errors.js';
-import { requestJson } from './cli-http.js';
 import { resolveTargetPort } from './cli-api-target.js';
+import { requestControlAction } from './cli-control.js';
 import { isJsonMode, printJson } from '../cli-output.js';
 
 const asNonEmptyString = (value) => {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-};
-
-const assertOk = (response, body, fallback) => {
-  if (response?.ok) return;
-  const message = asNonEmptyString(body?.error) || fallback;
-  throw new TunnelCliError(message, response?.status === 400 ? EXIT_CODE.USAGE_ERROR : EXIT_CODE.GENERAL_ERROR);
 };
 
 const formatModelRef = (entry) => {
@@ -57,16 +51,7 @@ async function modelsCommand(options = {}, action = 'show') {
   }
 
   const port = await resolveTargetPort(options);
-  const { response, body } = await requestJson(port, '/api/config/settings', options);
-  assertOk(response, body, 'Failed to load model settings');
-
-  const result = {
-    defaultModel: asNonEmptyString(body?.defaultModel),
-    defaultVariant: asNonEmptyString(body?.defaultVariant),
-    defaultAgent: asNonEmptyString(body?.defaultAgent),
-    favoriteModels: Array.isArray(body?.favoriteModels) ? body.favoriteModels : [],
-    recentModels: Array.isArray(body?.recentModels) ? body.recentModels : [],
-  };
+  const result = await requestControlAction(port, 'models.list', {}, options);
 
   if (isJsonMode(options)) {
     printJson(result);

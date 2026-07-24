@@ -1,6 +1,6 @@
 import { TunnelCliError, EXIT_CODE } from './cli-errors.js';
 import { resolveTargetPort } from './cli-api-target.js';
-import { fetchProjects } from './cli-projects.js';
+import { requestControlAction } from './cli-control.js';
 import { isJsonMode, printJson } from '../cli-output.js';
 
 const formatProjectLine = (project) => `- \`${project.label}\` — \`${project.id}\` — \`${project.path}\``;
@@ -15,7 +15,7 @@ async function projectsCommand(options = {}, action = 'list') {
   }
 
   const port = await resolveTargetPort(options);
-  const projects = await fetchProjects(port, options);
+  const { projects = [] } = await requestControlAction(port, 'projects.list', {}, options);
   if (isJsonMode(options)) {
     printJson({ projects });
     return;

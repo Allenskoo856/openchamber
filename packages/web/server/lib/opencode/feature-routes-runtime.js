@@ -12,6 +12,7 @@ import { registerSettingsUtilityRoutes } from './core-routes.js';
 import { registerProjectIconRoutes } from './project-icon-routes.js';
 import { registerScheduledTaskRoutes } from '../scheduled-tasks/routes.js';
 import { registerOpenChamberSessionRoutes } from '../openchamber-sessions/routes.js';
+import { registerOpenChamberControlRoutes } from '../openchamber-control/routes.js';
 import { registerSkillRoutes } from './skill-routes.js';
 import { registerPluginRoutes } from './plugin-routes.js';
 import { getNpmInfo, clearCache as clearNpmCache } from './npm-registry.js';
@@ -98,6 +99,9 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       buildAugmentedPath,
       projectConfigRuntime,
       scheduledTasksRuntime,
+      scheduledTaskService,
+      openChamberSessionService,
+      openChamberControlService,
       waitForOpenCodeReady,
       getOpenChamberEventClients,
       writeSseEvent,
@@ -149,6 +153,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       sanitizeProjects,
       projectConfigRuntime,
       scheduledTasksRuntime,
+      scheduledTaskService,
       getOpenChamberEventClients,
       writeSseEvent,
     });
@@ -161,7 +166,10 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       getOpenCodeAuthHeaders,
       waitForOpenCodeReady,
       emitSessionCreatedEvent,
+      sessionService: openChamberSessionService,
     });
+
+    registerOpenChamberControlRoutes(app, { controlService: openChamberControlService });
 
     registerConfigEntityRoutes(app, {
       resolveProjectDirectory,

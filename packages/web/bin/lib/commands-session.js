@@ -1,7 +1,7 @@
 import { TunnelCliError, EXIT_CODE } from './cli-errors.js';
-import { requestJson } from './cli-http.js';
 import { resolveTargetPort } from './cli-api-target.js';
 import { parseGoalTokenBudget } from './cli-goal.js';
+import { requestControlAction } from './cli-control.js';
 import {
   intro as clackIntro,
   outro as clackOutro,
@@ -9,32 +9,12 @@ import {
   isQuietMode,
   printJson,
   logStatus,
-  createSpinner,
 } from '../cli-output.js';
-
-const DEFAULT_WAIT_TIMEOUT_SECONDS = 600;
-const MAX_WAIT_TIMEOUT_SECONDS = 86_400;
-const WAIT_POLL_INTERVAL_MS = 500;
 
 const asNonEmptyString = (value) => {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-};
-
-const assertOk = (response, body, fallback) => {
-  if (response?.ok) return;
-  const partialSessionId = body?.partial === true ? asNonEmptyString(body?.sessionId) : null;
-  const partialDirectory = body?.partial === true ? asNonEmptyString(body?.directory) : null;
-  const partialSubject = body?.partialAction === 'goal-configured' ? 'Goal on session' : 'Forked session';
-  const partial = partialSessionId
-    ? ` ${partialSubject} ${partialSessionId} remains available${partialDirectory ? ` in ${partialDirectory}` : ''}.`
-    : '';
-  const message = `${asNonEmptyString(body?.error) || fallback}${partial}`;
-  const exitCode = response?.status === 400 || response?.status === 404
-    ? EXIT_CODE.USAGE_ERROR
-    : EXIT_CODE.GENERAL_ERROR;
-  throw new TunnelCliError(message, exitCode);
 };
 
 const validateModel = (model) => {
@@ -68,24 +48,6 @@ const assertSessionTarget = (options = {}) => {
   return { sessionId, directory };
 };
 
-const buildSessionStatusEndpoint = (directory) => {
-  const params = new URLSearchParams({ directory });
-  return `/api/session/status?${params.toString()}`;
-};
-
-const buildSessionMessagesEndpoint = (sessionId, directory, limit) => {
-  const params = new URLSearchParams({ directory });
-  if (limit !== undefined) params.set('limit', String(limit));
-  return `/api/session/${encodeURIComponent(sessionId)}/message?${params.toString()}`;
-};
-
-const resolveSessionStatus = (statuses, sessionId) => {
-  if (!statuses || typeof statuses !== 'object' || Array.isArray(statuses)) return null;
-  const status = statuses[sessionId];
-  if (status && typeof status === 'object' && typeof status.type === 'string') return status;
-  return { type: 'idle' };
-};
-
 const normalizeMessageRole = (value) => {
   const role = asNonEmptyString(value) || 'all';
   if (!['all', 'user', 'assistant'].includes(role)) {
@@ -94,135 +56,11 @@ const normalizeMessageRole = (value) => {
   return role;
 };
 
-const normalizeWaitTimeoutMs = (value) => {
-  if (value === undefined || value === null) return DEFAULT_WAIT_TIMEOUT_SECONDS * 1000;
-  const raw = String(value).trim();
-  if (!/^\d+$/.test(raw)) {
-    throw new TunnelCliError('--timeout must be an integer number of seconds.', EXIT_CODE.USAGE_ERROR);
-  }
-  const seconds = Number(raw);
-  if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > MAX_WAIT_TIMEOUT_SECONDS) {
-    throw new TunnelCliError(`--timeout must be from 1 to ${MAX_WAIT_TIMEOUT_SECONDS} seconds.`, EXIT_CODE.USAGE_ERROR);
-  }
-  return seconds * 1000;
-};
-
-const sleep = (durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs));
-
-const waitForSessionIdle = async ({
-  fetchStatus,
-  timeoutMs,
-  requireActivity = false,
-  hasCompletedResult = async () => false,
-  pollIntervalMs = WAIT_POLL_INTERVAL_MS,
-  now = Date.now,
-  wait = sleep,
-}) => {
-  const startedAt = now();
-  const deadline = startedAt + timeoutMs;
-  let observedActivity = false;
-
-  while (true) {
-    const status = await fetchStatus();
-    if (status.type === 'busy' || status.type === 'retry') {
-      observedActivity = true;
-    } else if (!requireActivity || observedActivity || await hasCompletedResult()) {
-      return status;
-    }
-
-    const remainingMs = deadline - now();
-    if (remainingMs <= 0) {
-      throw new TunnelCliError(
-        `Session did not become idle within ${Math.ceil(timeoutMs / 1000)} seconds.`,
-        EXIT_CODE.GENERAL_ERROR,
-      );
-    }
-    await wait(Math.min(pollIntervalMs, remainingMs));
-  }
-};
-
-const waitForIdleWithSpinner = async (options, waitOptions) => {
-  const spin = createSpinner(options);
-  spin?.start('Waiting for session to become idle');
-  try {
-    const status = await waitForSessionIdle(waitOptions);
-    spin?.stop('Session is idle');
-    return status;
-  } catch (error) {
-    spin?.stop('Wait failed');
-    throw error;
-  }
-};
-
-const extractTextMessages = (messages, role = 'all') => {
-  const source = Array.isArray(messages) ? messages : [];
-  const textMessages = [];
-
-  for (const record of source) {
-    const info = record?.info;
-    const messageRole = info?.role;
-    if ((messageRole !== 'user' && messageRole !== 'assistant') || (role !== 'all' && role !== messageRole)) {
-      continue;
-    }
-
-    const text = Array.isArray(record?.parts)
-      ? record.parts
-        .filter((part) => part?.type === 'text' && typeof part.text === 'string')
-        .map((part) => part.text)
-        .join('')
-        .trim()
-      : '';
-    if (!text) continue;
-
-    const providerID = asNonEmptyString(info.providerID);
-    const modelID = asNonEmptyString(info.modelID);
-    textMessages.push({
-      id: asNonEmptyString(info.id) || '',
-      role: messageRole,
-      createdAt: Number.isFinite(info?.time?.created) ? info.time.created : null,
-      completedAt: Number.isFinite(info?.time?.completed) ? info.time.completed : null,
-      model: providerID && modelID ? `${providerID}/${modelID}` : null,
-      text,
-    });
-  }
-
-  return textMessages.sort((left, right) => (left.createdAt || 0) - (right.createdAt || 0));
-};
-
 const formatTextMessage = (message) => {
   const label = message.role === 'user' ? 'User' : 'Assistant';
   const timestamp = message.createdAt ? new Date(message.createdAt).toISOString() : '';
   const details = [timestamp, message.model].filter(Boolean).join(' ');
   return `**${label}**${details ? `\n\n*${details}*` : ''}\n\n${message.text}`;
-};
-
-const fetchSessionStatus = async (port, sessionId, directory, options) => {
-  const { response, body } = await requestJson(port, buildSessionStatusEndpoint(directory), options);
-  assertOk(response, body, 'Failed to load session status');
-  const status = resolveSessionStatus(body, sessionId);
-  if (!status) throw new TunnelCliError('Invalid session status response.', EXIT_CODE.GENERAL_ERROR);
-  return status;
-};
-
-const fetchSessionTextMessages = async ({ port, sessionId, directory, role, limit, options }) => {
-  const fetchMessages = async (upstreamLimit) => {
-    const { response, body } = await requestJson(
-      port,
-      buildSessionMessagesEndpoint(sessionId, directory, upstreamLimit),
-      { ...options, timeoutMs: 15_000 },
-    );
-    assertOk(response, body, 'Failed to load session messages');
-    if (!Array.isArray(body)) throw new TunnelCliError('Invalid session messages response.', EXIT_CODE.GENERAL_ERROR);
-    return body;
-  };
-  const fetchLimit = limit === undefined ? undefined : Math.max(100, limit * 4);
-  let rawMessages = await fetchMessages(fetchLimit);
-  let textMessages = extractTextMessages(rawMessages, role);
-  if (limit !== undefined && textMessages.length < limit && rawMessages.length >= fetchLimit) {
-    rawMessages = await fetchMessages(undefined);
-    textMessages = extractTextMessages(rawMessages, role);
-  }
-  return limit === undefined ? textMessages : textMessages.slice(-limit);
 };
 
 const formatSessionModel = (session) => {
@@ -242,18 +80,6 @@ const formatSessionLine = (session) => {
   if (variant && variant !== 'default') selections.push(`\`${variant}\``);
   const status = asNonEmptyString(session?.status?.type);
   return `- \`${title}\` — ${selections.join(', ')}${status ? ` — status:${status}` : ''} — \`${directory}\``;
-};
-
-const buildSessionListEndpoint = (options = {}) => {
-  const params = new URLSearchParams();
-  const directory = asNonEmptyString(options.directory);
-  if (directory) params.set('directory', directory);
-  return `/api/session${params.toString() ? `?${params.toString()}` : ''}`;
-};
-
-const filterVisibleSessions = (sessions, options = {}) => {
-  const list = Array.isArray(sessions) ? sessions : [];
-  return options.all ? list : list.filter((session) => !session?.time?.archived);
 };
 
 const buildSessionCreatePayload = (options = {}) => {
@@ -330,50 +156,6 @@ const validateActionWaitOptions = (options, action) => {
   }
 };
 
-const waitForDispatchedSession = async ({ options, port, body, waitStartedAt }) => {
-  if (!options.wait) return { sessionStatus: null, lastAssistantMessage: null };
-  const sessionId = asNonEmptyString(body?.sessionId);
-  const directory = asNonEmptyString(body?.directory);
-  if (!sessionId || !directory) {
-    throw new TunnelCliError('Session response is missing sessionId or directory.', EXIT_CODE.GENERAL_ERROR);
-  }
-  const timeoutMs = normalizeWaitTimeoutMs(options.timeout);
-  const baselineAssistantMessageId = asNonEmptyString(body?.baselineAssistantMessageId);
-  const sessionStatus = await waitForIdleWithSpinner(options, {
-    timeoutMs,
-    requireActivity: body?.promptDispatched === true,
-    fetchStatus: () => fetchSessionStatus(port, sessionId, directory, options),
-    hasCompletedResult: async () => {
-      const messages = await fetchSessionTextMessages({
-        port,
-        sessionId,
-        directory,
-        role: 'assistant',
-        limit: 1,
-        options,
-      });
-      const message = messages[0];
-      if (!message?.completedAt) return false;
-      return baselineAssistantMessageId
-        ? message.id !== baselineAssistantMessageId
-        : message.completedAt >= waitStartedAt;
-    },
-  });
-  let lastAssistantMessage = null;
-  if (options.lastAssistant) {
-    const messages = await fetchSessionTextMessages({
-      port,
-      sessionId,
-      directory,
-      role: 'assistant',
-      limit: 1,
-      options,
-    });
-    lastAssistantMessage = messages[0] || null;
-  }
-  return { sessionStatus, lastAssistantMessage };
-};
-
 async function sessionCommand(options = {}, action = 'help') {
   if (action === 'help') {
     process.stdout.write(`OpenChamber Session Commands\n\nUSAGE:\n  openchamber session list [--dir <path>] [--limit <count>] [--with-status] [OPTIONS]\n  openchamber session create --dir <path> [--title <title>] [--wait] [OPTIONS]\n  openchamber session create --project <projectId> [--title <title>] [--wait] [OPTIONS]\n  openchamber session send --session <id> --dir <path> --prompt <text> [--wait] [OPTIONS]\n  openchamber session fork --session <id> --dir <path> --prompt <text> [--message <id>] [--wait] [OPTIONS]\n  openchamber session status --session <id> --dir <path> [OPTIONS]\n  openchamber session messages --session <id> --dir <path> [--wait] [OPTIONS]\n\nLIST OPTIONS:\n  --dir <path>            Filter sessions by directory\n  --limit <count>         Maximum sessions to show (default: 10)\n  --all                   Include archived sessions\n  --with-status           Include authoritative idle/busy/retry status\n\nACTION OPTIONS:\n  --session <id>          Source or target session id\n  --dir <path>            Authoritative session directory\n  --prompt <text>         Prompt to send to the session\n  --message <id>          Fork from this message (fork only; default: latest)\n  --model <provider/model>  Model for the prompt (defaults to configured selection)\n  --agent <id>            Agent for the prompt (defaults to configured selection)\n  --variant <id>          Model variant for the prompt\n  --goal                  Run the prompt as a new goal\n  --goal-token-budget <n> Goal token budget (1000-100000000; requires --goal)\n  --wait                  Wait for the dispatched activity to become idle\n  --last-assistant        Include the last assistant text after waiting\n  --timeout <seconds>     Wait timeout in seconds (default: 600, max: 86400)\n\nCREATE OPTIONS:\n  --worktree <name>       Create a git worktree before creating the session\n  --branch <name>         Branch name for --worktree\n  --start-ref, --base <ref>  Start ref for --worktree\n  --upstream              Set upstream for the worktree branch\n  --no-upstream           Do not set upstream for the worktree branch\n  --name <title>          Alias for --title\n\nSTATUS/MESSAGES OPTIONS:\n  --last                  Return only the latest text-bearing message\n  --last-assistant        Shorthand for --last --role assistant\n  --limit <count>         Maximum text messages to return (default: 10)\n  --all                   Return all text-bearing messages\n  --role <role>           Filter messages: all, user, assistant\n\nOUTPUT OPTIONS:\n  -p, --port <port>       OpenChamber server port\n  --json                  Output machine-readable JSON\n  -q, --quiet             Print compact output\n`);
@@ -383,32 +165,15 @@ async function sessionCommand(options = {}, action = 'help') {
   if (action === 'list') {
     const limit = normalizeLimit(options.limit);
     const port = await resolveTargetPort(options);
-    const { response, body } = await requestJson(port, buildSessionListEndpoint(options), options);
-    assertOk(response, body, 'Failed to load sessions');
-    let sessions = filterVisibleSessions(body, options).slice(0, limit);
-    if (options.withStatus) {
-      const statusMaps = new Map();
-      const directories = [...new Set(sessions.map((session) => asNonEmptyString(session?.directory)).filter(Boolean))];
-      await Promise.all(directories.map(async (directory) => {
-        try {
-          const { response: statusResponse, body: statusBody } = await requestJson(
-            port,
-            buildSessionStatusEndpoint(directory),
-            options,
-          );
-          statusMaps.set(directory, statusResponse?.ok ? statusBody : null);
-        } catch {
-          statusMaps.set(directory, null);
-        }
-      }));
-      sessions = sessions.map((session) => {
-        const directory = asNonEmptyString(session?.directory);
-        const status = directory ? resolveSessionStatus(statusMaps.get(directory), session.id) : null;
-        return { ...session, status: status || { type: 'unknown' } };
-      });
-    }
+    const body = await requestControlAction(port, 'session.list', {
+      ...(asNonEmptyString(options.directory) ? { directory: options.directory.trim() } : {}),
+      limit,
+      all: options.all === true,
+      withStatus: options.withStatus === true,
+    }, options);
+    const sessions = Array.isArray(body?.sessions) ? body.sessions : [];
     if (isJsonMode(options)) {
-      printJson({ sessions, limit, directory: asNonEmptyString(options.directory), archived: options.all ? 'included' : 'excluded' });
+      printJson(body);
       return;
     }
     process.stdout.write(sessions.length > 0
@@ -420,9 +185,10 @@ async function sessionCommand(options = {}, action = 'help') {
   if (action === 'status') {
     const { sessionId, directory } = assertSessionTarget(options);
     const port = await resolveTargetPort(options);
-    const status = await fetchSessionStatus(port, sessionId, directory, options);
+    const result = await requestControlAction(port, 'session.status', { sessionId, directory }, options);
+    const status = result.sessionStatus;
     if (isJsonMode(options)) {
-      printJson({ status: 'ok', sessionId, directory, sessionStatus: status });
+      printJson(result);
       return;
     }
     if (isQuietMode(options)) {
@@ -449,18 +215,22 @@ async function sessionCommand(options = {}, action = 'help') {
     if (last && options.limit !== undefined) {
       throw new TunnelCliError('--last cannot be combined with --limit.', EXIT_CODE.USAGE_ERROR);
     }
-    const limit = options.all ? undefined : (last ? 1 : normalizeLimit(options.limit));
+    const limit = options.all ? undefined : (last ? undefined : normalizeLimit(options.limit));
     const port = await resolveTargetPort(options);
-    if (options.wait) {
-      const timeoutMs = normalizeWaitTimeoutMs(options.timeout);
-      await waitForIdleWithSpinner(options, {
-        timeoutMs,
-        fetchStatus: () => fetchSessionStatus(port, sessionId, directory, options),
-      });
-    }
-    const messages = await fetchSessionTextMessages({ port, sessionId, directory, role, limit, options });
+    const result = await requestControlAction(port, 'session.messages', {
+      sessionId,
+      directory,
+      role,
+      all: options.all === true,
+      last,
+      ...(limit !== undefined ? { limit } : {}),
+      wait: options.wait === true,
+      ...(options.timeout !== undefined ? { timeout: Number(options.timeout) } : {}),
+      lastAssistant: options.lastAssistant === true,
+    }, options);
+    const messages = Array.isArray(result?.messages) ? result.messages : [];
     if (isJsonMode(options)) {
-      printJson({ status: 'ok', sessionId, directory, role, messages });
+      printJson(result);
       return;
     }
     if (messages.length === 0) {
@@ -479,43 +249,31 @@ async function sessionCommand(options = {}, action = 'help') {
     const { sessionId } = assertSessionTarget(options);
     const payload = buildSessionPromptPayload(options, action);
     validateActionWaitOptions(options, action);
-    const waitStartedAt = Date.now();
     const port = await resolveTargetPort(options);
-    const { response, body } = await requestJson(
-      port,
-      `/api/openchamber/sessions/${encodeURIComponent(sessionId)}/${action}`,
-      { ...options, method: 'POST', body: JSON.stringify(payload) },
-    );
-    assertOk(response, body, `Failed to ${action} session`);
-    const { sessionStatus, lastAssistantMessage } = await waitForDispatchedSession({
-      options,
-      port,
-      body,
-      waitStartedAt,
-    });
-    const publicBody = { ...(body || {}) };
-    delete publicBody.baselineAssistantMessageId;
-    const result = {
-      ...publicBody,
-      ...(sessionStatus ? { sessionStatus } : {}),
-      ...(options.lastAssistant ? { lastAssistantMessage } : {}),
-    };
+    const result = await requestControlAction(port, `session.${action}`, {
+      ...payload,
+      sessionId,
+      wait: options.wait === true,
+      ...(options.timeout !== undefined ? { timeout: Number(options.timeout) } : {}),
+      lastAssistant: options.lastAssistant === true,
+    }, options);
+    const { sessionStatus, lastAssistantMessage } = result;
     if (isJsonMode(options)) {
       printJson(result);
       return;
     }
     if (isQuietMode(options)) {
-      process.stdout.write(`${body?.sessionId || ''}\n`);
+      process.stdout.write(`${result?.sessionId || ''}\n`);
       if (lastAssistantMessage?.text) process.stdout.write(`${lastAssistantMessage.text}\n`);
       return;
     }
     clackIntro(action === 'fork' ? 'Session Forked' : 'Session Prompt Sent');
-    logStatus('success', body?.sessionId || `${action} completed`, `directory: ${body?.directory || 'unknown'}`);
-    if (body?.promptDispatched) {
-      logStatus('info', body.dispatchedAsCommand ? 'command dispatched' : 'prompt dispatched');
+    logStatus('success', result?.sessionId || `${action} completed`, `directory: ${result?.directory || 'unknown'}`);
+    if (result?.promptDispatched) {
+      logStatus('info', result.dispatchedAsCommand ? 'command dispatched' : 'prompt dispatched');
     }
-    if (body?.goalEnabled) {
-      logStatus('info', 'goal mode active', body.goalTokenBudget ? `budget: ${body.goalTokenBudget}` : undefined);
+    if (result?.goalEnabled) {
+      logStatus('info', 'goal mode active', result.goalTokenBudget ? `budget: ${result.goalTokenBudget}` : undefined);
     }
     if (sessionStatus) logStatus('info', `session status: ${sessionStatus.type}`);
     clackOutro(action === 'fork' ? 'forked' : 'sent');
@@ -529,48 +287,41 @@ async function sessionCommand(options = {}, action = 'help') {
 
   const payload = buildSessionCreatePayload(options);
   validateActionWaitOptions(options, 'create');
-  const waitStartedAt = Date.now();
   const port = await resolveTargetPort(options);
-  const { response, body } = await requestJson(port, '/api/openchamber/sessions', {
-    ...options,
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-  assertOk(response, body, 'Failed to create session');
-
-  const { sessionStatus, lastAssistantMessage } = await waitForDispatchedSession({
-    options,
-    port,
-    body,
-    waitStartedAt,
-  });
-
-  const result = {
-    ...(body || {}),
-    ...(sessionStatus ? { sessionStatus } : {}),
-    ...(options.lastAssistant ? { lastAssistantMessage } : {}),
-  };
+  const controlPayload = { ...payload };
+  if (payload.worktree) {
+    controlPayload.worktree = payload.worktree.name;
+    controlPayload.branch = payload.worktree.branchName;
+    controlPayload.startRef = payload.worktree.startRef;
+  }
+  const result = await requestControlAction(port, 'session.create', {
+    ...controlPayload,
+    wait: options.wait === true,
+    ...(options.timeout !== undefined ? { timeout: Number(options.timeout) } : {}),
+    lastAssistant: options.lastAssistant === true,
+  }, options);
+  const { sessionStatus, lastAssistantMessage } = result;
 
   if (isJsonMode(options)) {
     printJson(result);
     return;
   }
   if (isQuietMode(options)) {
-    process.stdout.write(`${body?.sessionId || ''}\n`);
+    process.stdout.write(`${result?.sessionId || ''}\n`);
     if (lastAssistantMessage?.text) process.stdout.write(`${lastAssistantMessage.text}\n`);
     return;
   }
 
   clackIntro('Session Created');
-  logStatus('success', body?.sessionId || 'session created', `directory: ${body?.directory || 'unknown'}`);
-  if (body?.worktree?.path) {
-    logStatus('info', `worktree: ${body.worktree.branch || body.worktree.name || 'created'}`, body.worktree.path);
+  logStatus('success', result?.sessionId || 'session created', `directory: ${result?.directory || 'unknown'}`);
+  if (result?.worktree?.path) {
+    logStatus('info', `worktree: ${result.worktree.branch || result.worktree.name || 'created'}`, result.worktree.path);
   }
-  if (body?.promptDispatched) {
-    logStatus('info', body.dispatchedAsCommand ? 'initial command dispatched' : 'initial prompt dispatched');
+  if (result?.promptDispatched) {
+    logStatus('info', result.dispatchedAsCommand ? 'initial command dispatched' : 'initial prompt dispatched');
   }
-  if (body?.goalEnabled) {
-    logStatus('info', 'goal mode active', body.goalTokenBudget ? `budget: ${body.goalTokenBudget}` : undefined);
+  if (result?.goalEnabled) {
+    logStatus('info', 'goal mode active', result.goalTokenBudget ? `budget: ${result.goalTokenBudget}` : undefined);
   }
   if (sessionStatus) {
     logStatus('info', `session status: ${sessionStatus.type}`);
@@ -586,12 +337,4 @@ export {
   buildSessionCreatePayload,
   buildSessionPromptPayload,
   formatSessionLine,
-  buildSessionListEndpoint,
-  buildSessionStatusEndpoint,
-  buildSessionMessagesEndpoint,
-  filterVisibleSessions,
-  resolveSessionStatus,
-  extractTextMessages,
-  normalizeWaitTimeoutMs,
-  waitForSessionIdle,
 };
