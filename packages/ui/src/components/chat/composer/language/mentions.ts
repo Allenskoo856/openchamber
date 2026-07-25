@@ -37,8 +37,18 @@ const MENTION_SCAN = /@([^\s]+)/g;
 export interface MentionToken {
     /** Offset of the `@`. */
     start: number;
-    /** Offset just past the raw token (whitespace-delimited). */
+    /**
+     * Offset just past the reference itself — the `@` plus the cleaned name.
+     * This is the span to highlight: in `see @a/b.ts, ok` the comma is
+     * punctuation of the sentence, not part of the file being referenced.
+     */
     end: number;
+    /**
+     * Offset just past the whole whitespace-delimited token, including any
+     * punctuation brushing against it. This is the span to delete: removing a
+     * mention should not leave its wrapping bracket behind.
+     */
+    rawEnd: number;
     /** The raw token including `@` and any brushing punctuation. */
     raw: string;
     /** The token with `@` and wrapping punctuation removed. */
@@ -74,10 +84,21 @@ export function scanMentions(text: string): MentionToken[] {
         const start = match.index;
         if (!isMentionBoundary(text, start)) continue;
 
-        const name = cleanMentionName(match[1] ?? '');
+        const rawName = match[1] ?? '';
+        const name = cleanMentionName(rawName);
         if (!name) continue;
 
-        tokens.push({ start, end: start + match[0].length, raw: match[0], name });
+        // The cleaned name is a substring of the raw one, so its offset inside
+        // the token is exactly how much leading noise was stripped.
+        const nameStart = start + 1 + rawName.indexOf(name);
+
+        tokens.push({
+            start,
+            end: nameStart + name.length,
+            rawEnd: start + match[0].length,
+            raw: match[0],
+            name,
+        });
     }
 
     return tokens;
@@ -118,9 +139,11 @@ export function looksLikeFilePath(
 }
 
 /**
- * The mention token containing `index`, used by the backspace handler so
- * deleting one character removes the whole reference. `index` may point at any
- * character of the token, including the `@`.
+ * The mention whose reference span contains `index`, used by the backspace
+ * handler so deleting one character removes the whole reference. `index` may
+ * point at any character from the `@` through the end of the name; brushing
+ * punctuation is excluded, so deleting the comma in `@a.ts,` deletes only the
+ * comma.
  */
 export function findMentionAt(text: string, index: number): MentionToken | null {
     for (const token of scanMentions(text)) {

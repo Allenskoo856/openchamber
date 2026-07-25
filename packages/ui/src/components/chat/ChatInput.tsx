@@ -100,18 +100,10 @@ import { getSyncMessages } from '@/sync/sync-refs';
 import { EMPTY_REVERTED_MESSAGE_DOCK_STATE, buildRevertedMessageDockState, type RevertedMessageDockState } from './revertedMessageDockState';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
 import { isSyntheticPart } from '@/lib/messages/synthetic';
-import {
-    buildHighlightParts,
-    mentionRangesToHighlightRanges,
-    tokenizeMarkdown,
-    type HighlightRange,
-    type MentionRange,
-} from './composerHighlight';
-import { highlightFencedCode } from './composerCodeHighlight';
+import { buildHighlightParts } from './composerHighlight';
 import {
     assignImageAttachmentFilenames,
     buildAttachmentCitationText,
-    findAttachmentCitationRanges,
 } from './attachmentCitations';
 import type { FileMentionAutocompleteInputSource } from './fileMentionAutocompleteState';
 import {
@@ -119,12 +111,9 @@ import {
     findMentionAt,
     scanMentions,
 } from './composer/language/mentions';
-import {
-    collectKnownTokenNames,
-    filterKnownTokens,
-    scanPrefixTokens,
-} from './composer/language/prefixTokens';
+import { collectKnownTokenNames } from './composer/language/prefixTokens';
 import { resolveAutocompleteTrigger } from './composer/language/triggers';
+import { tokenizeComposer, type ComposerLanguageContext } from './composer/language/tokenize';
 import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
@@ -1295,22 +1284,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         return names;
     }, [availableCommands, availableSkills, isMobile]);
 
-    // /command and /skill spans (primary color). Only tokens that match a known
-    // command/skill name are highlighted — partial/unknown tokens stay plain.
-    const composerCommandRanges = React.useMemo<HighlightRange[]>(() => {
-        if (!message || !message.includes('/') || inputMode === 'shell' || knownSlashNames.size === 0) {
-            return [];
-        }
-        return filterKnownTokens(scanPrefixTokens(message, '/'), knownSlashNames)
-            .map((token) => ({
-                start: token.start,
-                end: token.end,
-                style: 'mentionCommand' as const,
-            }));
-    }, [inputMode, knownSlashNames, message]);
-
-    // Snippet triggers (#name / #alias). Highlighted like commands once the
-    // trigger matches a known snippet name or alias.
     const availableSnippets = useSnippetsStore((s) => s.snippets);
     const knownSnippetTriggers = React.useMemo(() => {
         const triggers = new Set<string>();
@@ -1321,67 +1294,31 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         return triggers;
     }, [availableSnippets]);
 
-    const composerSnippetRanges = React.useMemo<HighlightRange[]>(() => {
-        if (!message || !message.includes('#') || inputMode === 'shell' || knownSnippetTriggers.size === 0) {
-            return [];
-        }
-        return filterKnownTokens(scanPrefixTokens(message, '#'), knownSnippetTriggers)
-            .map((token) => ({
-                start: token.start,
-                end: token.end,
-                style: 'mentionSnippet' as const,
-            }));
-    }, [inputMode, knownSnippetTriggers, message]);
+    const attachmentFilenames = React.useMemo(
+        () => attachedFiles.map((file) => file.filename),
+        [attachedFiles],
+    );
 
-    // @mention spans (file = blue, agent = green). Computed as character ranges
-    // so they can be merged with markdown highlight ranges in a single overlay.
-    const composerMentionRanges = React.useMemo<MentionRange[]>(() => {
-        if (!message || !message.includes('@') || inputMode === 'shell') {
-            return [];
-        }
-        const ranges: MentionRange[] = [];
-        for (const token of scanMentions(message)) {
-            const kind = classifyMention(token.name, {
-                knownAgentNames,
-                confirmedMentions: confirmedMentionsRef.current,
-            });
-            if (kind) {
-                ranges.push({ start: token.start, end: token.end, kind });
-            }
-        }
-        return ranges;
-    }, [inputMode, message, knownAgentNames]);
+    /**
+     * Everything the prompt language needs to resolve references. Rebuilt only
+     * when a registry changes, so typing does not churn the tokenizer input.
+     */
+    const languageContext = React.useMemo<ComposerLanguageContext>(() => ({
+        inputMode,
+        knownAgentNames,
+        confirmedMentions: confirmedMentionsRef.current,
+        knownSlashNames,
+        knownSnippetTriggers,
+        attachmentFilenames,
+    }), [attachmentFilenames, inputMode, knownAgentNames, knownSlashNames, knownSnippetTriggers]);
 
-    const attachmentCitationRanges = React.useMemo<HighlightRange[]>(() => {
-        if (!message || !message.includes('[') || inputMode === 'shell' || attachedFiles.length === 0) {
-            return [];
-        }
-
-        return findAttachmentCitationRanges(
-            message,
-            attachedFiles.map((file) => file.filename),
-        ).map((range) => ({
-            ...range,
-            style: 'mentionFile' as const,
-        }));
-    }, [attachedFiles, inputMode, message]);
-
-    // Combined source-mode highlight: markdown syntax + @mentions. Returns null
-    // when there's nothing to highlight so the overlay stays off for plain text.
-    const highlightedComposerContent = React.useMemo(() => {
-        if (!message || inputMode === 'shell') {
-            return null;
-        }
-        const ranges = [
-            ...tokenizeMarkdown(message),
-            ...highlightFencedCode(message),
-            ...mentionRangesToHighlightRanges(composerMentionRanges),
-            ...composerCommandRanges,
-            ...composerSnippetRanges,
-            ...attachmentCitationRanges,
-        ];
-        return buildHighlightParts(message, ranges);
-    }, [attachmentCitationRanges, composerCommandRanges, composerSnippetRanges, composerMentionRanges, inputMode, message]);
+    // Source-mode highlight: markdown syntax plus every reference construct,
+    // in one pass. Null when there is nothing to paint, so the overlay stays
+    // off for plain prose.
+    const highlightedComposerContent = React.useMemo(
+        () => buildHighlightParts(message, tokenizeComposer(message, languageContext)),
+        [languageContext, message],
+    );
 
     const sanitizeAttachmentsForSend = React.useCallback(
         (files: AttachedFile[] | undefined): AttachedFile[] => (files ?? [])
@@ -2555,7 +2492,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
                     if (mention && isFileMention) {
                         const tokenStart = mention.start;
-                        const tokenEnd = mention.end;
+                        // Delete the whole token, not just the reference, so a
+                        // wrapping bracket is not left orphaned behind.
+                        const tokenEnd = mention.rawEnd;
                         confirmedMentionsRef.current.delete(mention.name);
                         const removeUntil = message[tokenEnd] === ' ' ? tokenEnd + 1 : tokenEnd;
                         const nextMessage = `${message.slice(0, tokenStart)}${message.slice(removeUntil)}`;
