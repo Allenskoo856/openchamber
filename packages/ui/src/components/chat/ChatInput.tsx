@@ -130,6 +130,7 @@ import {
     MobileDraftTargetSheets,
     MobileDraftTargetTriggers,
 } from './composer/ui/DraftTargetSelectors';
+import { MobilePillComposer } from './composer/ui/MobilePillComposer';
 import { ComposerContextChips } from './composer/ui/ComposerContextChips';
 import { LinkedReferenceRow } from './composer/ui/LinkedReferenceRow';
 import { ComposerActionButtons } from './composer/ui/ComposerActionButtons';
@@ -2394,6 +2395,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         openNewSessionDraft(currentDirectory ? { directoryOverride: currentDirectory } : undefined);
     }, [newSessionDraftOpen, openNewSessionDraft, currentDirectory]);
 
+    /** The dictation engine listens for this globally; the composer only asks. */
+    const toggleDictation = React.useCallback(() => {
+        window.dispatchEvent(new CustomEvent('openchamber:dictation-toggle'));
+    }, []);
+
     const openMobileAttachSheet = React.useCallback(() => {
         // Same order as handleOpenMobilePanel: mark the sheet open BEFORE the
         // blur so the collapse watcher sees an overlay when the keyboard-close
@@ -2625,92 +2631,25 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     )}
                 >
                 {isMobile && !mobileComposerExpanded ? (
-                    <div className="flex flex-col">
-                    <SessionGoalRow
+                    <MobilePillComposer
+                        message={message}
                         sessionId={currentSessionId}
                         directory={currentSessionDirectoryForSync ?? currentDirectory}
-                        className="mb-1.5"
+                        newSessionDraftOpen={newSessionDraftOpen}
+                        hasContent={Boolean(hasContent)}
+                        isVSCode={isVSCode}
+                        footerIconButtonClass={footerIconButtonClass}
+                        iconSizeClass={iconSizeClass}
+                        theme={currentTheme}
+                        onExpand={mobileShell.expand}
+                        onApplySuggestion={applyAssistSuggestion}
+                        onNewSession={handleMobileNewSession}
+                        onPickLocalFiles={handlePickLocalFiles}
+                        onOpenIssuePicker={openIssuePicker}
+                        onOpenPrPicker={openPrPicker}
+                        onOpenAttachSheet={openMobileAttachSheet}
+                        onStartDictation={toggleDictation}
                     />
-                    <SessionSuggestionChip
-                        sessionId={currentSessionId}
-                        directory={currentSessionDirectoryForSync ?? currentDirectory}
-                        hidden={hasContent || newSessionDraftOpen}
-                        onApply={applyAssistSuggestion}
-                        className="mb-1.5"
-                    />
-                    <div className="flex items-center gap-2">
-                        <div
-                            className="flex h-11 min-w-0 flex-1 items-center gap-x-0.5 rounded-full border border-border/80 pl-2 pr-1 shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)]"
-                            style={{ backgroundColor: currentTheme?.colors?.surface?.subtle }}
-                        >
-                            <MobileSessionPanelTrigger
-                                footerIconButtonClass={footerIconButtonClass}
-                                iconSizeClass={iconSizeClass}
-                            />
-                            <ComposerAttachmentControls
-                                isVSCode={isVSCode}
-                                footerIconButtonClass={footerIconButtonClass}
-                                iconSizeClass={iconSizeClass}
-                                handlePickLocalFiles={handlePickLocalFiles}
-                                openIssuePicker={openIssuePicker}
-                                openPrPicker={openPrPicker}
-                                onOpenMobileSheet={openMobileAttachSheet}
-                            />
-                            <button
-                                type="button"
-                                className="flex h-full min-w-0 flex-1 cursor-text items-center px-1.5 text-left"
-                                onClick={() => mobileShell.expand()}
-                            >
-                                <span
-                                    className={cn(
-                                        'truncate typography-ui-label',
-                                        message.trim() ? 'text-foreground' : 'text-muted-foreground',
-                                    )}
-                                >
-                                    {message.trim()
-                                        ? message
-                                        : currentSessionId || newSessionDraftOpen
-                                            ? t('chat.chatInput.placeholder.chatCompact')
-                                            : t('chat.chatInput.placeholder.selectSession')}
-                                </span>
-                            </button>
-                            <button
-                                type="button"
-                                className={footerIconButtonClass}
-                                onClick={() => {
-                                    // Start recording in place; the composer morphs
-                                    // into the voice variant once dictation is live
-                                    // (mobileShell.onDictationActiveChange).
-                                    window.dispatchEvent(new CustomEvent('openchamber:dictation-toggle'));
-                                }}
-                                title={t('chat.dictation.start')}
-                                aria-label={t('chat.dictation.start')}
-                            >
-                                <Icon name="mic" className={cn(iconSizeClass, 'text-current')} />
-                            </button>
-                        </div>
-                        {/* New-session button: fades/shrinks away when the draft is
-                            already open, letting the pill expand into its place. */}
-                        <div
-                            className={cn(
-                                'flex-shrink-0 transition-all duration-200 ease-out',
-                                newSessionDraftOpen ? 'w-0 opacity-0 overflow-hidden' : 'w-11 opacity-100',
-                            )}
-                        >
-                            <button
-                                type="button"
-                                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border/80 text-foreground shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)]"
-                                style={{ backgroundColor: currentTheme?.colors?.surface?.subtle }}
-                                onClick={handleMobileNewSession}
-                                disabled={newSessionDraftOpen}
-                                title={t('mobile.sessions.newChat')}
-                                aria-label={t('mobile.sessions.newChat')}
-                            >
-                                <Icon name="add" className="h-5 w-5 text-current" />
-                            </button>
-                        </div>
-                    </div>
-                    </div>
                 ) : (
                 <>
                 <SessionGoalRow
@@ -2981,9 +2920,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                                         event.preventDefault();
                                                     }
                                                 }}
-                                                onClick={() => {
-                                                    window.dispatchEvent(new CustomEvent('openchamber:dictation-toggle'));
-                                                }}
+                                                onClick={toggleDictation}
                                                 disabled={mobileShell.dictationActive}
                                                 title={t('chat.dictation.start')}
                                                 aria-label={t('chat.dictation.start')}
