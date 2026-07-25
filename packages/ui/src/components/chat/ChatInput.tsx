@@ -132,6 +132,12 @@ import {
     toServerFileUrl,
     VS_CODE_DROP_DATA_TYPES,
 } from './composer/attachments/filePaths';
+import {
+    buildCommandVariables,
+    canRunCommand,
+    findMagicPromptCommand,
+    parseSlashCommand,
+} from './composer/submit/slashCommands';
 import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
@@ -1804,30 +1810,32 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             composerRef.current?.blur();
         }
 
-        // Handle local slash commands only in normal mode
-        const normalizedCommand = primaryText.trimStart();
-        if (inputMode === 'normal' && normalizedCommand.startsWith('/')) {
-            const commandName = normalizedCommand
-                .slice(1)
-                .trim()
-                .split(/\s+/)[0]
-                ?.toLowerCase();
+        // Local slash commands, normal mode only.
+        const parsedCommand = inputMode === 'normal' ? parseSlashCommand(primaryText) : null;
+        if (parsedCommand) {
+            const { name: commandName, argument } = parsedCommand;
 
+            // Commands that manipulate session state or open UI rather than
+            // sending a message.
             if (commandName === 'undo' && currentSessionId) {
                 await useSessionUIStore.getState().handleSlashUndo(currentSessionId);
                 scrollToBottom?.();
                 return;
             }
-            else if (commandName === 'redo' && currentSessionId) {
+            if (commandName === 'redo' && currentSessionId) {
                 await useSessionUIStore.getState().handleSlashRedo(currentSessionId);
                 scrollToBottom?.();
                 return;
             }
-            else if (commandName === 'timeline' && currentSessionId) {
+            if (commandName === 'timeline' && currentSessionId) {
                 setTimelineDialogOpen(true);
                 return;
             }
-            else if (commandName === 'compact' && currentSessionId) {
+            if (commandName === 'handoff-review' && currentSessionId && !isMobile && !isVSCodeRuntime()) {
+                setReviewDialogOpen(true);
+                return;
+            }
+            if (commandName === 'compact' && currentSessionId) {
                 try {
                     await sessionActions.waitForConnectionOrThrow();
                     const compactDirectory = useSessionUIStore.getState().getDirectoryForSession(currentSessionId) || currentDirectory || undefined;
@@ -1837,18 +1845,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 }
                 return;
             }
-            else if (commandName === 'summary' && currentSessionId) {
+
+            // The rest render a visible prompt plus synthetic instructions and
+            // send them as one message.
+            const command = findMagicPromptCommand(commandName);
+            const commandIsAvailable = command !== null && canRunCommand(command, {
+                hasSession: Boolean(currentSessionId),
+                hasDraft: newSessionDraftOpen,
+            });
+            if (command && commandIsAvailable) {
+                const variables = buildCommandVariables(command, argument);
                 try {
                     await sessionActions.waitForConnectionOrThrow();
-                    // Everything after `/summary ` is an optional topic hint
-                    // the user wants the summary focused on.
-                    const topic = normalizedCommand.replace(/^\/summary\b/i, '').trim();
-                    const topicLine = topic ? ` focused on: ${topic}` : '';
-                    const topicBlock = topic
-                        ? `The user asked you to focus this summary on: ${topic}. Prioritize that topic; mention unrelated threads only in passing.`
-                        : '';
-                    const visibleText = await renderMagicPrompt('session.summary.visible', { topic_line: topicLine });
-                    const instructionsText = await renderMagicPrompt('session.summary.instructions', { topic_block: topicBlock });
+                    const visibleText = await renderMagicPrompt(command.visiblePrompt, variables.visible);
+                    const instructionsText = await renderMagicPrompt(command.instructionsPrompt, variables.instructions);
                     await sendMessage(
                         visibleText,
                         providerIdToSend,
@@ -1863,201 +1873,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     );
                     scrollToBottom?.();
                 } catch (error) {
-                    toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.summaryFailed'));
-                }
-                return;
-            }
-            else if (commandName === 'workspace-review' && (currentSessionId || newSessionDraftOpen)) {
-                try {
-                    await sessionActions.waitForConnectionOrThrow();
-                    const visibleText = await renderMagicPrompt('session.review.visible');
-                    const instructionsText = await renderMagicPrompt('session.review.instructions');
-                    await sendMessage(
-                        visibleText,
-                        providerIdToSend,
-                        modelIdToSend,
-                        agentNameToSend,
-                        [],
-                        agentMentionName,
-                        [{ text: instructionsText, synthetic: true }],
-                        variantToSend,
-                        inputMode,
-                        sendMessageOptions,
-                    );
-                    scrollToBottom?.();
-                } catch (error) {
-                    toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.reviewFailed'));
-                }
-                return;
-            }
-            else if (commandName === 'handoff-review' && currentSessionId && !isMobile && !isVSCodeRuntime()) {
-                setReviewDialogOpen(true);
-                return;
-            }
-            else if (commandName === 'plan-feature' && (currentSessionId || newSessionDraftOpen)) {
-                try {
-                    await sessionActions.waitForConnectionOrThrow();
-                    const visibleText = await renderMagicPrompt('session.plan.visible');
-                    const instructionsText = await renderMagicPrompt('session.plan.instructions');
-                    await sendMessage(
-                        visibleText,
-                        providerIdToSend,
-                        modelIdToSend,
-                        agentNameToSend,
-                        [],
-                        agentMentionName,
-                        [{ text: instructionsText, synthetic: true }],
-                        variantToSend,
-                        inputMode,
-                        sendMessageOptions,
-                    );
-                    scrollToBottom?.();
-                } catch (error) {
-                    toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.planFeatureFailed'));
-                }
-                return;
-            }
-            else if (commandName === 'craft-goal' && (currentSessionId || newSessionDraftOpen)) {
-                try {
-                    await sessionActions.waitForConnectionOrThrow();
-                    const idea = normalizedCommand.replace(/^\/craft-goal\b/i, '').trim();
-                    const visibleText = await renderMagicPrompt('session.craftGoal.visible', {
-                        idea_block: idea ? `\n\nHere is my initial idea:\n${idea}` : '',
-                    });
-                    const instructionsText = await renderMagicPrompt('session.craftGoal.instructions');
-                    await sendMessage(
-                        visibleText,
-                        providerIdToSend,
-                        modelIdToSend,
-                        agentNameToSend,
-                        [],
-                        agentMentionName,
-                        [{ text: instructionsText, synthetic: true }],
-                        variantToSend,
-                        inputMode,
-                        sendMessageOptions,
-                    );
-                    scrollToBottom?.();
-                } catch (error) {
-                    toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.craftGoalFailed'));
-                }
-                return;
-            }
-            else if (commandName === 'schedule-task' && (currentSessionId || newSessionDraftOpen)) {
-                try {
-                    await sessionActions.waitForConnectionOrThrow();
-                    const idea = normalizedCommand.replace(/^\/schedule-task\b/i, '').trim();
-                    const visibleText = await renderMagicPrompt('session.scheduleTask.visible', {
-                        idea_block: idea ? `\n\nHere is my initial idea:\n${idea}` : '',
-                    });
-                    const instructionsText = await renderMagicPrompt('session.scheduleTask.instructions');
-                    await sendMessage(
-                        visibleText,
-                        providerIdToSend,
-                        modelIdToSend,
-                        agentNameToSend,
-                        [],
-                        agentMentionName,
-                        [{ text: instructionsText, synthetic: true }],
-                        variantToSend,
-                        inputMode,
-                        sendMessageOptions,
-                    );
-                    scrollToBottom?.();
-                } catch (error) {
-                    toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.scheduleTaskFailed'));
-                }
-                return;
-            }
-            else if (commandName === 'catch-up' && (currentSessionId || newSessionDraftOpen)) {
-                try {
-                    await sessionActions.waitForConnectionOrThrow();
-                    const visibleText = await renderMagicPrompt('session.catchup.visible');
-                    const instructionsText = await renderMagicPrompt('session.catchup.instructions');
-                    await sendMessage(
-                        visibleText,
-                        providerIdToSend,
-                        modelIdToSend,
-                        agentNameToSend,
-                        [],
-                        agentMentionName,
-                        [{ text: instructionsText, synthetic: true }],
-                        variantToSend,
-                        inputMode,
-                        sendMessageOptions,
-                    );
-                    scrollToBottom?.();
-                } catch (error) {
-                    toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.catchUpFailed'));
-                }
-                return;
-            }
-            else if (commandName === 'debug' && (currentSessionId || newSessionDraftOpen)) {
-                try {
-                    await sessionActions.waitForConnectionOrThrow();
-                    const visibleText = await renderMagicPrompt('session.debug.visible');
-                    const instructionsText = await renderMagicPrompt('session.debug.instructions');
-                    await sendMessage(
-                        visibleText,
-                        providerIdToSend,
-                        modelIdToSend,
-                        agentNameToSend,
-                        [],
-                        agentMentionName,
-                        [{ text: instructionsText, synthetic: true }],
-                        variantToSend,
-                        inputMode,
-                        sendMessageOptions,
-                    );
-                    scrollToBottom?.();
-                } catch (error) {
-                    toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.debugFailed'));
-                }
-                return;
-            }
-            else if (commandName === 'weigh' && (currentSessionId || newSessionDraftOpen)) {
-                try {
-                    await sessionActions.waitForConnectionOrThrow();
-                    const visibleText = await renderMagicPrompt('session.weigh.visible');
-                    const instructionsText = await renderMagicPrompt('session.weigh.instructions');
-                    await sendMessage(
-                        visibleText,
-                        providerIdToSend,
-                        modelIdToSend,
-                        agentNameToSend,
-                        [],
-                        agentMentionName,
-                        [{ text: instructionsText, synthetic: true }],
-                        variantToSend,
-                        inputMode,
-                        sendMessageOptions,
-                    );
-                    scrollToBottom?.();
-                } catch (error) {
-                    toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.weighFailed'));
-                }
-                return;
-            }
-            else if (commandName === 'explore' && (currentSessionId || newSessionDraftOpen)) {
-                try {
-                    await sessionActions.waitForConnectionOrThrow();
-                    const visibleText = await renderMagicPrompt('session.explore.visible');
-                    const instructionsText = await renderMagicPrompt('session.explore.instructions');
-                    await sendMessage(
-                        visibleText,
-                        providerIdToSend,
-                        modelIdToSend,
-                        agentNameToSend,
-                        [],
-                        agentMentionName,
-                        [{ text: instructionsText, synthetic: true }],
-                        variantToSend,
-                        inputMode,
-                        sendMessageOptions,
-                    );
-                    scrollToBottom?.();
-                } catch (error) {
-                    toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.exploreFailed'));
+                    toast.error(error instanceof Error ? error.message : t(command.errorToastKey));
                 }
                 return;
             }
