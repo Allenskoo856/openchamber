@@ -1,0 +1,286 @@
+import { describe, expect, test } from 'bun:test';
+
+import {
+    buildHighlightParts,
+    isFenceClose,
+    matchFenceOpen,
+    mentionRangesToHighlightRanges,
+    tokenizeMarkdown,
+    type HighlightRange,
+} from '../composerHighlight';
+
+/**
+ * Characterization tests: they record what the composer highlighter does TODAY,
+ * before the CodeMirror migration replaces the textarea + mirror overlay. The
+ * token grammar must survive that move unchanged, so these assert token spans
+ * and styles rather than rendered classes.
+ */
+
+/** Compact view of a range: the exact substring it covers, plus its style. */
+const spans = (text: string, ranges: HighlightRange[]) =>
+    ranges.map((range) => [text.slice(range.start, range.end), range.style] as const);
+
+const tokenize = (text: string) => spans(text, tokenizeMarkdown(text));
+
+describe('tokenizeMarkdown — block constructs', () => {
+    test('headings split into marker and content', () => {
+        expect(tokenize('## Title')).toEqual([
+            ['##', 'marker'],
+            ['Title', 'heading'],
+        ]);
+    });
+
+    test('heading requires a space after the hashes', () => {
+        expect(tokenize('##Title')).toEqual([]);
+    });
+
+    test('seven hashes is not a heading', () => {
+        expect(tokenize('####### too deep')).toEqual([]);
+    });
+
+    test('blockquote marker is dimmed and content styled', () => {
+        expect(tokenize('> quoted')).toEqual([
+            ['>', 'marker'],
+            ['quoted', 'blockquote'],
+        ]);
+    });
+
+    test('nested blockquote markers collapse into one marker range', () => {
+        expect(tokenize('>> deep')).toEqual([
+            ['>>', 'marker'],
+            ['deep', 'blockquote'],
+        ]);
+    });
+
+    test('bullet and ordered list markers', () => {
+        expect(tokenize('- one')).toEqual([['-', 'listMarker']]);
+        expect(tokenize('* one')).toEqual([['*', 'listMarker']]);
+        expect(tokenize('+ one')).toEqual([['+', 'listMarker']]);
+        expect(tokenize('1. one')).toEqual([['1.', 'listMarker']]);
+        expect(tokenize('2) two')).toEqual([['2)', 'listMarker']]);
+    });
+
+    test('indented list markers keep their offset', () => {
+        expect(tokenize('  - nested')).toEqual([['-', 'listMarker']]);
+    });
+
+    test('a list marker needs trailing whitespace', () => {
+        expect(tokenize('-nodash')).toEqual([]);
+    });
+});
+
+describe('tokenizeMarkdown — fenced code', () => {
+    test('every line of a fence is codeFence, including the delimiters', () => {
+        const text = '```ts\nconst a = 1;\n```';
+        expect(tokenize(text)).toEqual([
+            ['```ts', 'codeFence'],
+            ['const a = 1;', 'codeFence'],
+            ['```', 'codeFence'],
+        ]);
+    });
+
+    test('tilde fences work the same way', () => {
+        expect(tokenize('~~~\nbody\n~~~')).toEqual([
+            ['~~~', 'codeFence'],
+            ['body', 'codeFence'],
+            ['~~~', 'codeFence'],
+        ]);
+    });
+
+    test('markdown inside a fence is not tokenized', () => {
+        expect(tokenize('```\n# not a heading\n- not a list\n```')).toEqual([
+            ['```', 'codeFence'],
+            ['# not a heading', 'codeFence'],
+            ['- not a list', 'codeFence'],
+            ['```', 'codeFence'],
+        ]);
+    });
+
+    test('an unterminated fence swallows the rest of the text', () => {
+        expect(tokenize('```\nstill open\n# nope')).toEqual([
+            ['```', 'codeFence'],
+            ['still open', 'codeFence'],
+            ['# nope', 'codeFence'],
+        ]);
+    });
+
+    test('an info-string line does not close its own fence', () => {
+        expect(isFenceClose('```js', '```')).toBe(false);
+        expect(isFenceClose('```', '```')).toBe(true);
+        expect(isFenceClose('  ```  ', '```')).toBe(true);
+    });
+
+    test('a closing fence may be longer than the opening run', () => {
+        expect(isFenceClose('````', '```')).toBe(true);
+        expect(isFenceClose('``', '```')).toBe(false);
+    });
+
+    test('matchFenceOpen reports marker and language', () => {
+        expect(matchFenceOpen('```ts')).toEqual({ marker: '```', lang: 'ts' });
+        expect(matchFenceOpen('~~~~')).toEqual({ marker: '~~~~', lang: '' });
+        expect(matchFenceOpen('``')).toBeNull();
+    });
+});
+
+describe('tokenizeMarkdown — inline spans', () => {
+    test('inline code covers the backticks as well as the content', () => {
+        expect(tokenize('run `bun test` now')).toEqual([['`bun test`', 'code']]);
+    });
+
+    test('a double-backtick run is closed by a matching run', () => {
+        expect(tokenize('``a ` b``')).toEqual([['``a ` b``', 'code']]);
+    });
+
+    test('an unclosed backtick is left as plain text', () => {
+        expect(tokenize('a ` b')).toEqual([]);
+    });
+
+    test('links split into markers, text and url', () => {
+        expect(tokenize('[docs](https://x.dev)')).toEqual([
+            ['[', 'marker'],
+            ['docs', 'link'],
+            ['](', 'marker'],
+            ['https://x.dev', 'linkUrl'],
+            [')', 'marker'],
+        ]);
+    });
+
+    test('an empty link text emits no link range', () => {
+        expect(tokenize('[](url)')).toEqual([
+            ['[', 'marker'],
+            ['](', 'marker'],
+            ['url', 'linkUrl'],
+            [')', 'marker'],
+        ]);
+    });
+
+    test('inline spans are scanned inside headings, quotes and list items', () => {
+        expect(tokenize('# see `code`')).toEqual([
+            ['#', 'marker'],
+            ['see `code`', 'heading'],
+            ['`code`', 'code'],
+        ]);
+        expect(tokenize('> see `code`')).toEqual([
+            ['>', 'marker'],
+            ['see `code`', 'blockquote'],
+            ['`code`', 'code'],
+        ]);
+        expect(tokenize('- see `code`')).toEqual([
+            ['-', 'listMarker'],
+            ['`code`', 'code'],
+        ]);
+    });
+
+    test('emphasis is deliberately not tokenized', () => {
+        // The mirror overlay may not change glyph metrics, so bold/italic have
+        // no representation today. The CodeMirror editor removes that limit.
+        expect(tokenize('**bold** and *italic* and _under_')).toEqual([]);
+    });
+
+    test('the !!! attention marker is not tokenized', () => {
+        expect(tokenize('!!! important')).toEqual([]);
+    });
+
+    test('a bare ~path is not tokenized', () => {
+        expect(tokenize('~/repos/ocb/README.md')).toEqual([]);
+    });
+});
+
+describe('tokenizeMarkdown — offsets across lines', () => {
+    test('ranges are absolute offsets into the whole text', () => {
+        const text = 'intro\n# Head\n- item';
+        const ranges = tokenizeMarkdown(text);
+        for (const range of ranges) {
+            expect(text.slice(range.start, range.end).length).toBe(range.end - range.start);
+        }
+        expect(spans(text, ranges)).toEqual([
+            ['#', 'marker'],
+            ['Head', 'heading'],
+            ['-', 'listMarker'],
+        ]);
+    });
+
+    test('empty input yields no ranges', () => {
+        expect(tokenizeMarkdown('')).toEqual([]);
+    });
+});
+
+describe('mentionRangesToHighlightRanges', () => {
+    test('file and agent mentions map to their own styles', () => {
+        expect(mentionRangesToHighlightRanges([
+            { start: 0, end: 5, kind: 'file' },
+            { start: 6, end: 9, kind: 'agent' },
+        ])).toEqual([
+            { start: 0, end: 5, style: 'mentionFile' },
+            { start: 6, end: 9, style: 'mentionAgent' },
+        ]);
+    });
+});
+
+describe('buildHighlightParts', () => {
+    test('returns null when there is nothing to highlight', () => {
+        expect(buildHighlightParts('', [])).toBeNull();
+        expect(buildHighlightParts('plain text', [])).toBeNull();
+    });
+
+    test('covers the full text and preserves it exactly', () => {
+        const text = '# Title\nplain `code` tail';
+        const parts = buildHighlightParts(text, tokenizeMarkdown(text));
+        expect(parts).not.toBeNull();
+        expect(parts!.map((part) => part.text).join('')).toBe(text);
+    });
+
+    test('adjacent parts sharing a class are coalesced', () => {
+        const parts = buildHighlightParts('abcdef', [
+            { start: 0, end: 3, style: 'code' },
+            { start: 3, end: 6, style: 'code' },
+        ]);
+        expect(parts).toHaveLength(1);
+        expect(parts![0].text).toBe('abcdef');
+    });
+
+    test('higher priority wins on overlap — a mention beats inline code', () => {
+        const text = '`@a/b.ts`';
+        const parts = buildHighlightParts(text, [
+            { start: 0, end: text.length, style: 'code' },
+            { start: 1, end: text.length - 1, style: 'mentionFile' },
+        ]);
+        expect(parts!.map((part) => part.text)).toEqual(['`', '@a/b.ts', '`']);
+        expect(parts![1].className).toBe(parts![1].className);
+        expect(parts![0].className).not.toBe(parts![1].className);
+    });
+
+    test('equal priority resolves to the earliest range in input order', () => {
+        const parts = buildHighlightParts('abcd', [
+            { start: 0, end: 4, style: 'mentionFile' },
+            { start: 0, end: 4, style: 'mentionAgent' },
+        ]);
+        expect(parts).toHaveLength(1);
+        expect(parts![0].className).toBe(
+            buildHighlightParts('abcd', [{ start: 0, end: 4, style: 'mentionFile' }])![0].className,
+        );
+    });
+
+    test('an explicit priority overrides the style table', () => {
+        const parts = buildHighlightParts('abcd', [
+            { start: 0, end: 4, style: 'mentionFile' },
+            { start: 0, end: 4, style: 'marker', priority: 999 },
+        ]);
+        expect(parts![0].className).toBe(
+            buildHighlightParts('abcd', [{ start: 0, end: 4, style: 'marker' }])![0].className,
+        );
+    });
+
+    test('an explicit className overrides the style class', () => {
+        const parts = buildHighlightParts('abcd', [
+            { start: 0, end: 4, style: 'code', className: 'custom-class' },
+        ]);
+        expect(parts).toEqual([{ text: 'abcd', className: 'custom-class' }]);
+    });
+
+    test('zero-width ranges are ignored', () => {
+        const parts = buildHighlightParts('abcd', [{ start: 2, end: 2, style: 'code' }]);
+        expect(parts).toHaveLength(1);
+        expect(parts![0].text).toBe('abcd');
+    });
+});

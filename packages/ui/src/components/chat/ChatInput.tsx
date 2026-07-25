@@ -114,6 +114,11 @@ import {
     findAttachmentCitationRanges,
 } from './attachmentCitations';
 import { getFileMentionAutocompleteQuery, type FileMentionAutocompleteInputSource } from './fileMentionAutocompleteState';
+import {
+    classifyMention,
+    findMentionAt,
+    scanMentions,
+} from './composer/language/mentions';
 import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
@@ -121,7 +126,6 @@ import type { Part } from '@opencode-ai/sdk/v2/client';
 
 const MAX_VISIBLE_TEXTAREA_LINES = 8;
 const EMPTY_QUEUE: QueuedMessage[] = [];
-const FILE_MENTION_TOKEN = /^@[^\s]+$/;
 // Single-line URL pasted over a selection becomes a markdown link.
 const PASTE_LINK_URL_PATTERN = /^(https?:\/\/|mailto:)\S+$/i;
 const INLINE_SKILL_TOKEN_PATTERN = /(^|\s)\/([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)/g;
@@ -965,9 +969,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         return snapshot.text;
     });
     const confirmedMentionsRef = React.useRef<Set<string>>(initialDraftSnapshotRef.current.confirmedMentions);
-    // Helper: check if a mention path looks like a file/folder (has path separators, extension, or was explicitly confirmed)
-    const isConfirmedFilePath = (text: string): boolean =>
-        text.includes('/') || text.includes('\\') || text.includes('.') || confirmedMentionsRef.current.has(text);
     const [inputMode, setInputMode] = React.useState<'normal' | 'shell'>('normal');
     const [isDragging, setIsDragging] = React.useState(false);
     const [isInternalDrag, setIsInternalDrag] = React.useState(false);
@@ -1353,22 +1354,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             return [];
         }
         const ranges: MentionRange[] = [];
-        const mentionRegex = /@([^\s]+)/g;
-        let match: RegExpExecArray | null;
-        while ((match = mentionRegex.exec(message)) !== null) {
-            const full = match[0];
-            const mention = String(match[1] || '').trim().replace(/[),.;:!?`"'>]+$/g, '');
-            const start = match.index;
-            const end = start + full.length;
-            const charBefore = start > 0 ? message[start - 1] : null;
-            const isBoundary = !charBefore || /(\s|\(|\)|\[|\]|\{|\}|"|'|`|,|\.|;|:)/.test(charBefore);
-            if (!isBoundary || mention.length === 0) {
-                continue;
-            }
-            if (knownAgentNames.has(mention.toLowerCase())) {
-                ranges.push({ start, end, kind: 'agent' });
-            } else if (isConfirmedFilePath(mention)) {
-                ranges.push({ start, end, kind: 'file' });
+        for (const token of scanMentions(message)) {
+            const kind = classifyMention(token.name, {
+                knownAgentNames,
+                confirmedMentions: confirmedMentionsRef.current,
+            });
+            if (kind) {
+                ranges.push({ start: token.start, end: token.end, kind });
             }
         }
         return ranges;
@@ -1426,31 +1418,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         const seenPaths = new Set<string>();
         const attachments: AttachedFile[] = [];
 
-        const mentionRegex = /@([^\s]+)/g;
-        let match: RegExpExecArray | null;
-        while ((match = mentionRegex.exec(rawText)) !== null) {
-            const rawMentionPath = match[1];
-            const offset = match.index;
-            const original = rawText;
-            const charBefore = offset > 0 ? original[offset - 1] : null;
-            if (charBefore && !/(\s|\(|\)|\[|\]|\{|\}|"|'|`|,|\.|;|:)/.test(charBefore)) {
-                continue;
-            }
-
-            const mentionPath = String(rawMentionPath || '')
-                .trim()
-                .replace(/^[`"'<(]+/, '')
-                .replace(/[),.;:!?`"'>]+$/g, '');
-            if (!mentionPath) {
-                continue;
-            }
-
-            if (knownAgentNamesRef.current.has(mentionPath.toLowerCase())) {
-                continue;
-            }
-
-            const looksLikeFilePath = isConfirmedFilePath(mentionPath);
-            if (!looksLikeFilePath) {
+        for (const token of scanMentions(rawText)) {
+            const mentionPath = token.name;
+            const kind = classifyMention(mentionPath, {
+                knownAgentNames: knownAgentNamesRef.current,
+                confirmedMentions: confirmedMentionsRef.current,
+            });
+            // Agents are routed separately by parseAgentMentions; only file
+            // references become attachments here.
+            if (kind !== 'file') {
                 continue;
             }
 
@@ -2583,24 +2559,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             if (hasCollapsedSelection) {
                 const probeIndex = e.key === 'Backspace' ? selectionStart - 1 : selectionStart;
                 if (probeIndex >= 0 && probeIndex < message.length) {
-                    let tokenStart = probeIndex;
-                    while (tokenStart > 0 && !/\s/.test(message[tokenStart - 1])) {
-                        tokenStart -= 1;
-                    }
+                    // Deleting inside a file mention removes the whole
+                    // reference — a half-eaten path resolves to nothing.
+                    const mention = findMentionAt(message, probeIndex);
+                    const isFileMention = mention !== null && classifyMention(mention.name, {
+                        knownAgentNames: knownAgentNamesRef.current,
+                        confirmedMentions: confirmedMentionsRef.current,
+                    }) === 'file';
 
-                    let tokenEnd = probeIndex + 1;
-                    while (tokenEnd < message.length && !/\s/.test(message[tokenEnd])) {
-                        tokenEnd += 1;
-                    }
-
-                    const token = message.slice(tokenStart, tokenEnd);
-                    const mentionContent = token.slice(1);
-                    const looksLikeFileMention = FILE_MENTION_TOKEN.test(token)
-                        && !knownAgentNamesRef.current.has(mentionContent.toLowerCase())
-                        && isConfirmedFilePath(mentionContent);
-
-                    if (looksLikeFileMention) {
-                        confirmedMentionsRef.current.delete(mentionContent);
+                    if (mention && isFileMention) {
+                        const tokenStart = mention.start;
+                        const tokenEnd = mention.end;
+                        confirmedMentionsRef.current.delete(mention.name);
                         const removeUntil = message[tokenEnd] === ' ' ? tokenEnd + 1 : tokenEnd;
                         const nextMessage = `${message.slice(0, tokenStart)}${message.slice(removeUntil)}`;
                         e.preventDefault();
