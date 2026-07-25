@@ -9,6 +9,9 @@ import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
 import { useUIStore } from '@/stores/useUIStore';
 import { isVSCodeRuntime } from '@/lib/desktop';
+import { getHarnessCapabilityLevel } from '@/lib/harness/capabilities';
+import { useSelectionStore } from '@/sync/selection-store';
+import { isHarnessId } from '@/types/harness';
 import { useMobileAutocompleteMaxHeight } from './useMobileAutocompleteMaxHeight';
 
 type CommandSource = 'openchamber' | 'opencode' | 'skill';
@@ -70,6 +73,16 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
   const canStartSessionCommand = hasSession || hasNewSessionDraft;
   const isMobile = useUIStore((state) => state.isMobile);
   const canUseReviewHandoffFlow = hasSession && !isMobile && !isVSCodeRuntime();
+  const sessionTarget = useSelectionStore((state) => (
+    currentSessionId ? state.sessionTargets.get(currentSessionId) ?? null : null
+  ));
+  const lastUsedTarget = useSelectionStore((state) => state.lastUsedTarget);
+  const goalHarnessId = sessionTarget?.harnessId ?? lastUsedTarget?.harnessId ?? 'opencode';
+  const canUseGoalCommand = canStartSessionCommand
+    && getHarnessCapabilityLevel(
+      isHarnessId(goalHarnessId) ? goalHarnessId : 'opencode',
+      'goal',
+    ) !== 'none';
 
   const [commands, setCommands] = React.useState<CommandInfo[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -166,7 +179,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             ? [{ id: 'openchamber:plan-feature', name: 'plan-feature', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.featurePlanDescription'), isOpenChamber: true }]
             : []
           ),
-          ...(canStartSessionCommand
+          ...(canUseGoalCommand
             ? [{ id: 'openchamber:craft-goal', name: 'craft-goal', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.craftGoalDescription'), isOpenChamber: true }]
             : []
           ),
@@ -243,7 +256,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             ? [{ id: 'openchamber:plan-feature', name: 'plan-feature', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.featurePlanDescription'), isOpenChamber: true }]
             : []
           ),
-          ...(canStartSessionCommand
+          ...(canUseGoalCommand
             ? [{ id: 'openchamber:craft-goal', name: 'craft-goal', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.craftGoalDescription'), isOpenChamber: true }]
             : []
           ),
@@ -283,7 +296,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
     };
 
     loadCommands();
-  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, canUseReviewHandoffFlow, commandsWithMetadata, skills, t]);
+  }, [searchQuery, hasMessagesInCurrentSession, hasSession, canStartSessionCommand, canUseGoalCommand, canUseReviewHandoffFlow, commandsWithMetadata, skills, t]);
 
   React.useEffect(() => {
     setSelectedIndex(0);

@@ -182,9 +182,18 @@ export type DesktopSettings = {
   shortcutOverrides?: Record<string, string>;
 
   favoriteModels?: Array<{ providerID: string; modelID: string }>;
+  /** Target-aware favorites (OpenCode + Claude). Legacy favoriteModels remain for older clients. */
+  favoriteTargets?: Array<
+    | { harnessId: 'opencode'; providerId: string; modelId: string }
+    | { harnessId: 'claude-code'; modelRef: string }
+  >;
   hiddenModels?: Array<{ providerID: string; modelID: string }>;
   collapsedModelProviders?: string[];
   recentModels?: Array<{ providerID: string; modelID: string }>;
+  recentTargets?: Array<
+    | { harnessId: 'opencode'; providerId: string; modelId: string }
+    | { harnessId: 'claude-code'; modelRef: string }
+  >;
   recentAgents?: string[];
   recentEfforts?: Record<string, string[]>;
   diffLayoutPreference?: 'dynamic' | 'inline' | 'side-by-side';

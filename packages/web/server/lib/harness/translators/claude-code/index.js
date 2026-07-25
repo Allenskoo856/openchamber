@@ -5,6 +5,11 @@
 import { mapAttachmentsToContentBlocks } from './attachments.js';
 import { startClaudeQuery } from './query.js';
 import {
+  createCanUseTool,
+  rejectPendingForSession,
+  replyPermission as replyPendingPermission,
+} from './permissions.js';
+import {
   buildUserMessageEvents,
   createClaudeMapperContext,
   createOpenCodeId,
@@ -160,6 +165,12 @@ export function createClaudeCodeTranslator(deps = {}) {
       throw error;
     }
 
+    const canUseTool = createCanUseTool({
+      sessionId,
+      directory,
+      getBroadcast,
+    });
+
     let handle;
     try {
       handle = await startQuery({
@@ -168,6 +179,7 @@ export function createClaudeCodeTranslator(deps = {}) {
         model: binding.target?.modelRef,
         resume: binding.foreignSessionId,
         permissionMode: binding.target?.permissionMode,
+        canUseTool,
         includePartialMessages: true,
       });
     } catch (error) {
@@ -209,6 +221,7 @@ export function createClaudeCodeTranslator(deps = {}) {
           },
         ]);
       } finally {
+        rejectPendingForSession(sessionId);
         try {
           handle.close();
         } catch {
@@ -248,6 +261,7 @@ export function createClaudeCodeTranslator(deps = {}) {
     }
 
     active.aborting = true;
+    rejectPendingForSession(sessionId);
     try {
       await active.handle.interrupt();
     } catch {
@@ -270,9 +284,15 @@ export function createClaudeCodeTranslator(deps = {}) {
     return { ok: true, sessionId, aborted: true };
   };
 
+  /**
+   * @param {{ sessionId: string, requestId: string, reply: 'once' | 'always' | 'reject', directory?: string }} body
+   */
+  const replyPermission = async (body) => replyPendingPermission(body);
+
   return {
     prompt,
     abort,
+    replyPermission,
     /** @internal test helper */
     _activeTurns: activeTurns,
   };

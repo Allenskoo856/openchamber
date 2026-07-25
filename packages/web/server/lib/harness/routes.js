@@ -5,7 +5,10 @@
 import express from 'express';
 import { detectAllHarnesses, detectHarness } from './detect.js';
 import { isKnownHarnessId } from './registry.js';
-import { getSessionBinding } from './session-bindings.js';
+import {
+  getSessionBinding,
+  initSessionBindings,
+} from './session-bindings.js';
 import { createHarnessRouter } from './router.js';
 
 /**
@@ -16,6 +19,8 @@ import { createHarnessRouter } from './router.js';
  * @param {ReturnType<typeof createHarnessRouter>} [deps.router]
  * @param {typeof detectAllHarnesses} [deps.detectAll]
  * @param {typeof detectHarness} [deps.detectOne]
+ * @param {Parameters<typeof initSessionBindings>[0]} [deps.sessionBindings]
+ * @param {boolean} [deps.initBindings]
  */
 export function registerHarnessRoutes(app, deps = {}) {
   const getBroadcast = typeof deps.getBroadcastGlobalUiEvent === 'function'
@@ -29,6 +34,10 @@ export function registerHarnessRoutes(app, deps = {}) {
   const detectAll = deps.detectAll || detectAllHarnesses;
   const detectOne = deps.detectOne || detectHarness;
   const router = deps.router || createHarnessRouter({ getBroadcast });
+
+  if (deps.initBindings !== false) {
+    initSessionBindings(deps.sessionBindings);
+  }
 
   const json = express.json({ limit: '50mb' });
 
@@ -106,6 +115,21 @@ export function registerHarnessRoutes(app, deps = {}) {
   app.post('/api/harness/abort', json, async (req, res) => {
     try {
       const result = await router.abort(req.body || {});
+      res.json(result);
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  app.post('/api/harness/permission/reply', json, async (req, res) => {
+    try {
+      if (typeof router.replyPermission !== 'function') {
+        const error = new Error('Permission reply is unavailable');
+        error.code = 'PERMISSION_UNAVAILABLE';
+        error.statusCode = 503;
+        throw error;
+      }
+      const result = await router.replyPermission(req.body || {});
       res.json(result);
     } catch (error) {
       sendError(res, error);

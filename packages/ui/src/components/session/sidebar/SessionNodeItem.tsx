@@ -46,6 +46,7 @@ import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 import { startSessionTreeWorktreeMove, useIsSessionWorktreeMovePending } from '@/lib/worktrees/sessionWorktreeMove';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useSelectionStore } from '@/sync/selection-store';
 
 type Folder = { id: string; name: string; sessionIds: string[] };
 
@@ -400,6 +401,17 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     </span>
   ) : null;
   const sessionTitle = resolvedSession.title || t('sessions.sidebar.session.untitled');
+  const sessionExecutionTarget = useSelectionStore((state) => state.sessionTargets.get(session.id) ?? null);
+  const isClaudeCodeSession = sessionExecutionTarget?.harnessId === 'claude-code';
+  const claudeEngineGlyph = isClaudeCodeSession ? (
+    <span
+      className="inline-flex flex-shrink-0 items-center text-muted-foreground"
+      title={t('sessions.sidebar.session.engine.claudeCodeTooltip')}
+      aria-label={t('sessions.sidebar.session.engine.claudeCodeAria')}
+    >
+      <Icon name="sparkling" className="h-3 w-3" />
+    </span>
+  ) : null;
   const hasChildren = node.children.length > 0;
   const isPinnedSession = isSessionPinned(pinnedSessionIds, sessionDirectory, session.id);
   // Per-render-context expansion key: the same session can appear in both
@@ -1112,7 +1124,10 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                     )}
                   >
                     <div className={cn('flex w-full items-center min-w-0 flex-1 overflow-hidden', isMinimalMode ? 'gap-1' : 'gap-1')}>
-                      <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', isActive ? 'text-primary' : 'text-foreground')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
+                      <div className={cn('flex min-w-0 flex-1 items-center gap-1 overflow-hidden', isActive ? 'text-primary' : 'text-foreground')}>
+                        {claudeEngineGlyph}
+                        <span className="block min-w-0 flex-1 truncate typography-ui-label font-normal">{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</span>
+                      </div>
                       {alwaysShowActions ? (
                         <span className="ml-2 inline-flex flex-shrink-0 items-center gap-1 text-[0.72rem] text-muted-foreground/75">
                           {sessionGoalGlyph}
@@ -1182,7 +1197,10 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 )}
               >
                 <div className={cn('flex w-full items-center min-w-0 flex-1 overflow-hidden', isMinimalMode ? 'gap-1' : 'gap-1')}>
-                    <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', isActive ? 'text-primary' : 'text-foreground')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
+                    <div className={cn('flex min-w-0 flex-1 items-center gap-1 overflow-hidden', isActive ? 'text-primary' : 'text-foreground')}>
+                      {claudeEngineGlyph}
+                      <span className="block min-w-0 flex-1 truncate typography-ui-label font-normal">{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</span>
+                    </div>
                     {pendingPermissionCount > 0 ? (
                       <span className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1 py-0.5 text-[0.7rem] text-destructive flex-shrink-0" title={t('sessions.sidebar.session.status.permissionRequired')} aria-label={t('sessions.sidebar.session.status.permissionRequired')}>
                         <Icon name="shield" className="h-3 w-3" />

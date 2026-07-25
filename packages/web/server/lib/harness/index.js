@@ -30,7 +30,21 @@ export {
   clearSessionBinding,
   resetSessionBindings,
   listSessionBindings,
+  configureSessionBindings,
+  initSessionBindings,
+  flushSessionBindings,
+  sanitizeSessionBinding,
+  resolveSessionBindingsPath,
 } from './session-bindings.js';
+
+export {
+  createCanUseTool,
+  replyPermission,
+  rejectPendingForSession,
+  resetPendingPermissions,
+  getPendingPermissionCount,
+  DEFAULT_PERMISSION_TIMEOUT_MS,
+} from './translators/claude-code/permissions.js';
 
 export { createHarnessRouter } from './router.js';
 export { registerHarnessRoutes } from './routes.js';

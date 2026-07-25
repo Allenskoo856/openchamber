@@ -9,6 +9,7 @@ mock.module('@/lib/runtime-fetch', () => ({
 const {
   buildHarnessPromptBody,
   harnessAbort,
+  harnessPermissionReply,
   harnessPrompt,
   HarnessClientError,
 } = await import(`./client?cache-test=${Date.now()}`);
@@ -124,5 +125,41 @@ describe('harnessAbort', () => {
     const [path, init] = runtimeFetchMock.mock.calls[0];
     expect(path).toBe('/api/harness/abort');
     expect(JSON.parse(String(init.body))).toEqual({ sessionId: 'ses_1', directory: '/project' });
+  });
+});
+
+describe('harnessPermissionReply', () => {
+  test('posts to /api/harness/permission/reply via runtimeFetch', async () => {
+    runtimeFetchMock.mockImplementation(async () => new Response(JSON.stringify({
+      ok: true,
+      sessionId: 'ses_1',
+      requestId: 'perm_1',
+      reply: 'once',
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    const result = await harnessPermissionReply({
+      sessionId: 'ses_1',
+      requestId: 'perm_1',
+      reply: 'once',
+      directory: '/project',
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      sessionId: 'ses_1',
+      requestId: 'perm_1',
+      reply: 'once',
+    });
+    const [path, init] = runtimeFetchMock.mock.calls[0];
+    expect(path).toBe('/api/harness/permission/reply');
+    expect(JSON.parse(String(init.body))).toEqual({
+      sessionId: 'ses_1',
+      requestId: 'perm_1',
+      reply: 'once',
+      directory: '/project',
+    });
   });
 });

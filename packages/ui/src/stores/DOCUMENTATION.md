@@ -33,7 +33,7 @@ These stores act like centralized keyed caches. UI should consume narrow slices 
 
 Examples:
 
-- `useUIStore.ts`
+- `useUIStore.ts` — includes target-aware `favoriteTargets` / `recentTargets` (OpenCode + Claude Code). Legacy `favoriteModels` / `recentModels` stay synced for older settings clients (`providerID: 'claude-code'` encodes Claude model refs).
 - `useDirectoryStore.ts`
 - `useFeatureFlagsStore.ts`
 - `useUpdateStore.ts`

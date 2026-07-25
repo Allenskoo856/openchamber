@@ -10,6 +10,7 @@ import { createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, typ
 import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
+import { sessionSupports } from '@/lib/harness/capabilities';
 import { useInputStore } from '@/sync/input-store';
 import {
     ACCEPTED_ATTACHMENT_EXTENSIONS,
@@ -2301,6 +2302,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 return;
             }
             else if (commandName === 'craft-goal' && (currentSessionId || newSessionDraftOpen)) {
+                if (!sessionSupports(currentSessionId, 'goal')) {
+                    toast.error(t('chat.engines.capability.goalUnsupported'));
+                    return;
+                }
                 try {
                     await sessionActions.waitForConnectionOrThrow();
                     const idea = normalizedCommand.replace(/^\/craft-goal\b/i, '').trim();

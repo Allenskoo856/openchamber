@@ -44,6 +44,22 @@ export type HarnessAbortResult = {
   status?: string;
 };
 
+export type HarnessPermissionReply = 'once' | 'always' | 'reject';
+
+export type HarnessPermissionReplyParams = {
+  sessionId: string;
+  requestId: string;
+  reply: HarnessPermissionReply;
+  directory?: string;
+};
+
+export type HarnessPermissionReplyResult = {
+  ok: boolean;
+  sessionId: string;
+  requestId: string;
+  reply: HarnessPermissionReply;
+};
+
 export class HarnessClientError extends Error {
   readonly code: string;
   readonly statusCode: number;
@@ -204,5 +220,69 @@ export async function harnessAbort(params: HarnessAbortParams): Promise<HarnessA
     ok: payload.ok !== false,
     ...(typeof payload.sessionId === 'string' ? { sessionId: payload.sessionId } : { sessionId: params.sessionId }),
     ...(typeof payload.status === 'string' ? { status: payload.status } : {}),
+  };
+}
+
+export async function harnessPermissionReply(
+  params: HarnessPermissionReplyParams,
+): Promise<HarnessPermissionReplyResult> {
+  if (!params.sessionId.trim()) {
+    throw new HarnessClientError('sessionId is required', 'PERMISSION_REPLY_INVALID', 400);
+  }
+  if (!params.requestId.trim()) {
+    throw new HarnessClientError('requestId is required', 'PERMISSION_REPLY_INVALID', 400);
+  }
+  if (params.reply !== 'once' && params.reply !== 'always' && params.reply !== 'reject') {
+    throw new HarnessClientError('reply must be once, always, or reject', 'PERMISSION_REPLY_INVALID', 400);
+  }
+
+  const body: Record<string, unknown> = {
+    sessionId: params.sessionId,
+    requestId: params.requestId,
+    reply: params.reply,
+  };
+  if (params.directory?.trim()) {
+    body.directory = params.directory.trim();
+  }
+
+  let response: Response;
+  try {
+    response = await runtimeFetch('/api/harness/permission/reply', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Harness permission reply failed';
+    throw new HarnessClientError(message, 'HARNESS_NETWORK', 0);
+  }
+
+  if (!response.ok) {
+    const { message, code, status } = await readErrorPayload(response);
+    throw new HarnessClientError(message, code, response.status, status);
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!isRecord(payload)) {
+    return {
+      ok: true,
+      sessionId: params.sessionId,
+      requestId: params.requestId,
+      reply: params.reply,
+    };
+  }
+
+  const reply = payload.reply === 'once' || payload.reply === 'always' || payload.reply === 'reject'
+    ? payload.reply
+    : params.reply;
+
+  return {
+    ok: payload.ok !== false,
+    sessionId: typeof payload.sessionId === 'string' ? payload.sessionId : params.sessionId,
+    requestId: typeof payload.requestId === 'string' ? payload.requestId : params.requestId,
+    reply,
   };
 }

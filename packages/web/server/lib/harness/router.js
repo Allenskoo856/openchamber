@@ -41,5 +41,19 @@ export function createHarnessRouter(deps = {}) {
     return claude.abort(body);
   };
 
-  return { prompt, abort, claude, opencode };
+  /**
+   * Resolve a bridged Claude permission prompt.
+   * @param {object} body
+   */
+  const replyPermission = async (body) => {
+    if (typeof claude.replyPermission !== 'function') {
+      const error = new Error('Permission reply is unavailable');
+      error.code = 'PERMISSION_UNAVAILABLE';
+      error.statusCode = 503;
+      throw error;
+    }
+    return claude.replyPermission(body);
+  };
+
+  return { prompt, abort, replyPermission, claude, opencode };
 }

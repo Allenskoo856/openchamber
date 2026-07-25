@@ -20,6 +20,7 @@ mock.module('@/lib/harness/client', () => ({
   HarnessClientError,
   harnessPrompt: harnessPromptMock,
   harnessAbort: mock(async () => ({ ok: true })),
+  harnessPermissionReply: mock(async () => ({ ok: true })),
   buildHarnessPromptBody: (params) => params,
 }));
 

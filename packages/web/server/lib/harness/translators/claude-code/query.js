@@ -134,6 +134,7 @@ export function killProcessTree(pid, options = {}) {
  * @param {string} [params.model]
  * @param {string} [params.resume]
  * @param {string} [params.permissionMode]
+ * @param {(toolName: string, input: Record<string, unknown>, options: object) => Promise<object | null>} [params.canUseTool]
  * @param {Record<string, string | undefined>} [params.env]
  * @param {boolean} [params.includePartialMessages]
  * @param {(mod: typeof import('@anthropic-ai/claude-agent-sdk')) => unknown} [params.queryImpl]
@@ -166,6 +167,9 @@ export async function startClaudeQuery(params) {
   }
   if (typeof params.permissionMode === 'string' && params.permissionMode.trim()) {
     options.permissionMode = params.permissionMode.trim();
+  }
+  if (typeof params.canUseTool === 'function') {
+    options.canUseTool = params.canUseTool;
   }
 
   const result = queryFn({

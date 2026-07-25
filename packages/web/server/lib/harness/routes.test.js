@@ -1,11 +1,25 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import express from 'express';
 import { registerHarnessRoutes } from './routes.js';
 import { createHarnessRouter } from './router.js';
-import { resetSessionBindings, getSessionBinding } from './session-bindings.js';
+import {
+  configureSessionBindings,
+  resetSessionBindings,
+  getSessionBinding,
+} from './session-bindings.js';
+import {
+  createCanUseTool,
+  resetPendingPermissions,
+} from './translators/claude-code/permissions.js';
+
+beforeAll(() => {
+  configureSessionBindings({ persist: false, load: true });
+});
 
 afterEach(() => {
   resetSessionBindings();
+  resetPendingPermissions();
+  configureSessionBindings({ persist: false, load: true });
 });
 
 async function withServer(register, run) {
@@ -25,6 +39,7 @@ describe('harness routes', () => {
   it('lists engines and returns 404 for unknown harness', async () => {
     await withServer((app) => {
       registerHarnessRoutes(app, {
+        initBindings: false,
         detectAll: async () => ([
           { engine: { id: 'opencode' }, status: 'ready', sections: [] },
           { engine: { id: 'claude-code' }, status: 'missing-cli', sections: [] },
@@ -79,11 +94,14 @@ describe('harness routes', () => {
         async abort(body) {
           return { ok: true, sessionId: body.sessionId, aborted: false, reason: 'no-active-turn' };
         },
+        async replyPermission() {
+          return { ok: true };
+        },
       },
     });
 
     await withServer((app) => {
-      registerHarnessRoutes(app, { router });
+      registerHarnessRoutes(app, { router, initBindings: false });
     }, async (base) => {
       const response = await fetch(`${base}/api/harness/prompt`, {
         method: 'POST',
@@ -127,11 +145,14 @@ describe('harness routes', () => {
         async abort() {
           return { ok: true, aborted: false };
         },
+        async replyPermission() {
+          return { ok: true };
+        },
       },
     });
 
     await withServer((app) => {
-      registerHarnessRoutes(app, { router });
+      registerHarnessRoutes(app, { router, initBindings: false });
     }, async (base) => {
       const response = await fetch(`${base}/api/harness/prompt`, {
         method: 'POST',
@@ -146,6 +167,56 @@ describe('harness routes', () => {
       expect(response.status).toBe(503);
       const json = await response.json();
       expect(json.code).toBe('CLAUDE_MISSING_CLI');
+    });
+  });
+
+  it('permission reply route resolves bridged canUseTool', async () => {
+    const events = [];
+    createCanUseTool({
+      sessionId: 'ses_perm',
+      directory: '/tmp/project',
+      getBroadcast: () => (payload) => events.push(payload),
+      createId: () => 'perm_route',
+      timeoutMs: 5_000,
+    })('Bash', { command: 'echo route' }, {});
+
+    const router = createHarnessRouter({
+      claudeTranslator: {
+        async prompt() {
+          return { ok: true };
+        },
+        async abort() {
+          return { ok: true, aborted: false };
+        },
+        async replyPermission(body) {
+          const { replyPermission } = await import('./translators/claude-code/permissions.js');
+          return replyPermission(body);
+        },
+      },
+    });
+
+    await withServer((app) => {
+      registerHarnessRoutes(app, { router, initBindings: false });
+    }, async (base) => {
+      const response = await fetch(`${base}/api/harness/permission/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'ses_perm',
+          requestId: 'perm_route',
+          reply: 'once',
+          directory: '/tmp/project',
+        }),
+      });
+      expect(response.status).toBe(200);
+      const json = await response.json();
+      expect(json).toMatchObject({
+        ok: true,
+        sessionId: 'ses_perm',
+        requestId: 'perm_route',
+        reply: 'once',
+      });
+      expect(events.some((event) => event.type === 'permission.replied')).toBe(true);
     });
   });
 });

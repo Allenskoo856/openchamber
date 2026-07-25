@@ -28,6 +28,8 @@ import { withContextObligatoryMessage, type ContextObligatoryMessage } from "@/l
 import { getImperativeSessionMessageLoader } from "./session-message-loader"
 import { cleanupPersistedSessionState } from "./session-deletion-cleanup"
 import { getRuntimeKey } from "@/lib/runtime-switch"
+import { harnessAbort, harnessPermissionReply } from "@/lib/harness/client"
+import { useSelectionStore } from "./selection-store"
 
 const MESSAGE_REFETCH_LIMIT = 100
 const SEND_CONFIRMATION_REFETCH_LIMIT = 30
@@ -1056,6 +1058,14 @@ export async function abortCurrentOperation(sessionId: string): Promise<void> {
   // worktree than the UI's current directory could never be aborted).
   const { directory } = dirStoreForSession(sessionId)
   try {
+    const target = useSelectionStore.getState().getSessionTarget(sessionId)
+    if (target?.harnessId === "claude-code") {
+      await harnessAbort({
+        sessionId,
+        ...(directory ? { directory } : {}),
+      })
+      return
+    }
     await sdk().session.abort({ sessionID: sessionId, directory })
   } catch (error) {
     console.error("[session-actions] abort failed", error)
@@ -1075,6 +1085,19 @@ export async function respondToPermission(
   const directory = resolveDirectoryForBlockingRequest("permission", sessionId, requestId)
     || getSessionDirectory(sessionId)
     || dir()
+  const target = useSelectionStore.getState().getSessionTarget(sessionId)
+  if (target?.harnessId === "claude-code") {
+    const result = await harnessPermissionReply({
+      sessionId,
+      requestId,
+      reply: response,
+      ...(directory ? { directory } : {}),
+    })
+    if (!result.ok) {
+      throw new Error("Permission reply failed")
+    }
+    return
+  }
   const result = await getRequestReplyClient("permission", sessionId, requestId).permission.reply({
     requestID: requestId,
     reply: response,
@@ -1093,6 +1116,19 @@ export async function dismissPermission(
   const directory = resolveDirectoryForBlockingRequest("permission", sessionId, requestId)
     || getSessionDirectory(sessionId)
     || dir()
+  const target = useSelectionStore.getState().getSessionTarget(sessionId)
+  if (target?.harnessId === "claude-code") {
+    const result = await harnessPermissionReply({
+      sessionId,
+      requestId,
+      reply: "reject",
+      ...(directory ? { directory } : {}),
+    })
+    if (!result.ok) {
+      throw new Error("Permission dismissal failed")
+    }
+    return
+  }
   const result = await getRequestReplyClient("permission", sessionId, requestId).permission.reply({
     requestID: requestId,
     reply: "reject",

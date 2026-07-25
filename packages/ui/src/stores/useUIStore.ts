@@ -9,6 +9,15 @@ import { DEFAULT_MONO_FONT, DEFAULT_UI_FONT, type MonoFontOption, type UiFontOpt
 import { getStoredMobileKeyboardMode, type MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { TerminalShell } from '@/lib/api/types';
+import type { ExecutionTarget } from '@/types/harness';
+import {
+  executionTargetFromFavoriteRef,
+  executionTargetsMatchIdentity,
+  favoriteTargetsToLegacyRefs,
+  legacyRefsToFavoriteTargets,
+  normalizeFavoriteTarget,
+  sanitizeFavoriteTargets,
+} from '@/lib/harness/favorite-targets';
 
 export type MainTab = 'chat' | 'plan' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'working' | 'staged' | 'turn';
@@ -603,10 +612,16 @@ interface UIStore {
   inputBarOffset: number;
   mobileKeyboardMode: MobileKeyboardMode;
 
+  /** Canonical target-aware favorites (OpenCode + Claude Code). */
+  favoriteTargets: ExecutionTarget[];
+  /** Legacy OpenCode-shaped refs; kept in sync with favoriteTargets (Claude uses providerID `claude-code`). */
   favoriteModels: Array<{ providerID: string; modelID: string }>;
   hiddenModels: Array<{ providerID: string; modelID: string }>;
   providerOrder: string[];
   collapsedModelProviders: string[];
+  /** Canonical target-aware recents. */
+  recentTargets: ExecutionTarget[];
+  /** Legacy OpenCode-shaped refs; kept in sync with recentTargets. */
   recentModels: Array<{ providerID: string; modelID: string }>;
   recentAgents: string[];
   recentEfforts: Record<string, string[]>;
@@ -767,12 +782,14 @@ interface UIStore {
   applyPadding: () => void;
   updateProportionalSidebarWidths: () => void;
   toggleFavoriteModel: (providerID: string, modelID: string) => void;
+  toggleFavoriteTarget: (target: ExecutionTarget) => void;
   reorderFavoriteModel: (
     activeProviderID: string,
     activeModelID: string,
     overProviderID: string,
     overModelID: string,
   ) => void;
+  reorderFavoriteTarget: (active: ExecutionTarget, over: ExecutionTarget) => void;
   setProviderOrder: (orderedProviderIDs: string[]) => void;
   toggleHiddenModel: (providerID: string, modelID: string) => void;
   isHiddenModel: (providerID: string, modelID: string) => boolean;
@@ -781,7 +798,9 @@ interface UIStore {
   toggleModelProviderCollapsed: (providerID: string) => void;
   setModelProvidersCollapsed: (providerIDs: string[], collapsed: boolean) => void;
   isFavoriteModel: (providerID: string, modelID: string) => boolean;
+  isFavoriteTarget: (target: ExecutionTarget) => boolean;
   addRecentModel: (providerID: string, modelID: string) => void;
+  addRecentTarget: (target: ExecutionTarget) => void;
   addRecentAgent: (agentName: string) => void;
   addRecentEffort: (providerID: string, modelID: string, variant: string | undefined) => void;
   setDiffLayoutPreference: (mode: 'dynamic' | 'inline' | 'side-by-side') => void;
@@ -922,10 +941,12 @@ export const useUIStore = create<UIStore>()(
         cornerRadius: 18,
         inputBarOffset: 0,
         mobileKeyboardMode: getStoredMobileKeyboardMode(),
+        favoriteTargets: [],
         favoriteModels: [],
         hiddenModels: [],
         providerOrder: [],
         collapsedModelProviders: [],
+        recentTargets: [],
         recentModels: [],
         recentAgents: [],
         recentEfforts: {},
@@ -1808,47 +1829,66 @@ export const useUIStore = create<UIStore>()(
         },
 
         toggleFavoriteModel: (providerID, modelID) => {
+          const target = executionTargetFromFavoriteRef({ providerID, modelID });
+          if (!target) return;
+          get().toggleFavoriteTarget(target);
+        },
+
+        toggleFavoriteTarget: (target) => {
+          if (!target) return;
+          const normalized = normalizeFavoriteTarget(target);
           set((state) => {
-            const exists = state.favoriteModels.some(
-              (fav) => fav.providerID === providerID && fav.modelID === modelID
+            const exists = state.favoriteTargets.some((fav) =>
+              executionTargetsMatchIdentity(fav, normalized)
             );
-            
-            if (exists) {
-              // Remove from favorites
-              return {
-                favoriteModels: state.favoriteModels.filter(
-                  (fav) => !(fav.providerID === providerID && fav.modelID === modelID)
-                ),
-              };
-            } else {
-              // Add to favorites (newest first)
-              return {
-                favoriteModels: [{ providerID, modelID }, ...state.favoriteModels],
-              };
-            }
+            const nextTargets = exists
+              ? state.favoriteTargets.filter((fav) => !executionTargetsMatchIdentity(fav, normalized))
+              : [normalized, ...state.favoriteTargets];
+            return {
+              favoriteTargets: nextTargets,
+              favoriteModels: favoriteTargetsToLegacyRefs(nextTargets),
+            };
           });
         },
 
         reorderFavoriteModel: (activeProviderID, activeModelID, overProviderID, overModelID) => {
+          const active = executionTargetFromFavoriteRef({
+            providerID: activeProviderID,
+            modelID: activeModelID,
+          });
+          const over = executionTargetFromFavoriteRef({
+            providerID: overProviderID,
+            modelID: overModelID,
+          });
+          if (!active || !over) return;
+          get().reorderFavoriteTarget(active, over);
+        },
+
+        reorderFavoriteTarget: (active, over) => {
+          const activeNorm = normalizeFavoriteTarget(active);
+          const overNorm = normalizeFavoriteTarget(over);
           set((state) => {
-            const oldIndex = state.favoriteModels.findIndex(
-              (fav) => fav.providerID === activeProviderID && fav.modelID === activeModelID
+            const oldIndex = state.favoriteTargets.findIndex((fav) =>
+              executionTargetsMatchIdentity(fav, activeNorm)
             );
-            const newIndex = state.favoriteModels.findIndex(
-              (fav) => fav.providerID === overProviderID && fav.modelID === overModelID
+            const newIndex = state.favoriteTargets.findIndex((fav) =>
+              executionTargetsMatchIdentity(fav, overNorm)
             );
 
             if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) {
               return state;
             }
 
-            const nextFavorites = state.favoriteModels.slice();
-            const [moved] = nextFavorites.splice(oldIndex, 1);
+            const nextTargets = state.favoriteTargets.slice();
+            const [moved] = nextTargets.splice(oldIndex, 1);
             if (!moved) {
               return state;
             }
-            nextFavorites.splice(newIndex, 0, moved);
-            return { favoriteModels: nextFavorites };
+            nextTargets.splice(newIndex, 0, moved);
+            return {
+              favoriteTargets: nextTargets,
+              favoriteModels: favoriteTargetsToLegacyRefs(nextTargets),
+            };
           });
         },
 
@@ -1951,21 +1991,34 @@ export const useUIStore = create<UIStore>()(
         },
 
         isFavoriteModel: (providerID, modelID) => {
-          const { favoriteModels } = get();
-          return favoriteModels.some(
-            (fav) => fav.providerID === providerID && fav.modelID === modelID
+          const target = executionTargetFromFavoriteRef({ providerID, modelID });
+          if (!target) return false;
+          return get().isFavoriteTarget(target);
+        },
+
+        isFavoriteTarget: (target) => {
+          const normalized = normalizeFavoriteTarget(target);
+          return get().favoriteTargets.some((fav) =>
+            executionTargetsMatchIdentity(fav, normalized)
           );
         },
 
         addRecentModel: (providerID, modelID) => {
+          const target = executionTargetFromFavoriteRef({ providerID, modelID });
+          if (!target) return;
+          get().addRecentTarget(target);
+        },
+
+        addRecentTarget: (target) => {
+          const normalized = normalizeFavoriteTarget(target);
           set((state) => {
-            // Remove existing instance if any
-            const filtered = state.recentModels.filter(
-              (m) => !(m.providerID === providerID && m.modelID === modelID)
+            const filtered = state.recentTargets.filter(
+              (entry) => !executionTargetsMatchIdentity(entry, normalized)
             );
-            // Add to front, limit to 5
+            const nextTargets = [normalized, ...filtered].slice(0, 5);
             return {
-              recentModels: [{ providerID, modelID }, ...filtered].slice(0, 5),
+              recentTargets: nextTargets,
+              recentModels: favoriteTargetsToLegacyRefs(nextTargets),
             };
           });
         },
@@ -2234,7 +2287,7 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 11,
+        version: 12,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
@@ -2244,6 +2297,53 @@ export const useUIStore = create<UIStore>()(
           // v10 -> v11: move the previous terminal font default forward.
           if (version < 11 && state.terminalFontSize === 13) {
             state.terminalFontSize = 14;
+          }
+
+          // v11 -> v12: hydrate target-aware favorites/recents from legacy model refs.
+          if (version < 12) {
+            const fromTargets = sanitizeFavoriteTargets(state.favoriteTargets, 64);
+            const fromLegacyFavorites = Array.isArray(state.favoriteModels)
+              ? legacyRefsToFavoriteTargets(
+                state.favoriteModels
+                  .filter((entry): entry is { providerID: string; modelID: string } => (
+                    !!entry
+                    && typeof entry === 'object'
+                    && typeof (entry as { providerID?: unknown }).providerID === 'string'
+                    && typeof (entry as { modelID?: unknown }).modelID === 'string'
+                  ))
+                  .map((entry) => ({
+                    providerID: entry.providerID,
+                    modelID: entry.modelID,
+                  })),
+              )
+              : [];
+            const favoriteTargets = fromTargets && fromTargets.length > 0
+              ? fromTargets
+              : fromLegacyFavorites;
+            state.favoriteTargets = favoriteTargets;
+            state.favoriteModels = favoriteTargetsToLegacyRefs(favoriteTargets);
+
+            const fromRecentTargets = sanitizeFavoriteTargets(state.recentTargets, 16);
+            const fromLegacyRecents = Array.isArray(state.recentModels)
+              ? legacyRefsToFavoriteTargets(
+                state.recentModels
+                  .filter((entry): entry is { providerID: string; modelID: string } => (
+                    !!entry
+                    && typeof entry === 'object'
+                    && typeof (entry as { providerID?: unknown }).providerID === 'string'
+                    && typeof (entry as { modelID?: unknown }).modelID === 'string'
+                  ))
+                  .map((entry) => ({
+                    providerID: entry.providerID,
+                    modelID: entry.modelID,
+                  })),
+              )
+              : [];
+            const recentTargets = fromRecentTargets && fromRecentTargets.length > 0
+              ? fromRecentTargets
+              : fromLegacyRecents;
+            state.recentTargets = recentTargets;
+            state.recentModels = favoriteTargetsToLegacyRefs(recentTargets);
           }
 
           // v9 -> v10: remove obsolete single-file diff view mode setting
@@ -2383,10 +2483,12 @@ export const useUIStore = create<UIStore>()(
           monoFont: state.monoFont,
           padding: state.padding,
           cornerRadius: state.cornerRadius,
+          favoriteTargets: state.favoriteTargets,
           favoriteModels: state.favoriteModels,
           hiddenModels: state.hiddenModels,
           providerOrder: state.providerOrder,
           collapsedModelProviders: state.collapsedModelProviders,
+          recentTargets: state.recentTargets,
           recentModels: state.recentModels,
           recentAgents: state.recentAgents,
           recentEfforts: state.recentEfforts,

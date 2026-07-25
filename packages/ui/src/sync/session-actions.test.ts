@@ -114,6 +114,10 @@ mock.module("@/lib/opencode/client", () => ({
       return mockScopedClient
     },
     getDirectory: () => "/test/project",
+    setDirectory: () => undefined,
+    sendMessage: async () => "msg",
+    shellSession: async () => undefined,
+    sendCommand: async () => undefined,
     getSdkClient: () => mockSdk,
     replyToPermission: mock((requestId: string, reply: string, options?: { directory?: string | null }) => {
       replyCalls.push({ method: "permission.reply", params: { requestID: requestId, reply, directory: options?.directory } })
@@ -147,11 +151,19 @@ mock.module("@/lib/opencode/client", () => ({
 }))
 
 // Mock useConfigStore
+let configStoreState = {
+  isConnected: true,
+  hasEverConnected: true,
+}
 mock.module("@/stores/useConfigStore", () => ({
   useConfigStore: {
+    setState: (partial: Record<string, unknown>) => {
+      configStoreState = { ...configStoreState, ...partial }
+    },
     getState: () => ({
-      isConnected: true,
-      hasEverConnected: true,
+      ...configStoreState,
+      isConnected: configStoreState.isConnected,
+      hasEverConnected: configStoreState.hasEverConnected,
     }),
   },
 }))
@@ -207,6 +219,12 @@ mock.module("@/stores/useGlobalSessionsStore", () => ({
     }
     return next
   },
+  mergeLiveSessionWithGlobalSession: (live: Session) => live,
+  getSessionStructuralSignature: () => "",
+  isGlobalSessionRecencyOnlyUpdate: () => false,
+  ensureGlobalSessionsLoaded: async () => ({ ok: true }),
+  refreshGlobalSessions: async () => ({ ok: true }),
+  refreshGlobalSessionsForDirectories: async () => ({ ok: true }),
   useGlobalSessionsStore: {
     getState: () => ({
       activeSessions: [],
@@ -228,8 +246,110 @@ mock.module("./session-deletion-cleanup", () => ({
 }))
 
 mock.module("./sync-refs", () => ({
+  setSyncRefs: () => undefined,
   registerSessionDirectory: (sessionID: string, directory: string) => {
     registeredSessionDirectories.push({ sessionID, directory })
+  },
+  getSyncChildStores: () => ({ children: new Map(), ensureChild: () => null, getChild: () => null }),
+  getDirectoryState: () => undefined,
+  getSyncConfig: () => undefined,
+  subscribeToSyncConfigChanges: () => () => undefined,
+  emitSyncConfigChanged: () => undefined,
+  getSyncSessions: () => [],
+  getAllSyncSessions: () => [],
+  getAllSyncSessionMap: () => new Map(),
+  getSyncMessages: () => [],
+  getSyncSessionMaterializationStatus: () => undefined,
+  getSyncParts: () => [],
+  getSyncSessionStatus: () => undefined,
+}))
+
+mock.module("@/sync/sync-refs", () => ({
+  setSyncRefs: () => undefined,
+  registerSessionDirectory: (sessionID: string, directory: string) => {
+    registeredSessionDirectories.push({ sessionID, directory })
+  },
+  getSyncChildStores: () => ({ children: new Map(), ensureChild: () => null, getChild: () => null }),
+  getDirectoryState: () => undefined,
+  getSyncConfig: () => undefined,
+  subscribeToSyncConfigChanges: () => () => undefined,
+  emitSyncConfigChanged: () => undefined,
+  getSyncSessions: () => [],
+  getAllSyncSessions: () => [],
+  getAllSyncSessionMap: () => new Map(),
+  getSyncMessages: () => [],
+  getSyncSessionMaterializationStatus: () => undefined,
+  getSyncParts: () => [],
+  getSyncSessionStatus: () => undefined,
+}))
+
+const harnessPermissionReplyCalls: Array<Record<string, unknown>> = []
+const harnessAbortCalls: Array<Record<string, unknown>> = []
+let sessionTargetById: Record<string, { harnessId: string; modelRef?: string; providerId?: string; modelId?: string } | null> = {}
+let pendingHandoffById: Record<string, { harnessId: string; modelRef?: string; providerId?: string; modelId?: string } | null> = {}
+let lastUsedTargetMock: { harnessId: string; modelRef?: string; providerId?: string; modelId?: string } | null = null
+
+const selectionStoreMock = {
+  getState: () => ({
+    sessionTargets: new Map(Object.entries(sessionTargetById).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => Boolean(entry[1]))),
+    pendingHandoffTargets: new Map(Object.entries(pendingHandoffById).filter((entry): entry is [string, NonNullable<typeof entry[1]>] => Boolean(entry[1]))),
+    lastUsedTarget: lastUsedTargetMock,
+    getSessionTarget: (sessionId: string) => sessionTargetById[sessionId] ?? null,
+    getPendingHandoffTarget: (sessionId: string) => pendingHandoffById[sessionId] ?? null,
+    getLastUsedTarget: () => lastUsedTargetMock,
+    saveSessionTarget: (sessionId: string, target: { harnessId: string }) => {
+      sessionTargetById[sessionId] = target
+      lastUsedTargetMock = target
+    },
+    setPendingHandoffTarget: (sessionId: string, target: { harnessId: string }) => {
+      pendingHandoffById[sessionId] = target
+    },
+    clearPendingHandoffTarget: (sessionId: string) => {
+      delete pendingHandoffById[sessionId]
+    },
+    saveLastUsedTarget: (target: { harnessId: string }) => {
+      lastUsedTargetMock = target
+    },
+  }),
+  setState: (partial: Record<string, unknown>) => {
+    if (partial.sessionTargets instanceof Map) {
+      sessionTargetById = Object.fromEntries(partial.sessionTargets.entries())
+    }
+    if (partial.pendingHandoffTargets instanceof Map) {
+      pendingHandoffById = Object.fromEntries(partial.pendingHandoffTargets.entries())
+    }
+    if ("lastUsedTarget" in partial) {
+      lastUsedTargetMock = (partial.lastUsedTarget as typeof lastUsedTargetMock) ?? null
+    }
+  },
+}
+
+mock.module("./selection-store", () => ({
+  useSelectionStore: selectionStoreMock,
+}))
+
+mock.module("@/sync/selection-store", () => ({
+  useSelectionStore: selectionStoreMock,
+}))
+
+mock.module("@/lib/harness/client", () => ({
+  harnessPermissionReply: mock(async (params: Record<string, unknown>) => {
+    harnessPermissionReplyCalls.push(params)
+    return { ok: true, sessionId: params.sessionId, requestId: params.requestId, reply: params.reply }
+  }),
+  harnessAbort: mock(async (params: Record<string, unknown>) => {
+    harnessAbortCalls.push(params)
+    return { ok: true, sessionId: params.sessionId }
+  }),
+  harnessPrompt: mock(async () => ({ ok: true, sessionId: "", harnessId: "claude-code", status: "started" })),
+  HarnessClientError: class HarnessClientError extends Error {
+    code: string
+    statusCode: number
+    constructor(message: string, code: string, statusCode = 500) {
+      super(message)
+      this.code = code
+      this.statusCode = statusCode
+    }
   },
 }))
 
@@ -842,6 +962,8 @@ describe("respondToPermission passes directory", () => {
     replyCalls.length = 0
     scopedClientDirectories.length = 0
     sessionRevertResult = {}
+    harnessPermissionReplyCalls.length = 0
+    sessionTargetById = {}
   })
 
   test("passes directory from child store when permission is found", async () => {
@@ -894,6 +1016,42 @@ describe("respondToPermission passes directory", () => {
     expect(replyCalls[0].params.requestID).toBe("perm-3")
     expect(replyCalls[0].params.reply).toBe("reject")
     expect(replyCalls[0].params.directory).toBe("/fallback/dir")
+  })
+
+  test("routes claude-code targets through harnessPermissionReply", async () => {
+    sessionTargetById["session-a"] = { harnessId: "claude-code", modelRef: "sonnet" }
+    const permission: PermissionRequest = {
+      id: "perm-claude",
+      sessionID: "session-a",
+      permission: "Bash",
+      patterns: ["echo"],
+      metadata: {},
+      always: [],
+    }
+    const store = createStore({ "session-a": [permission] })
+    const childStores = createChildStores([["/test/project", store]])
+
+    const { setActionRefs, respondToPermission, dismissPermission } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    await respondToPermission("session-a", "perm-claude", "always")
+    expect(replyCalls.length).toBe(0)
+    expect(harnessPermissionReplyCalls).toEqual([{
+      sessionId: "session-a",
+      requestId: "perm-claude",
+      reply: "always",
+      directory: "/test/project",
+    }])
+
+    harnessPermissionReplyCalls.length = 0
+    await dismissPermission("session-a", "perm-claude")
+    expect(replyCalls.length).toBe(0)
+    expect(harnessPermissionReplyCalls).toEqual([{
+      sessionId: "session-a",
+      requestId: "perm-claude",
+      reply: "reject",
+      directory: "/test/project",
+    }])
   })
 })
 
@@ -970,6 +1128,8 @@ describe("dismissPermission passes directory", () => {
     replyCalls.length = 0
     scopedClientDirectories.length = 0
     questionReplyError = null
+    harnessPermissionReplyCalls.length = 0
+    sessionTargetById = {}
   })
 
   test("passes directory and reply=reject", async () => {
@@ -1155,5 +1315,54 @@ describe("dismissOpenQuestionsForSession", () => {
     expect(rejectCalls[0].params.requestID).toBe("q-stale")
     // The stale entry is cleared from the store even though the server reported not-found.
     expect(store.getState().question["session-a"]).toBe(undefined)
+  })
+})
+
+describe("abortCurrentOperation", () => {
+  beforeEach(() => {
+    replyCalls.length = 0
+    harnessAbortCalls.length = 0
+    sessionTargetById = {}
+    pendingHandoffById = {}
+    lastUsedTargetMock = null
+  })
+
+  test("routes Claude Code sessions through harnessAbort", async () => {
+    const store = createStore({}, { session: [{ id: "session-a", time: { created: 1 } } as Session] })
+    const childStores = createChildStores([["/test/project", store]])
+    sessionTargetById["session-a"] = { harnessId: "claude-code", modelRef: "sonnet" }
+
+    const { abortCurrentOperation, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    await abortCurrentOperation("session-a")
+
+    expect(harnessAbortCalls).toEqual([
+      { sessionId: "session-a", directory: "/test/project" },
+    ])
+    expect(replyCalls.filter((call) => call.method === "session.abort")).toHaveLength(0)
+  })
+
+  test("keeps OpenCode sessions on SDK session.abort", async () => {
+    const store = createStore({}, { session: [{ id: "session-a", time: { created: 1 } } as Session] })
+    const childStores = createChildStores([["/test/project", store]])
+    sessionTargetById["session-a"] = {
+      harnessId: "opencode",
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4",
+    }
+
+    const { abortCurrentOperation, setActionRefs } = await import("./session-actions")
+    setActionRefs(mockSdk as unknown as OpencodeClient, childStores, () => "/test/project")
+
+    await abortCurrentOperation("session-a")
+
+    expect(harnessAbortCalls).toHaveLength(0)
+    const abortCalls = replyCalls.filter((call) => call.method === "session.abort")
+    expect(abortCalls).toHaveLength(1)
+    expect(abortCalls[0].params).toEqual({
+      sessionID: "session-a",
+      directory: "/test/project",
+    })
   })
 })
