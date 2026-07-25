@@ -1,6 +1,4 @@
 import React from 'react';
-import { flushSync } from 'react-dom';
-import { isCapacitorApp } from '@/lib/platform';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -129,6 +127,8 @@ import {
     parseSlashCommand,
 } from './composer/submit/slashCommands';
 import { useComposerDraft } from './composer/state/useComposerDraft';
+import { useMobileComposerShell } from './composer/state/useMobileComposerShell';
+import { useMobileViewportPin } from './composer/state/useMobileViewportPin';
 import { ComposerActionButtons } from './composer/ui/ComposerActionButtons';
 import { ComposerAttachmentControls } from './composer/ui/ComposerAttachmentControls';
 import { FocusModeButton } from './composer/ui/FocusModeButton';
@@ -261,48 +261,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const [showSnippetAutocomplete, setShowSnippetAutocomplete] = React.useState(false);
     const [snippetQuery, setSnippetQuery] = React.useState('');
     const [mobileControlsPanel, setMobileControlsPanel] = React.useState<MobileControlsPanel>(null);
-    // Mobile pill composer: when the keyboard is closed the composer collapses
-    // into a narrow pill (+ / placeholder / mic) with a round new-session button
-    // beside it. Any interaction expands back into the full composer. The swap
-    // is deliberately INSTANT and synchronized with the keyboard choreography,
-    // so the chat compensates keyboard + composer height in a single motion.
-    const [mobileComposerExpanded, setMobileComposerExpanded] = React.useState(false);
-    const [mobileTextareaFocused, setMobileTextareaFocused] = React.useState(false);
-    // Mobile browser / installed PWA: tapping a composer control while the
-    // keyboard is up blurs the textarea first, and the keyboard-resize reflow
-    // moves the control out from under the finger BEFORE the browser
-    // synthesizes the click — the tap dismisses the keyboard but the control's
-    // onClick never fires. Defer the blur-driven state flip so the pinned
-    // composer holds still through the tap; a refocus cancels it. Capacitor
-    // keeps the immediate flip.
-    const mobileBlurTimerRef = React.useRef<number | null>(null);
-    React.useEffect(() => () => {
-        if (mobileBlurTimerRef.current !== null) {
-            window.clearTimeout(mobileBlurTimerRef.current);
-        }
-    }, []);
-    const [mobileDictationActive, setMobileDictationActive] = React.useState(false);
     const [mobileAttachMenuOpen, setMobileAttachMenuOpen] = React.useState(false);
     const [mobileDraftPicker, setMobileDraftPicker] = React.useState<'project' | 'branch' | null>(null);
     const [mobileDraftPickerQuery, setMobileDraftPickerQuery] = React.useState('');
-    // True while ANY MobileOverlayPanel is open (sessions sheet, model/agent
-    // panels, pickers...). Opening one closes the keyboard, which must not
-    // collapse the composer into the pill under the overlay.
-    const [mobileOverlayHostBusy, setMobileOverlayHostBusy] = React.useState(false);
-    // Set while an expansion is settling (focus/dictation not yet active) so the
-    // collapse watcher doesn't immediately fold the composer back into the pill.
-    const mobileExpandIntentRef = React.useRef<'focus' | null>(null);
-    // Keyboard restore across overlays: opening an overlay closes the keyboard;
-    // if it was open at that moment, reopen it when the overlay closes.
-    const lastMobileBlurAtRef = React.useRef(0);
-    const restoreKeyboardAfterOverlayRef = React.useRef(false);
-    // Pill ↔ full composer morph: the wrapper FLIP-animates its height between
-    // the two shapes while the swapped content fades in.
-    const composerHandleTouchRef = React.useRef<{ startY: number; fired: boolean } | null>(null);
     // Message history navigation state (up/down arrow to recall previous messages)
     const [historyIndex, setHistoryIndex] = React.useState(-1); // -1 = not browsing, 0+ = index from most recent
     const [draftMessage, setDraftMessage] = React.useState(''); // Preserves input when entering history mode
     const composerRef = React.useRef<ComposerEditorHandle>(null);
+    const composerFormRef = React.useRef<HTMLFormElement | null>(null);
     const cursorPosRef = React.useRef(0);
     const dropZoneRef = React.useRef<HTMLDivElement>(null);
     const dragEnterCountRef = React.useRef(0);
@@ -2743,31 +2709,36 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         });
     }, [draftBranchItems, newSessionDraft?.bootstrapPendingDirectory, newSessionDraft?.pendingWorktreeRequestId, newSessionDraft?.preserveDirectoryOverride, selectedDraftDirectory, selectedDraftProject, setNewSessionDraftTarget, showDraftTargetSelectors]);
 
-    // ── Mobile pill composer state machine ─────────────────────────────────
-    const expandMobileComposer = React.useCallback((intent: 'focus') => {
-        mobileExpandIntentRef.current = intent;
-        // flushSync so the textarea exists NOW and focus() still runs inside
-        // the user gesture's call stack: mobile browsers only open the soft
-        // keyboard for focus calls made synchronously from the tap (an rAF
-        // here worked in the Capacitor WebView but not in Safari/Chrome).
-        flushSync(() => {
-            setMobileComposerExpanded(true);
-        });
-        // Capacitor: our keyboard choreography positions everything, so the
-        // browser's own scroll-into-view must stay off. Mobile BROWSERS have no
-        // choreography — the native reveal (viewport pan that lifts the focused
-        // field above the keyboard) is the only thing that moves the composer.
-        composerRef.current?.focus({ preventScroll: isCapacitorApp() });
-    }, []);
+
+    // Mobile pill composer: the collapse/expand state machine and the
+    // platform corrections that keep it from fighting the soft keyboard.
+    const mobileShell = useMobileComposerShell({
+        isMobile,
+        editorRef: composerRef,
+        formRef: composerFormRef,
+        isExpandedInput,
+        setExpandedInput,
+        holders: {
+            controlsPanelOpen: Boolean(mobileControlsPanel),
+            attachMenuOpen: mobileAttachMenuOpen,
+            draftPickerOpen: mobileDraftPicker !== null,
+            issuePickerOpen,
+            prPickerOpen,
+            isDragging,
+        },
+    });
+    const mobileComposerExpanded = mobileShell.expanded;
+    const mobileTextareaFocused = mobileShell.focused;
+
 
     const applyAssistSuggestion = React.useCallback((text: string) => {
         setMessage(text);
         if (isMobile && !mobileComposerExpanded) {
-            expandMobileComposer('focus');
+            mobileShell.expand();
         } else {
             requestAnimationFrame(() => composerRef.current?.focus());
         }
-    }, [expandMobileComposer, isMobile, mobileComposerExpanded]);
+    }, [isMobile, mobileComposerExpanded, mobileShell]);
 
 
     const handleMobileNewSession = React.useCallback(() => {
@@ -2784,384 +2755,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         composerRef.current?.blur();
     }, []);
 
-    const mobileComposerExpandedRef = React.useRef(mobileComposerExpanded);
-    React.useEffect(() => {
-        mobileComposerExpandedRef.current = mobileComposerExpanded;
-    });
-
-    const handleMobileDictationActiveChange = React.useCallback((active: boolean) => {
-        setMobileDictationActive(active);
-        if (active) {
-            mobileExpandIntentRef.current = null;
-            // Dictation engine went live (possibly started from the pill):
-            // switch straight into the voice variant of the full composer.
-            if (!mobileComposerExpandedRef.current) {
-                setMobileComposerExpanded(true);
-            }
-            return;
-        }
-        // Dictation ended. The insert flow hands focus back to the textarea a
-        // tick later — if that happened, stay expanded; otherwise (cancel,
-        // discard, insert-and-send) collapse straight back to the pill without
-        // parking on the normal composer for the usual grace period.
-        window.setTimeout(() => {
-            if (!mobileComposerExpandedRef.current) return;
-            if (composerRef.current?.isFocused()) return;
-            setMobileComposerExpanded(false);
-            setExpandedInput(false);
-        }, 30);
-    }, [setExpandedInput]);
-
-    // Watch the shared overlay portal root: any mounted MobileOverlayPanel
-    // (sessions sheet, model/agent panels, draft pickers, ...) counts as busy.
-    // Observing the host catches overlays whose open-state lives in other
-    // components without threading their state here.
-    React.useEffect(() => {
-        if (!isMobile || typeof document === 'undefined') return;
-        let host = document.getElementById('mobile-overlay-root');
-        if (!host) {
-            // Same lazy-create contract as MobileOverlayPanel's ensureOverlayRoot.
-            host = document.createElement('div');
-            host.id = 'mobile-overlay-root';
-            document.body.appendChild(host);
-        }
-        const hostEl = host;
-        const update = () => setMobileOverlayHostBusy(hostEl.childElementCount > 0);
-        update();
-        const observer = new MutationObserver(update);
-        observer.observe(hostEl, { childList: true });
-        return () => observer.disconnect();
-    }, [isMobile]);
-
-    // If the keyboard was open (or closed just moments ago by the overlay's own
-    // blur) when an overlay appeared, bring it back once every overlay is gone.
-    // The attach dropdown and the GitHub issue/PR pickers join the same chain,
-    // so menu → picker → close restores the keyboard at the end of the flow.
-    const mobileOverlayOpen = mobileOverlayHostBusy
-        || Boolean(mobileControlsPanel)
-        || mobileAttachMenuOpen
-        || issuePickerOpen
-        || prPickerOpen;
-    // Installed PWA (standalone): a focus() from a bare timeout is outside the
-    // user gesture and iOS refuses to raise the keyboard for it (Safari
-    // in-browser is lenient). MobileOverlayPanel dispatches
-    // 'oc:mobile-overlay-closed' synchronously from the same React flush as
-    // the click that closed it — refocus right there, while the gesture is
-    // still live. Chained flows (attach menu → GitHub picker) set the skip ref
-    // so the keyboard doesn't flash open under the next overlay.
-    const mobilePickerDialogsOpenRef = React.useRef(false);
-    mobilePickerDialogsOpenRef.current = issuePickerOpen || prPickerOpen;
-    const skipNextOverlayCloseRestoreRef = React.useRef(false);
-    const openSheetCountRef = React.useRef(0);
-    const holdComposerFocusUntilRef = React.useRef(0);
-    React.useEffect(() => {
-        if (!isMobile || isCapacitorApp() || typeof window === 'undefined') return;
-        if (!window.matchMedia?.('(display-mode: standalone)')?.matches) return;
-        const handleOverlayOpened = () => {
-            openSheetCountRef.current += 1;
-        };
-        const handleOverlayClosed = () => {
-            // Counter instead of a DOM check: the close event fires from a
-            // layout-effect cleanup, when the closing sheet's portal nodes may
-            // still be attached — the DOM can't tell "this sheet going away"
-            // from "another sheet still up".
-            openSheetCountRef.current = Math.max(0, openSheetCountRef.current - 1);
-            if (skipNextOverlayCloseRestoreRef.current) {
-                skipNextOverlayCloseRestoreRef.current = false;
-                return;
-            }
-            if (!restoreKeyboardAfterOverlayRef.current) return;
-            if (mobilePickerDialogsOpenRef.current) return;
-            if (openSheetCountRef.current > 0) return;
-            restoreKeyboardAfterOverlayRef.current = false;
-            // iOS can still dismiss the freshly-raised keyboard when the tap
-            // that closed the overlay finishes over non-input content — hold
-            // focus through that window (see the onBlur guard).
-            holdComposerFocusUntilRef.current = Date.now() + 600;
-            composerRef.current?.focus();
-            // The native focus lands mid-commit; React's delegated onFocus may
-            // not make it into this flush, leaving mobileComposerBusy false for
-            // a beat — enough for the pill-collapse timer to unmount the
-            // focused textarea and kill the rising keyboard. Set the state
-            // explicitly instead of relying on the synthetic event.
-            if (composerRef.current?.isFocused()) {
-                setMobileTextareaFocused(true);
-            }
-            // iOS reveals a field above the keyboard only for user-initiated
-            // focus; a programmatic one leaves the composer parked behind it
-            // (the chat screen has no viewport pin of its own — the draft
-            // screen's pinned form ignores these no-op scrolls). Reveal once
-            // the keyboard has mostly risen, and again after it settles.
-            const reveal = () => {
-                const editor = composerRef.current;
-                if (!editor || !editor.isFocused()) return;
-                // Align the BOTTOM of the whole composer form with the visible
-                // bottom: 'nearest' on the textarea alone leaves the footer
-                // icon row parked behind the keyboard accessory bar.
-                (composerFormRef.current ?? editor.getScrollDOM())?.scrollIntoView({ block: 'end' });
-            };
-            window.setTimeout(reveal, 300);
-            window.setTimeout(reveal, 650);
-        };
-        window.addEventListener('oc:mobile-overlay-opened', handleOverlayOpened);
-        window.addEventListener('oc:mobile-overlay-closed', handleOverlayClosed);
-        return () => {
-            window.removeEventListener('oc:mobile-overlay-opened', handleOverlayOpened);
-            window.removeEventListener('oc:mobile-overlay-closed', handleOverlayClosed);
-        };
-    }, [isMobile]);
-    React.useEffect(() => {
-        if (!isMobile) return;
-        if (mobileOverlayOpen) {
-            if (mobileTextareaFocused || Date.now() - lastMobileBlurAtRef.current < 800) {
-                restoreKeyboardAfterOverlayRef.current = true;
-            }
-            return;
-        }
-        if (!restoreKeyboardAfterOverlayRef.current) return;
-        // Debounced: overlay chains hand off with a frame of "nothing open"
-        // between steps (attach sheet closes → issue/PR picker opens a frame
-        // later). Restoring instantly in that gap would pop the keyboard open
-        // inside the next overlay — wait out the gap and cancel if another
-        // overlay appears.
-        const timer = window.setTimeout(() => {
-            restoreKeyboardAfterOverlayRef.current = false;
-            // Browsers need their native scroll-into-view (see expandMobileComposer).
-            composerRef.current?.focus({ preventScroll: isCapacitorApp() });
-        }, 180);
-        return () => window.clearTimeout(timer);
-    }, [isMobile, mobileOverlayOpen, mobileTextareaFocused]);
-
-    // Fold the full composer back into the pill once nothing keeps it open:
-    // keyboard closed (textarea blurred), no dictation, no sheet/menu/dialog.
-    // The short delay bridges focus moving between composer controls.
-    const mobileComposerBusy = mobileTextareaFocused
-        || mobileOverlayHostBusy
-        || mobileDictationActive
-        || Boolean(mobileControlsPanel)
-        || mobileAttachMenuOpen
-        || mobileDraftPicker !== null
-        || issuePickerOpen
-        || prPickerOpen
-        || isDragging;
-    React.useEffect(() => {
-        if (!isMobile || !mobileComposerExpanded || mobileComposerBusy) return;
-        const timer = window.setTimeout(() => {
-            // Authoritative DOM check: the React focus state can lag a
-            // programmatic refocus (overlay-close keyboard restore). Collapsing
-            // would unmount the focused textarea and kill the keyboard.
-            if (composerRef.current?.isFocused()) return;
-            mobileExpandIntentRef.current = null;
-            setMobileComposerExpanded(false);
-            setExpandedInput(false);
-        }, 250);
-        return () => window.clearTimeout(timer);
-    }, [isMobile, mobileComposerExpanded, mobileComposerBusy, setExpandedInput]);
-
-    const mobileComposerBusyRef = React.useRef(false);
-    mobileComposerBusyRef.current = mobileComposerBusy;
-
-    // Browser counterpart of Capacitor's oc-keyboard-open root class (which is
-    // driven by native keyboard events): the focused composer textarea is the
-    // best keyboard proxy a browser has. CSS keyed on it hides the draft
-    // starters while typing, mirroring the native app.
-    React.useEffect(() => {
-        if (!isMobile || isCapacitorApp() || typeof document === 'undefined') return;
-        const root = document.documentElement;
-        if (mobileTextareaFocused) {
-            root.classList.add('oc-browser-keyboard-open');
-        } else {
-            root.classList.remove('oc-browser-keyboard-open');
-            // Installed PWA (standalone): after the keyboard dismisses, WebKit
-            // can leave the layout viewport stuck smaller / panned (content
-            // shifted up with a dead strip at the bottom) until something
-            // forces it to recompute. A zero scroll after the keyboard's exit
-            // animation settles snaps it back; harmless when nothing is stuck.
-            if (window.matchMedia?.('(display-mode: standalone)')?.matches) {
-                window.setTimeout(() => {
-                    if (root.classList.contains('oc-browser-keyboard-open')) return;
-                    window.scrollTo(0, 0);
-                    document.body.scrollTop = 0;
-                    root.scrollTop = 0;
-                }, 350);
-            }
-        }
-        return () => root.classList.remove('oc-browser-keyboard-open');
-    }, [isMobile, mobileTextareaFocused]);
-
-    // Capacitor: collapse in the SAME frame the keyboard starts hiding. The
-    // hide choreography dispatches oc:keyboard-intent BEFORE restoring the
-    // shell layout and measuring the chat compensation; flushSync commits the
-    // pill swap first, so keyboard land + composer shrink are measured (and
-    // compensated) as ONE motion instead of a two-step staircase. The delayed
-    // effect above stays as the fallback for non-Capacitor and for overlays
-    // closing without a keyboard transition.
-    React.useEffect(() => {
-        if (!isMobile || typeof window === 'undefined') return;
-        const handleIntent = (event: Event) => {
-            const detail = (event as CustomEvent<{ open?: boolean }>).detail;
-            if (!detail || detail.open !== false) return;
-            if (!mobileComposerExpandedRef.current) return;
-            // Something still holds the composer open (dictation, an overlay
-            // that closed the keyboard, drag) — the fallback path handles it.
-            if (mobileComposerBusyRef.current) return;
-            mobileExpandIntentRef.current = null;
-            flushSync(() => {
-                setMobileComposerExpanded(false);
-                setExpandedInput(false);
-            });
-        };
-        window.addEventListener('oc:keyboard-intent', handleIntent);
-        return () => window.removeEventListener('oc:keyboard-intent', handleIntent);
-    }, [isMobile, setExpandedInput]);
 
     // Reset the picker search whenever a draft picker sheet opens/closes.
     React.useEffect(() => {
         setMobileDraftPickerQuery('');
     }, [mobileDraftPicker]);
 
-
-    // ── Composer drag handle (mobile): swipe up = fullscreen, swipe down =
-    // leave fullscreen or dismiss the keyboard. ────────────────────────────
-    const handleComposerHandleTouchStart = React.useCallback((event: React.TouchEvent) => {
-        const touch = event.touches.item(0);
-        composerHandleTouchRef.current = touch ? { startY: touch.clientY, fired: false } : null;
-    }, []);
-    const handleComposerHandleTouchMove = React.useCallback((event: React.TouchEvent) => {
-        const state = composerHandleTouchRef.current;
-        if (!state || state.fired) return;
-        const touch = event.touches.item(0);
-        if (!touch) return;
-        const dy = touch.clientY - state.startY;
-        if (dy <= -28) {
-            state.fired = true;
-            if (!isExpandedInput) setExpandedInput(true);
-        } else if (dy >= 28) {
-            state.fired = true;
-            if (isExpandedInput) {
-                setExpandedInput(false);
-            } else {
-                composerRef.current?.blur();
-            }
-        }
-    }, [isExpandedInput, setExpandedInput]);
-    const handleComposerHandleTouchEnd = React.useCallback(() => {
-        composerHandleTouchRef.current = null;
-    }, []);
-
-    // Fullscreen composer in a mobile BROWSER: the page layout doesn't shrink
-    // for the keyboard there — Safari pans/scrolls instead, so any flow-based
-    // sizing ends up partly off-screen or under the keyboard (the chat page is
-    // usually already panned when fullscreen is entered). Pin the form to the
-    // VISUAL viewport directly: fixed at its offset with its height, updated
-    // as the browser pans. Capacitor is excluded — its shell already resizes
-    // via the keyboard choreography.
-    const composerFormRef = React.useRef<HTMLFormElement | null>(null);
-    React.useLayoutEffect(() => {
-        if (!isMobile || !isMobileExpanded || isCapacitorApp()) return;
-        const vv = window.visualViewport;
-        const form = composerFormRef.current;
-        const editor = composerRef.current;
-        if (!vv || !form) return;
-        // The form is trapped inside lower stacking contexts (the composer
-        // wrapper's z-10), so it cannot out-stack the app header with z-index
-        // alone — hide the header for the duration via a root class instead.
-        document.documentElement.classList.add('oc-browser-kb-fullscreen');
-        const apply = () => {
-            const top = Math.max(0, Math.floor(vv.offsetTop));
-            // Same stale-visualViewport guard as the draft pin below: when the
-            // layout viewport is keyboard-resized (interactive-widget), its
-            // clientHeight is the authoritative above-keyboard height.
-            const layoutHeight = document.documentElement.clientHeight;
-            form.style.position = 'fixed';
-            form.style.left = '0';
-            form.style.right = '0';
-            form.style.top = `${top}px`;
-            form.style.height = `${Math.floor(Math.min(vv.height, layoutHeight - top))}px`;
-            form.style.zIndex = '40';
-            form.style.background = 'var(--background)';
-        };
-        apply();
-        vv.addEventListener('resize', apply);
-        vv.addEventListener('scroll', apply);
-        window.addEventListener('resize', apply);
-        window.addEventListener('scroll', apply, true);
-        return () => {
-            vv.removeEventListener('resize', apply);
-            vv.removeEventListener('scroll', apply);
-            window.removeEventListener('resize', apply);
-            window.removeEventListener('scroll', apply, true);
-            document.documentElement.classList.remove('oc-browser-kb-fullscreen');
-            form.style.position = '';
-            form.style.left = '';
-            form.style.right = '';
-            form.style.top = '';
-            form.style.height = '';
-            form.style.zIndex = '';
-            form.style.background = '';
-            // Back in flow: the browser panned/scrolled for the fullscreen
-            // session and won't re-reveal the (still focused) field on its own,
-            // which left the composer parked behind the keyboard.
-            requestAnimationFrame(() => {
-                if (editor?.isFocused()) {
-                    editor.getScrollDOM()?.scrollIntoView({ block: 'nearest' });
-                }
-            });
-        };
-    }, [isMobile, isMobileExpanded]);
-
-    // Draft screen in a mobile BROWSER with the keyboard open: Safari's own
-    // focused-field reveal is unreliable there (leaving the composer behind
-    // the keyboard, e.g. after collapsing from fullscreen), so the NORMAL
-    // composer is pinned to the visual viewport too — anchored to its visible
-    // bottom at its natural height. The chat screen doesn't need this (its
-    // reveal works) and Capacitor has the keyboard choreography.
-    React.useLayoutEffect(() => {
-        if (!isMobile || isCapacitorApp()) return;
-        if (!newSessionDraftOpen || isMobileExpanded || !mobileTextareaFocused) return;
-        const vv = window.visualViewport;
-        const form = composerFormRef.current;
-        if (!vv || !form) return;
-        // Keep the in-flow horizontal geometry (page paddings) while fixed.
-        const rect = form.getBoundingClientRect();
-        form.style.position = 'fixed';
-        form.style.left = `${Math.floor(rect.left)}px`;
-        form.style.width = `${Math.floor(rect.width)}px`;
-        form.style.zIndex = '40';
-        form.style.background = 'var(--background)';
-        // Safari's visualViewport events are unreliable mid keyboard pan (they
-        // can simply not fire), so track the pan with a rAF loop instead —
-        // cheap math per frame, a style write only when the value changes.
-        let lastTop = Number.NaN;
-        let frame = 0;
-        const track = () => {
-            // iOS standalone (PWA) can serve stale visualViewport metrics after
-            // the keyboard rises (full pre-keyboard height, intermittently),
-            // parking the form behind the keyboard. When interactive-widget
-            // resizes the layout viewport, documentElement.clientHeight is the
-            // true above-keyboard bottom — anchor to whichever is smaller. In
-            // pan-mode browsers clientHeight stays full height, so the min
-            // keeps the visual-viewport anchor there.
-            const layoutBottom = document.documentElement.clientHeight;
-            const vvBottom = vv.offsetTop + vv.height;
-            const top = Math.max(0, Math.floor(Math.min(vvBottom, layoutBottom) - form.offsetHeight));
-            if (top !== lastTop) {
-                lastTop = top;
-                form.style.top = `${top}px`;
-            }
-            frame = requestAnimationFrame(track);
-        };
-        track();
-        return () => {
-            cancelAnimationFrame(frame);
-            form.style.position = '';
-            form.style.left = '';
-            form.style.width = '';
-            form.style.top = '';
-            form.style.zIndex = '';
-            form.style.background = '';
-        };
-    }, [isMobile, isMobileExpanded, newSessionDraftOpen, mobileTextareaFocused]);
+    // Mobile browsers pan the visual viewport instead of resizing the layout,
+    // so the composer form is pinned to it explicitly.
+    useMobileViewportPin({
+        isMobile,
+        isFullscreen: isMobileExpanded,
+        isDraftScreen: newSessionDraftOpen,
+        isFocused: mobileTextareaFocused,
+        formRef: composerFormRef,
+        editorRef: composerRef,
+    });
 
     // Shared drag handle: rendered at the top of the full composer AND inside
     // the dictation overlay, so swipe-expand/collapse works in Listening mode.
@@ -3171,10 +2780,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             // Generous hit area (~28px tall, full width); the visible bar stays
             // slim inside it.
             className="relative z-10 flex touch-none items-center justify-center py-2"
-            onTouchStart={handleComposerHandleTouchStart}
-            onTouchMove={handleComposerHandleTouchMove}
-            onTouchEnd={handleComposerHandleTouchEnd}
-            onTouchCancel={handleComposerHandleTouchEnd}
+            onTouchStart={mobileShell.handleProps.onTouchStart}
+            onTouchMove={mobileShell.handleProps.onTouchMove}
+            onTouchEnd={mobileShell.handleProps.onTouchEnd}
+            onTouchCancel={mobileShell.handleProps.onTouchCancel}
             aria-hidden="true"
         >
             <div
@@ -3184,9 +2793,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         </div>
     ) : null, [
         isMobile,
-        handleComposerHandleTouchStart,
-        handleComposerHandleTouchMove,
-        handleComposerHandleTouchEnd,
+        mobileShell.handleProps,
         currentTheme.colors.interactive.border,
     ]);
 
@@ -3622,7 +3229,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             <button
                                 type="button"
                                 className="flex h-full min-w-0 flex-1 cursor-text items-center px-1.5 text-left"
-                                onClick={() => expandMobileComposer('focus')}
+                                onClick={() => mobileShell.expand()}
                             >
                                 <span
                                     className={cn(
@@ -3643,7 +3250,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 onClick={() => {
                                     // Start recording in place; the composer morphs
                                     // into the voice variant once dictation is live
-                                    // (handleMobileDictationActiveChange).
+                                    // (mobileShell.onDictationActiveChange).
                                     window.dispatchEvent(new CustomEvent('openchamber:dictation-toggle'));
                                 }}
                                 title={t('chat.dictation.start')}
@@ -3858,60 +3465,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                     cursorPosRef.current = selection.start;
                                     updateAutocompleteOverlayPosition();
                                 }}
-                                onFocus={() => {
-                                    if (!isMobile) return;
-                                    if (mobileBlurTimerRef.current !== null) {
-                                        window.clearTimeout(mobileBlurTimerRef.current);
-                                        mobileBlurTimerRef.current = null;
-                                    }
-                                    mobileExpandIntentRef.current = null;
-                                    setMobileTextareaFocused(true);
-                                }}
-                                onBlur={() => {
-                                    if (!isMobile) return;
-                                    // Focus hold after an overlay-close restore:
-                                    // iOS may retract the rising keyboard as the
-                                    // closing tap settles — take the focus right
-                                    // back instead of accepting the blur.
-                                    if (Date.now() < holdComposerFocusUntilRef.current) {
-                                        const ta = composerRef.current;
-                                        if (ta) {
-                                            ta.focus();
-                                            window.setTimeout(() => {
-                                                if (Date.now() < holdComposerFocusUntilRef.current
-                                                    && !ta.isFocused()) {
-                                                    ta.focus();
-                                                }
-                                            }, 50);
-                                            return;
-                                        }
-                                    }
-                                    lastMobileBlurAtRef.current = Date.now();
-                                    // Mobile browsers and installed PWAs share the
-                                    // blur race: the keyboard-dismiss reflow moves
-                                    // composer buttons before the tap's synthesized
-                                    // click lands, so the click misses its target.
-                                    // Capacitor's WebView does not need the hold.
-                                    if (isCapacitorApp()) {
-                                        setMobileTextareaFocused(false);
-                                        return;
-                                    }
-                                    // See mobileBlurTimerRef: hold the pinned
-                                    // composer still until the tap's click has
-                                    // been delivered.
-                                    if (mobileBlurTimerRef.current !== null) {
-                                        window.clearTimeout(mobileBlurTimerRef.current);
-                                    }
-                                    // 120ms is enough to outlive the tap's
-                                    // synthesized click (which lands within a
-                                    // few ms of the blur) while keeping the
-                                    // padding's return visually tied to the
-                                    // keyboard dismissal.
-                                    mobileBlurTimerRef.current = window.setTimeout(() => {
-                                        mobileBlurTimerRef.current = null;
-                                        setMobileTextareaFocused(false);
-                                    }, 120);
-                                }}
+                                onFocus={mobileShell.onEditorFocus}
+                                onBlur={mobileShell.onEditorBlur}
                                 placeholder={currentSessionId || newSessionDraftOpen
                                     ? inputMode === 'shell'
                                         ? t('chat.chatInput.placeholder.shell')
@@ -3999,7 +3554,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                                 onClick={() => {
                                                     window.dispatchEvent(new CustomEvent('openchamber:dictation-toggle'));
                                                 }}
-                                                disabled={mobileDictationActive}
+                                                disabled={mobileShell.dictationActive}
                                                 title={t('chat.dictation.start')}
                                                 aria-label={t('chat.dictation.start')}
                                             >
@@ -4109,7 +3664,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         sendIconSizeClass={sendIconSizeClass}
                         onInsert={handleDictationInsert}
                         onInsertAndSend={handleDictationInsertAndSend}
-                        onActiveChange={handleMobileDictationActiveChange}
+                        onActiveChange={mobileShell.onDictationActiveChange}
                         onContentHeightChange={handleDictationContentHeightChange}
                         renderTrigger={false}
                         topAccessory={mobileComposerHandle}
@@ -4197,7 +3752,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onClick={() => {
                             // The native file/photo picker takes over next — restoring
                             // the keyboard in between would flash it open and shut.
-                            restoreKeyboardAfterOverlayRef.current = false;
+                            mobileShell.cancelOverlayCloseRestore();
                             setMobileAttachMenuOpen(false);
                             requestAnimationFrame(handlePickLocalFiles);
                         }}
@@ -4211,7 +3766,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onClick={() => {
                             // Hand-off to the picker: don't sync-restore the
                             // keyboard under the overlay that opens next frame.
-                            skipNextOverlayCloseRestoreRef.current = true;
+                            mobileShell.skipNextOverlayCloseRestore();
                             setMobileAttachMenuOpen(false);
                             requestAnimationFrame(openIssuePicker);
                         }}
@@ -4223,7 +3778,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         type="button"
                         className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-3 text-left typography-ui-label hover:bg-[var(--interactive-hover)]"
                         onClick={() => {
-                            skipNextOverlayCloseRestoreRef.current = true;
+                            mobileShell.skipNextOverlayCloseRestore();
                             setMobileAttachMenuOpen(false);
                             requestAnimationFrame(openPrPicker);
                         }}
