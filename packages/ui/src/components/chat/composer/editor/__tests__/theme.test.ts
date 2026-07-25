@@ -50,4 +50,29 @@ describe('composerEditorTheme', () => {
         const cursorRule = selectors.find((selector) => selector.includes('.cm-cursor'));
         expect(cursorRule!.startsWith('&.cm-editor')).toBe(true);
     });
+
+    /**
+     * Same trap as the caret, one layer over: `drawSelection()` paints its own
+     * selection and CodeMirror styles the focused case through a six-class
+     * selector. A shorter rule silently loses and the selection renders in
+     * CodeMirror's stock lavender, which buries the token colours.
+     */
+    test('the focused selection is styled at the depth CodeMirror uses', () => {
+        const focusedRule = selectors.find((selector) =>
+            selector.includes('.cm-focused') && selector.includes('.cm-selectionBackground'));
+        expect(focusedRule).toBeDefined();
+        expect(focusedRule!.includes('.cm-scroller')).toBe(true);
+        expect(focusedRule!.includes('.cm-selectionLayer')).toBe(true);
+    });
+
+    test('the selection is translucent so token colours survive it', () => {
+        const rules = selectors
+            .filter((selector) => selector.includes('.cm-selectionBackground'))
+            .map((selector) =>
+                (COMPOSER_EDITOR_THEME_SPEC as Record<string, Record<string, string>>)[selector]);
+        expect(rules.length > 0).toBe(true);
+        for (const rule of rules) {
+            expect(rule.background.includes('transparent')).toBe(true);
+        }
+    });
 });

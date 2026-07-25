@@ -52,8 +52,26 @@ export const COMPOSER_EDITOR_THEME_SPEC = {
         overflowX: 'hidden',
     },
     '.cm-placeholder': { color: 'var(--surface-mutedForeground)' },
+    // `drawSelection()` paints its own selection layer, and CodeMirror styles
+    // it for the focused editor through
+    // `&light.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground`
+    // — six classes deep, so anything shorter loses and the selection comes out
+    // in CodeMirror's stock lavender. Both rules below match the shape of the
+    // ones they replace: unfocused first, then the focused case.
+    //
+    // The tint is translucent on purpose. An opaque selection would bury the
+    // token colours the composer exists to show; the point of selecting text
+    // here is to move it, not to stop reading it.
     '&.cm-editor .cm-selectionBackground, & .cm-selectionBackground': {
-        backgroundColor: 'var(--interactive-selection)',
+        background: 'color-mix(in srgb, var(--interactive-selection) 45%, transparent)',
+    },
+    '&.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
+        background: 'color-mix(in srgb, var(--interactive-selection) 55%, transparent)',
+    },
+    // The native selection still shows through in places CodeMirror does not
+    // draw over, such as the placeholder.
+    '& ::selection': {
+        background: 'color-mix(in srgb, var(--interactive-selection) 55%, transparent)',
     },
 };
 
