@@ -27,9 +27,7 @@ import { startReviewFlow } from '@/lib/reviewFlow';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import {
     createChatDraftIdentity,
-    getChatDraftIdentityKey,
     readChatDraft,
-    subscribeChatDraftDeletion,
     writeChatDraft,
     type ChatDraftIdentity,
     type ChatDraftSnapshot,
@@ -127,6 +125,7 @@ import {
     findMagicPromptCommand,
     parseSlashCommand,
 } from './composer/submit/slashCommands';
+import { useComposerDraft } from './composer/state/useComposerDraft';
 import { ComposerActionButtons } from './composer/ui/ComposerActionButtons';
 import { ComposerAttachmentControls } from './composer/ui/ComposerAttachmentControls';
 import { FocusModeButton } from './composer/ui/FocusModeButton';
@@ -138,10 +137,6 @@ import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/cha
 
 const MAX_VISIBLE_COMPOSER_LINES = 8;
 const EMPTY_QUEUE: QueuedMessage[] = [];
-const CHAT_DRAFT_PERSIST_DEBOUNCE_MS = 500;
-const getChatDraftSnapshotSignature = (text: string, confirmedMentions: Iterable<string>): string => (
-    `${text}\u0000${[...confirmedMentions].sort().join('\u0000')}`
-);
 const COMPACT_CHAT_PLACEHOLDER_MAX_WIDTH = 560;
 const renameFileForAttachmentCitation = (file: File, filename: string): File => {
     if (file.name === filename) {
@@ -320,9 +315,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const snippetRef = React.useRef<SnippetAutocompleteHandle>(null);
     // Ref to track current message value without triggering re-renders in effects
     const messageRef = React.useRef(message);
-    const draftPersistTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const skipNextDraftPersistRef = React.useRef(false);
-    const lastPersistedDraftRef = React.useRef<Map<string, string>>(new Map());
     const currentChatDraftIdentityRef = React.useRef<ChatDraftIdentity | null>(initialDraftIdentityRef.current);
     const pendingPastedAttachmentFilenamesRef = React.useRef<Set<string>>(new Set());
 
@@ -798,96 +790,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         currentChatDraftIdentityRef.current = chatDraftIdentity;
     }, [chatDraftIdentity]);
 
-    const persistDraftImmediately = React.useCallback((identity: ChatDraftIdentity | null, draft: string) => {
-        if (!identity) return;
-        const key = getChatDraftIdentityKey(identity);
-        // Only persist confirmed mentions that are actually present in the draft text
-        const activeMentions = new Set<string>();
-        for (const mention of confirmedMentionsRef.current) {
-            if (draft.includes(`@${mention}`)) {
-                activeMentions.add(mention);
-            }
-        }
-        confirmedMentionsRef.current = activeMentions;
-        const signature = getChatDraftSnapshotSignature(draft, activeMentions);
-        const lastPersisted = lastPersistedDraftRef.current.get(key);
-        if (lastPersisted === signature) {
-            return;
-        }
-        writeChatDraft(identity, draft, activeMentions);
-        lastPersistedDraftRef.current.set(key, signature);
-    }, []);
-
-    const clearPendingDraftPersist = React.useCallback(() => {
-        if (!draftPersistTimerRef.current) {
-            return;
-        }
-        clearTimeout(draftPersistTimerRef.current);
-        draftPersistTimerRef.current = null;
-    }, []);
-
-    // Handle initial draft restoration and text selection
-    const hasHandledInitialDraftRef = React.useRef(false);
-    React.useEffect(() => {
-        if (hasHandledInitialDraftRef.current) return;
-        hasHandledInitialDraftRef.current = true;
-
-        const draft = initialDraftRef.current;
-        if (!draft) return;
-
-        if (!persistChatDraft) {
-            // Setting disabled - clear the restored draft
-            setMessage('');
-            writeChatDraft(initialDraftIdentityRef.current, '', []);
-        } else {
-            // Setting enabled - select all text
-            requestAnimationFrame(() => {
-                composerRef.current?.selectAll();
-            });
-        }
-    }, [persistChatDraft]);
-
-    // Handle identity switching: save the old draft and restore the new runtime/directory/session draft.
-    const prevChatDraftIdentityRef = React.useRef<ChatDraftIdentity | null>(initialDraftIdentityRef.current);
-    React.useEffect(() => {
-        const previousIdentity = prevChatDraftIdentityRef.current;
-        const previousKey = previousIdentity ? getChatDraftIdentityKey(previousIdentity) : null;
-        const currentKey = chatDraftIdentity ? getChatDraftIdentityKey(chatDraftIdentity) : null;
-        if (previousKey !== currentKey) {
-            prevChatDraftIdentityRef.current = chatDraftIdentity;
-            setInputMode('normal');
-            clearPendingDraftPersist();
-            skipNextDraftPersistRef.current = true;
-
-            if (persistChatDraft) {
-                persistDraftImmediately(previousIdentity, messageRef.current);
-                const nextSnapshot = readChatDraft(chatDraftIdentity);
-                setMessage(nextSnapshot.text);
-                confirmedMentionsRef.current = nextSnapshot.confirmedMentions;
-                if (nextSnapshot.text) {
-                    requestAnimationFrame(() => {
-                        composerRef.current?.selectAll();
-                    });
-                }
-            } else {
-                // Persist disabled: clear input without saving
-                setMessage('');
-                confirmedMentionsRef.current = new Set();
-            }
-        }
-    }, [chatDraftIdentity, clearPendingDraftPersist, persistChatDraft, persistDraftImmediately]);
-
-    React.useEffect(() => subscribeChatDraftDeletion((deletedIdentity) => {
-        const deletedKey = getChatDraftIdentityKey(deletedIdentity);
-        lastPersistedDraftRef.current.set(deletedKey, getChatDraftSnapshotSignature('', []));
-        const currentIdentity = currentChatDraftIdentityRef.current;
-        if (!currentIdentity || getChatDraftIdentityKey(currentIdentity) !== deletedKey) return;
-        clearPendingDraftPersist();
-        skipNextDraftPersistRef.current = true;
-        messageRef.current = '';
-        confirmedMentionsRef.current = new Set();
-        setMessage('');
-    }), [clearPendingDraftPersist]);
+    // Draft persistence: identity switching, debounced writes and the
+    // flush-on-hide edges live in the hook.
+    const { persistNow: persistDraftImmediately } = useComposerDraft({
+        message,
+        messageRef,
+        setMessage,
+        confirmedMentionsRef,
+        identity: chatDraftIdentity,
+        persistEnabled: persistChatDraft,
+        initialDraft: {
+            text: initialDraftRef.current ?? '',
+            identity: initialDraftIdentityRef.current,
+        },
+        onIdentityChange: () => setInputMode('normal'),
+        onDraftRestored: () => composerRef.current?.selectAll(),
+    });
 
     // Focus textarea when new session draft is opened
     const prevNewSessionDraftOpenRef = React.useRef(newSessionDraftOpen);
@@ -905,54 +823,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
         prevNewSessionDraftOpenRef.current = newSessionDraftOpen;
     }, [newSessionDraftOpen, isMobile]);
-
-    // Persist chat input draft to localStorage per session (only if setting enabled)
-    React.useEffect(() => {
-        if (!persistChatDraft) {
-            clearPendingDraftPersist();
-            persistDraftImmediately(chatDraftIdentity, '');
-            return;
-        }
-
-        if (skipNextDraftPersistRef.current) {
-            skipNextDraftPersistRef.current = false;
-            return;
-        }
-
-        clearPendingDraftPersist();
-        const draftSnapshot = message;
-        const identitySnapshot = chatDraftIdentity;
-        draftPersistTimerRef.current = setTimeout(() => {
-            draftPersistTimerRef.current = null;
-            persistDraftImmediately(identitySnapshot, draftSnapshot);
-        }, CHAT_DRAFT_PERSIST_DEBOUNCE_MS);
-
-        return () => {
-            clearPendingDraftPersist();
-        };
-    }, [chatDraftIdentity, clearPendingDraftPersist, message, persistChatDraft, persistDraftImmediately]);
-
-    React.useEffect(() => {
-        const flushCurrentDraft = () => {
-            clearPendingDraftPersist();
-            if (persistChatDraft) {
-                persistDraftImmediately(currentChatDraftIdentityRef.current, messageRef.current);
-            }
-        };
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'hidden') flushCurrentDraft();
-        };
-
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        document.addEventListener('freeze', flushCurrentDraft);
-        window.addEventListener('pagehide', flushCurrentDraft);
-        return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            document.removeEventListener('freeze', flushCurrentDraft);
-            window.removeEventListener('pagehide', flushCurrentDraft);
-            flushCurrentDraft();
-        };
-    }, [clearPendingDraftPersist, persistChatDraft, persistDraftImmediately]);
 
     // Session activity for queue availability and controls
     const { phase: sessionPhase } = useCurrentSessionActivity();
