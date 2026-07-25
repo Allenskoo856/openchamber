@@ -20,7 +20,7 @@ const aliases = ['anthropic', 'claude'];
  *
  * @returns {{ accessToken: string | null, source: 'claude-cli' | 'opencode-auth' | null }}
  */
-export function resolveClaudeUsageAccessToken() {
+function resolveClaudeUsageAccessToken() {
   const cliToken = readClaudeCliOAuthAccessToken();
   if (cliToken) {
     return { accessToken: cliToken, source: 'claude-cli' };
