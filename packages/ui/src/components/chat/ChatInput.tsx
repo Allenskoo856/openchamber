@@ -40,7 +40,7 @@ import { FileMentionAutocomplete, type FileMentionHandle } from './FileMentionAu
 import { CommandAutocomplete, type CommandAutocompleteHandle, type CommandInfo } from './CommandAutocomplete';
 import { SkillAutocomplete, type SkillAutocompleteHandle } from './SkillAutocomplete';
 import { SnippetAutocomplete, type SnippetAutocompleteHandle } from './SnippetAutocomplete';
-import { cn, formatDirectoryName } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { ModelControls } from './ModelControls';
 import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { StatusRow } from './StatusRow';
@@ -67,14 +67,13 @@ import { useChatSearchDirectory } from '@/hooks/useChatSearchDirectory';
 import { opencodeClient } from '@/lib/opencode/client';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
-import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
+import { useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useCommandsStore } from '@/stores/useCommandsStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { createWorktreeDraft } from '@/lib/worktreeSessionCreator';
-import { buildSessionTargetOptions } from '@/sync/session-worktree-contract';
 import { usePermissionStore } from '@/stores/permissionStore';
 import { togglePermissionAutoAccept } from './permissionAutoAccept';
 import { extractGitChangedFiles } from './changedFiles';
@@ -128,6 +127,7 @@ import {
     parseSlashCommand,
 } from './composer/submit/slashCommands';
 import { useComposerDraft } from './composer/state/useComposerDraft';
+import { useDraftTarget, getProjectDisplayLabel } from './composer/state/useDraftTarget';
 import { useMobileComposerShell } from './composer/state/useMobileComposerShell';
 import { useMobileViewportPin } from './composer/state/useMobileViewportPin';
 import { ComposerActionButtons } from './composer/ui/ComposerActionButtons';
@@ -172,14 +172,6 @@ const buildSkillMentionInstruction = (skillNames: string[]): string | null => {
 
 const hasUserMessages = (sessionId: string, directory?: string) => {
     return getSyncMessages(sessionId, directory).some((message) => message.role === 'user');
-};
-
-const getProjectDisplayLabel = (project: { label?: string; path: string }): string => {
-    const label = project.label?.trim();
-    if (label) {
-        return label;
-    }
-    return formatDirectoryName(project.path);
 };
 
 const renderDraftTitle = (title: string, projectLabel: string | null): React.ReactNode => {
@@ -316,7 +308,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const setNewSessionDraftTarget = useSessionUIStore((s) => s.setNewSessionDraftTarget);
     const setDraftPermissionAutoAcceptEnabled = useSessionUIStore((s) => s.setDraftPermissionAutoAcceptEnabled);
     const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
-    const availableWorktreesByProject = useSessionUIStore((s) => s.availableWorktreesByProject);
     const abortPromptSessionId = useSessionUIStore((s) => s.abortPromptSessionId);
     const clearAbortPrompt = useSessionUIStore((s) => s.clearAbortPrompt);
     const attachedFiles = useInputStore((s) => s.attachedFiles);
@@ -335,8 +326,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     );
     const currentManagementSessionId = currentSessionId;
     const projects = useProjectsStore((state) => state.projects);
-    const activeProjectId = useProjectsStore((state) => state.activeProjectId);
-    const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
     const [reviewDialogOpen, setReviewDialogOpen] = React.useState(false);
     const [reviewFlowSubmitting, setReviewFlowSubmitting] = React.useState(false);
 
@@ -2327,169 +2316,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const isVSCode = isVSCodeRuntime();
     const showDraftTargetSelectors = newSessionDraftOpen && !isVSCode;
 
-    const selectedDraftProject = React.useMemo(() => {
-        const explicit = newSessionDraft?.selectedProjectId
-            ? projects.find((project) => project.id === newSessionDraft.selectedProjectId) ?? null
-            : null;
-        if (explicit) {
-            return explicit;
-        }
-
-        const active = activeProjectId
-            ? projects.find((project) => project.id === activeProjectId) ?? null
-            : null;
-        if (active) {
-            return active;
-        }
-
-        return projects[0] ?? null;
-    }, [activeProjectId, newSessionDraft?.selectedProjectId, projects]);
-
-    const selectedDraftProjectPath = React.useMemo(
-        () => normalizePath(selectedDraftProject?.path ?? null),
-        [selectedDraftProject?.path],
-    );
-    const draftProjectLabel = selectedDraftProject ? getProjectDisplayLabel(selectedDraftProject) : null;
-
-    const selectedDraftProjectBranches = useGitBranches(selectedDraftProjectPath);
-    const selectedDraftProjectBranchesFetchedAt = useGitStore(
-        (s) => (selectedDraftProjectPath ? s.directories.get(selectedDraftProjectPath)?.lastBranchesFetch ?? 0 : 0),
-    );
-    const selectedDraftProjectIsGitRepo = useIsGitRepo(selectedDraftProjectPath);
-    const hasDraftBranchList = Boolean(selectedDraftProjectBranches?.all);
-    const fetchBranches = useGitStore((state) => state.fetchBranches);
-    const [isDiscoveringDraftBranches, setIsDiscoveringDraftBranches] = React.useState(false);
-
-    React.useEffect(() => {
-        if (!showDraftTargetSelectors || !selectedDraftProjectPath || !runtimeGit || selectedDraftProjectIsGitRepo !== null) {
-            return;
-        }
-
-        void fetchGitStatus(selectedDraftProjectPath, runtimeGit, { silent: true });
-    }, [fetchGitStatus, runtimeGit, selectedDraftProjectIsGitRepo, selectedDraftProjectPath, showDraftTargetSelectors]);
-
-    React.useEffect(() => {
-        if (!showDraftTargetSelectors || !selectedDraftProjectPath || !selectedDraftProject || !runtimeGit || selectedDraftProjectIsGitRepo !== true) {
-            setIsDiscoveringDraftBranches(false);
-            return;
-        }
-
-        // Stale-while-revalidate: branches seeded from the persisted cache show
-        // instantly. Refresh based on staleness (not mere presence) so a cached
-        // list can't go stale, while only showing the discovering spinner when
-        // there is nothing to display yet.
-        const DRAFT_BRANCHES_SWR_TTL_MS = 30_000;
-        const isStale =
-            !selectedDraftProjectBranchesFetchedAt ||
-            Date.now() - selectedDraftProjectBranchesFetchedAt > DRAFT_BRANCHES_SWR_TTL_MS;
-
-        if (hasDraftBranchList && !isStale) {
-            setIsDiscoveringDraftBranches(false);
-            return;
-        }
-
-        let cancelled = false;
-        setIsDiscoveringDraftBranches(!hasDraftBranchList);
-
-        void fetchBranches(selectedDraftProjectPath, runtimeGit)
-            .finally(() => {
-                if (!cancelled) {
-                    setIsDiscoveringDraftBranches(false);
-                }
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [fetchBranches, runtimeGit, selectedDraftProject, selectedDraftProjectBranchesFetchedAt, hasDraftBranchList, selectedDraftProjectIsGitRepo, selectedDraftProjectPath, showDraftTargetSelectors]);
-
-    const selectedDraftProjectCurrentBranch = selectedDraftProjectBranches?.current?.trim() ?? '';
-
-    const projectRootBranchOption = React.useMemo(() => {
-        if (!selectedDraftProject) {
-            return null;
-        }
-        const value = normalizePath(selectedDraftProject.path);
-        if (!value) {
-            return null;
-        }
-        if (!selectedDraftProjectCurrentBranch) {
-            return null;
-        }
-        return {
-            value,
-            label: selectedDraftProjectCurrentBranch,
-        };
-    }, [selectedDraftProject, selectedDraftProjectCurrentBranch]);
-
-    const worktreeBranchOptions = React.useMemo(() => {
-        if (!selectedDraftProject) {
-            return [];
-        }
-
-        const worktrees = (() => {
-            if (!selectedDraftProjectPath) {
-                return [];
-            }
-            return availableWorktreesByProject.get(selectedDraftProjectPath)
-                ?? availableWorktreesByProject.get(selectedDraftProject.path)
-                ?? [];
-        })();
-
-        return buildSessionTargetOptions({
-            projectRoot: normalizePath(selectedDraftProject.path) ?? '',
-            rootBranch: selectedDraftProjectCurrentBranch,
-            worktrees,
-            pendingBootstrapDirectory: newSessionDraft?.bootstrapPendingDirectory ?? null,
-        }).filter((option) => option.kind === 'worktree');
-    }, [availableWorktreesByProject, newSessionDraft?.bootstrapPendingDirectory, selectedDraftProject, selectedDraftProjectCurrentBranch, selectedDraftProjectPath]);
-
-    const selectedDraftDirectory = React.useMemo(
-        () => normalizePath(newSessionDraft?.bootstrapPendingDirectory ?? null)
-            ?? normalizePath(newSessionDraft?.directoryOverride ?? null)
-            ?? selectedDraftProjectPath,
-        [newSessionDraft?.bootstrapPendingDirectory, newSessionDraft?.directoryOverride, selectedDraftProjectPath],
-    );
-
-    const shouldKeepMissingSelectedDraftDirectory = React.useMemo(() => {
-        const pendingDirectory = normalizePath(newSessionDraft?.bootstrapPendingDirectory ?? null);
-        return Boolean(
-            newSessionDraft?.preserveDirectoryOverride
-            ||
-            newSessionDraft?.pendingWorktreeRequestId
-            || (pendingDirectory && pendingDirectory === selectedDraftDirectory)
-        );
-    }, [newSessionDraft?.bootstrapPendingDirectory, newSessionDraft?.pendingWorktreeRequestId, newSessionDraft?.preserveDirectoryOverride, selectedDraftDirectory]);
-
-    const draftBranchItems = React.useMemo(() => {
-        const baseItems: Array<{ value: string; label: string }> = [];
-        if (projectRootBranchOption) {
-            baseItems.push(projectRootBranchOption);
-        }
-        baseItems.push(...worktreeBranchOptions);
-
-        if (!selectedDraftDirectory) {
-            return baseItems;
-        }
-        if (baseItems.some((option) => option.value === selectedDraftDirectory)) {
-            return baseItems;
-        }
-        if (!shouldKeepMissingSelectedDraftDirectory) {
-            return baseItems;
-        }
-        return [
-            ...baseItems,
-            { value: selectedDraftDirectory, label: formatDirectoryName(selectedDraftDirectory) },
-        ];
-    }, [projectRootBranchOption, selectedDraftDirectory, shouldKeepMissingSelectedDraftDirectory, worktreeBranchOptions]);
-
-    const selectedDraftBranchLabel = React.useMemo(() => {
-        const selectedValue = selectedDraftDirectory ?? draftBranchItems[0]?.value ?? null;
-        if (!selectedValue) {
-            return null;
-        }
-        return draftBranchItems.find((item) => item.value === selectedValue)?.label ?? formatDirectoryName(selectedValue);
-    }, [draftBranchItems, selectedDraftDirectory]);
+    // Which project and directory a new session will target.
+    const {
+        selectedDraftProject,
+        draftProjectLabel,
+        selectedDraftDirectory,
+        selectedDraftBranchLabel,
+        selectedDraftBranchIsKnown,
+        projectRootBranchOption,
+        worktreeBranchOptions,
+        draftBranchItems,
+        shouldShowDraftBranchSelector,
+        handleDraftProjectChange,
+        handleDraftDirectoryChange,
+    } = useDraftTarget(showDraftTargetSelectors);
 
     const chatSurfaceMode = useChatSurfaceMode();
     const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
@@ -2504,70 +2344,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         return extractGitChangedFiles(currentGitStatus.files, currentGitStatus.diffStats, currentDirectory).length > 0;
     }, [currentDirectory, currentGitStatus, isGitRepo, isMiniChatSurface]);
 
-    const selectedDraftBranchIsKnown = React.useMemo(() => {
-        if (!selectedDraftDirectory) {
-            return true;
-        }
-        if (projectRootBranchOption?.value === selectedDraftDirectory) {
-            return true;
-        }
-        return worktreeBranchOptions.some((option) => option.value === selectedDraftDirectory);
-    }, [projectRootBranchOption?.value, selectedDraftDirectory, worktreeBranchOptions]);
-
-    React.useEffect(() => {
-        if (!newSessionDraft?.open || !newSessionDraft?.preserveDirectoryOverride) {
-            return;
-        }
-        if (!selectedDraftDirectory || !selectedDraftBranchIsKnown) {
-            return;
-        }
-        useSessionUIStore.getState().setDraftPreserveDirectoryOverride(false);
-    }, [newSessionDraft?.open, newSessionDraft?.preserveDirectoryOverride, selectedDraftBranchIsKnown, selectedDraftDirectory]);
-
-    const shouldShowDraftBranchSelector = React.useMemo(() => {
-        if (selectedDraftProjectIsGitRepo !== true) {
-            return false;
-        }
-        if (isDiscoveringDraftBranches) {
-            return false;
-        }
-        if (projectRootBranchOption) {
-            return true;
-        }
-        return worktreeBranchOptions.length > 0;
-    }, [isDiscoveringDraftBranches, projectRootBranchOption, selectedDraftProjectIsGitRepo, worktreeBranchOptions.length]);
-
-    const handleDraftProjectChange = React.useCallback((projectId: string) => {
-        const draft = useSessionUIStore.getState().newSessionDraft;
-        if (draft?.pendingWorktreeRequestId || draft?.bootstrapPendingDirectory || draft?.preserveDirectoryOverride) {
-            return;
-        }
-        const project = projects.find((entry) => entry.id === projectId);
-        if (!project) {
-            return;
-        }
-        if (activeProjectId !== projectId) {
-            setActiveProjectIdOnly(projectId);
-        }
-        setNewSessionDraftTarget({
-            projectId,
-            directoryOverride: project.path,
-        }, { force: true });
-    }, [activeProjectId, projects, setActiveProjectIdOnly, setNewSessionDraftTarget]);
-
-    const handleDraftDirectoryChange = React.useCallback((directory: string) => {
-        const draft = useSessionUIStore.getState().newSessionDraft;
-        if (draft?.pendingWorktreeRequestId || draft?.bootstrapPendingDirectory || draft?.preserveDirectoryOverride) {
-            return;
-        }
-        if (!selectedDraftProject) {
-            return;
-        }
-        setNewSessionDraftTarget({
-            projectId: selectedDraftProject.id,
-            directoryOverride: directory,
-        }, { force: true });
-    }, [selectedDraftProject, setNewSessionDraftTarget]);
 
     const renderProjectLabelWithIcon = React.useCallback((project: {
         id: string;
