@@ -113,10 +113,27 @@ export function useMobileComposerShell(
         flushSync(() => setExpanded(true));
         kbLog('expand-committed');
         kbLogPaints('expand');
-        // Capacitor's choreography positions everything, so the browser's own
-        // scroll-into-view must stay off. Mobile browsers have no choreography
-        // — the native reveal is the only thing that moves the composer.
-        editorRef.current?.focus({ preventScroll: isCapacitorApp() });
+
+        if (isCapacitorApp()) {
+            // WKWebView stops presenting web frames the moment focus starts the
+            // keyboard transition, and holds the LAST PRESENTED frame on glass
+            // until it ends — focusing in the same task as the swap means the
+            // pill stays visible through the whole keyboard rise. Two frames of
+            // delay put the swapped composer on glass first, then raise the
+            // keyboard under it. The Capacitor WebView raises the keyboard for
+            // a focus() from rAF (browsers do not, hence the split); the
+            // choreography positions everything, so preventScroll stays on.
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                editorRef.current?.focus({ preventScroll: true });
+                kbLog(`focus() ran focused=${String(editorRef.current?.isFocused() ?? 'no-editor')}`);
+            }));
+            return;
+        }
+
+        // Mobile browsers only open the soft keyboard for focus calls made
+        // synchronously from the tap; their native reveal is also the only
+        // thing that positions the composer, so no preventScroll.
+        editorRef.current?.focus({ preventScroll: false });
         kbLog(`focus() ran focused=${String(editorRef.current?.isFocused() ?? 'no-editor')}`);
     }, [editorRef]);
 
@@ -378,9 +395,14 @@ export function useMobileComposerShell(
         // Mobile browsers and installed PWAs share a blur race: the
         // keyboard-dismiss reflow moves composer buttons before the tap's
         // synthesized click lands, so the click misses its target. Capacitor's
-        // WebView does not need the hold.
+        // WebView does not need the hold — but it DOES need the state committed
+        // synchronously: the oc:keyboard-intent collapse arrives a few
+        // milliseconds after this blur on a setTimeout(0), and React's own
+        // scheduling can lose that race, leaving busyRef stale — the intent
+        // handler then skips the instant collapse and the pill appears only
+        // via the 250ms fallback, well after the keyboard has gone.
         if (isCapacitorApp()) {
-            setFocused(false);
+            flushSync(() => setFocused(false));
             return;
         }
         if (blurTimerRef.current !== null) window.clearTimeout(blurTimerRef.current);
