@@ -112,12 +112,15 @@ import {
     withInlineInsertionBoundaries,
 } from './composer/text';
 import {
+    collectDroppedFileUris,
+    collectDroppedFiles,
+    hasDraggedFiles,
+} from './composer/attachments/dataTransfer';
+import {
     normalizeDroppedPath,
     normalizePath,
-    parseDroppedFileReferences,
     toProjectRelativeMentionPath,
     toServerFileUrl,
-    VS_CODE_DROP_DATA_TYPES,
 } from './composer/attachments/filePaths';
 import {
     buildCommandVariables,
@@ -2195,74 +2198,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     React.useEffect(() => {
         canAcceptDropRef.current = Boolean(currentSessionId || newSessionDraftOpen);
     }, [currentSessionId, newSessionDraftOpen]);
-
-    const hasDraggedFiles = React.useCallback((dataTransfer: DataTransfer | null | undefined): boolean => {
-        if (!dataTransfer) return false;
-        if (dataTransfer.files && dataTransfer.files.length > 0) return true;
-        if (dataTransfer.types) {
-            const types = Array.from(dataTransfer.types);
-            const lowerTypes = types.map((type) => type.toLowerCase());
-            if (lowerTypes.includes('files')) return true;
-            if (lowerTypes.includes('text/uri-list')) return true;
-            if (lowerTypes.includes('codefiles')) return true;
-            if (lowerTypes.includes('application/x-openchamber-file-path')) return true;
-            if (lowerTypes.some((type) => type.includes('vnd.code.tree'))) return true;
-        }
-
-        for (const dataType of VS_CODE_DROP_DATA_TYPES) {
-            let payload = '';
-            try {
-                payload = dataTransfer.getData(dataType);
-            } catch {
-                continue;
-            }
-            if (payload && parseDroppedFileReferences(payload).length > 0) {
-                return true;
-            }
-        }
-
-        return false;
-    }, []);
-
-    const collectDroppedFiles = React.useCallback((dataTransfer: DataTransfer | null | undefined): File[] => {
-        if (!dataTransfer) return [];
-
-        const directFiles = Array.from(dataTransfer.files || []);
-        if (directFiles.length > 0) {
-            return directFiles;
-        }
-
-        const fromItems = Array.from(dataTransfer.items || [])
-            .filter((item) => item.kind === 'file')
-            .map((item) => item.getAsFile())
-            .filter((file): file is File => Boolean(file));
-
-        return fromItems;
-    }, []);
-
-    const collectDroppedFileUris = React.useCallback((dataTransfer: DataTransfer | null | undefined): string[] => {
-        if (!dataTransfer || typeof dataTransfer.getData !== 'function') return [];
-
-        const extracted = new Set<string>();
-
-        for (const dataType of VS_CODE_DROP_DATA_TYPES) {
-            let rawPayload = '';
-            try {
-                rawPayload = dataTransfer.getData(dataType);
-            } catch {
-                continue;
-            }
-            if (!rawPayload) {
-                continue;
-            }
-
-            for (const candidate of parseDroppedFileReferences(rawPayload)) {
-                extracted.add(candidate);
-            }
-        }
-
-        return Array.from(extracted);
-    }, []);
 
     // Mention paths are shown relative to the project the chat searches.
     const toMentionPath = React.useCallback(
