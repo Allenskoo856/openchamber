@@ -5,6 +5,7 @@ import {
     isFenceClose,
     matchFenceOpen,
     mentionRangesToHighlightRanges,
+    resolveHighlightSegments,
     tokenizeMarkdown,
     type HighlightRange,
 } from '../composerHighlight';
@@ -214,6 +215,44 @@ describe('mentionRangesToHighlightRanges', () => {
             { start: 0, end: 5, style: 'mentionFile' },
             { start: 6, end: 9, style: 'mentionAgent' },
         ]);
+    });
+});
+
+describe('resolveHighlightSegments', () => {
+    test('segments tile the whole text without gaps or overlap', () => {
+        const text = '# Title\nsee `code` and more';
+        const segments = resolveHighlightSegments(text, tokenizeMarkdown(text));
+        expect(segments[0].start).toBe(0);
+        expect(segments[segments.length - 1].end).toBe(text.length);
+        for (let i = 1; i < segments.length; i += 1) {
+            expect(segments[i].start).toBe(segments[i - 1].end);
+        }
+    });
+
+    test('no text and no ranges resolve to nothing', () => {
+        expect(resolveHighlightSegments('', [{ start: 0, end: 1, style: 'code' }])).toEqual([]);
+        expect(resolveHighlightSegments('abc', [])).toEqual([]);
+    });
+
+    test('adjacent same-class stretches are merged into one segment', () => {
+        const segments = resolveHighlightSegments('abcdef', [
+            { start: 0, end: 3, style: 'code' },
+            { start: 3, end: 6, style: 'code' },
+        ]);
+        expect(segments).toHaveLength(1);
+        expect(segments[0].start).toBe(0);
+        expect(segments[0].end).toBe(6);
+    });
+
+    test('segments agree with the parts the overlay renders', () => {
+        const text = 'a `b` c';
+        const ranges = tokenizeMarkdown(text);
+        const segments = resolveHighlightSegments(text, ranges);
+        const parts = buildHighlightParts(text, ranges);
+        expect(parts!.map((part) => part.text))
+            .toEqual(segments.map((segment) => text.slice(segment.start, segment.end)));
+        expect(parts!.map((part) => part.className))
+            .toEqual(segments.map((segment) => segment.className));
     });
 });
 

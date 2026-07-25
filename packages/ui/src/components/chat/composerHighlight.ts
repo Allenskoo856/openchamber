@@ -55,6 +55,17 @@ export interface HighlightPart {
     className: string;
 }
 
+/**
+ * A resolved, non-overlapping stretch of text carrying exactly one class.
+ * Offsets rather than text, so a decoration-based renderer (CodeMirror) can
+ * consume the same resolution the mirror overlay does.
+ */
+export interface HighlightSegment {
+    start: number;
+    end: number;
+    className: string;
+}
+
 type AnyStyle = HighlightRange['style'];
 
 // Higher priority wins when ranges overlap on a given segment.
@@ -246,16 +257,19 @@ export function tokenizeMarkdown(text: string): HighlightRange[] {
 }
 
 /**
- * Split `text` into styled parts from a set of (possibly overlapping) ranges.
- * Each output part carries a single className; adjacent parts that share a
- * className are coalesced. Returns null when there is nothing to highlight so
- * callers can skip the overlay entirely for plain text.
+ * Flatten a set of (possibly overlapping) ranges into non-overlapping segments,
+ * resolving each stretch to the highest-priority range covering it. This is the
+ * shared resolution step: the mirror overlay turns segments into spans,
+ * CodeMirror turns them into mark decorations, and both agree on what wins.
+ *
+ * Segments cover the whole text, including unstyled stretches, so callers can
+ * reconstruct the input exactly.
  */
-export function buildHighlightParts(
+export function resolveHighlightSegments(
     text: string,
     ranges: HighlightRange[],
-): HighlightPart[] | null {
-    if (!text || ranges.length === 0) return null;
+): HighlightSegment[] {
+    if (!text || ranges.length === 0) return [];
 
     const len = text.length;
     const bounds = new Set<number>([0, len]);
@@ -276,7 +290,7 @@ export function buildHighlightParts(
         .filter((item) => item.range.end > item.range.start)
         .sort((a, b) => a.range.start - b.range.start);
 
-    const parts: HighlightPart[] = [];
+    const segments: HighlightSegment[] = [];
     const active: Array<{ range: HighlightRange; index: number }> = [];
     let nextRange = 0;
 
@@ -308,17 +322,39 @@ export function buildHighlightParts(
         const className = bestRange
             ? (bestRange.className ?? STYLE_CLASS[bestRange.style])
             : DEFAULT_CLASS;
-        const segText = text.slice(segStart, segEnd);
-        const last = parts[parts.length - 1];
-        if (last && last.className === className) {
-            last.text += segText;
+
+        // Coalesce here rather than in each renderer: fewer spans in the
+        // overlay and fewer decorations in the editor.
+        const last = segments[segments.length - 1];
+        if (last && last.className === className && last.end === segStart) {
+            last.end = segEnd;
         } else {
-            parts.push({ text: segText, className });
+            segments.push({ start: segStart, end: segEnd, className });
         }
     }
 
-    return parts.length > 0 ? parts : null;
+    return segments;
 }
+
+/**
+ * Split `text` into styled parts for the mirror overlay. Returns null when
+ * there is nothing to highlight so callers can skip the overlay entirely for
+ * plain text.
+ */
+export function buildHighlightParts(
+    text: string,
+    ranges: HighlightRange[],
+): HighlightPart[] | null {
+    const segments = resolveHighlightSegments(text, ranges);
+    if (segments.length === 0) return null;
+    return segments.map((segment) => ({
+        text: text.slice(segment.start, segment.end),
+        className: segment.className,
+    }));
+}
+
+/** The class an unstyled stretch of composer text carries. */
+export const DEFAULT_HIGHLIGHT_CLASS = DEFAULT_CLASS;
 
 export function mentionRangesToHighlightRanges(mentions: MentionRange[]): HighlightRange[] {
     return mentions.map((mention) => ({
