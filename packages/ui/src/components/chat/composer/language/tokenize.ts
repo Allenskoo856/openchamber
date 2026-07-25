@@ -23,6 +23,7 @@ import {
     type MentionRange,
 } from '../../composerHighlight';
 import { classifyMention, scanMentions } from './mentions';
+import { pathHighlightRanges } from './paths';
 import { filterKnownTokens, scanPrefixTokens } from './prefixTokens';
 
 /**
@@ -72,6 +73,8 @@ export function tokenizeComposer(
         ...tokenizeMarkdown(text),
         ...highlightFencedCode(text),
         ...mentionRangesToHighlightRanges(tokenizeMentions(text, context)),
+        // `~path` is inert: highlighted for the reader, never attached.
+        ...pathHighlightRanges(text),
     ];
 
     for (const token of filterKnownTokens(scanPrefixTokens(text, '/'), context.knownSlashNames)) {

@@ -62,6 +62,44 @@ describe('tokenizeComposer — reference constructs', () => {
     });
 });
 
+describe('tokenizeComposer — a path is highlighted but never attached', () => {
+    test('a ~path is styled', () => {
+        expect(styled('see ~src/app.ts')).toEqual([['~src/app.ts', 'path']]);
+    });
+
+    test('it needs no registry and no confirmation, unlike @', () => {
+        // The same path behind `@` only resolves because it looks like a path;
+        // behind `~` it is inert either way.
+        const empty = context({ knownAgentNames: new Set(), confirmedMentions: new Set() });
+        expect(styled('~docs/NOTES', empty)).toEqual([['~docs/NOTES', 'path']]);
+    });
+
+    test('an @mention covering the same text keeps its own style', () => {
+        expect(styled('@src/app.ts')).toEqual([['@src/app.ts', 'mentionFile']]);
+    });
+
+    test('both forms can appear in one message', () => {
+        expect(stylesOf('attach @a/b.ts but only mention ~c/d.ts'))
+            .toEqual(new Set(['mentionFile', 'path']));
+    });
+});
+
+describe('tokenizeComposer — emphasis and attention', () => {
+    test('emphasis is tokenized', () => {
+        expect(stylesOf('**bold** and *slanted*'))
+            .toEqual(new Set(['marker', 'strong', 'emphasis']));
+    });
+
+    test('an attention line is tokenized', () => {
+        expect(stylesOf('!!! read this')).toEqual(new Set(['marker', 'attention']));
+    });
+
+    test('shell mode still disables everything', () => {
+        expect(tokenizeComposer('**bold** ~a/b.ts !!! x', context({ inputMode: 'shell' })))
+            .toEqual([]);
+    });
+});
+
 describe('tokenizeComposer — markdown still applies', () => {
     test('markdown and references coexist in one pass', () => {
         expect(stylesOf('# Title\n- see @src/app.ts and /review'))

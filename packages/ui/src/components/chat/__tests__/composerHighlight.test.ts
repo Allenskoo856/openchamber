@@ -172,18 +172,97 @@ describe('tokenizeMarkdown — inline spans', () => {
         ]);
     });
 
-    test('emphasis is deliberately not tokenized', () => {
-        // The mirror overlay may not change glyph metrics, so bold/italic have
-        // no representation today. The CodeMirror editor removes that limit.
-        expect(tokenize('**bold** and *italic* and _under_')).toEqual([]);
-    });
-
-    test('the !!! attention marker is not tokenized', () => {
-        expect(tokenize('!!! important')).toEqual([]);
-    });
-
-    test('a bare ~path is not tokenized', () => {
+    test('a bare ~path is not markdown — the language layer owns it', () => {
         expect(tokenize('~/repos/ocb/README.md')).toEqual([]);
+    });
+});
+
+describe('tokenizeMarkdown — emphasis', () => {
+    test('double delimiters are strong, single are emphasis', () => {
+        expect(tokenize('**bold**')).toEqual([
+            ['**', 'marker'],
+            ['bold', 'strong'],
+            ['**', 'marker'],
+        ]);
+        expect(tokenize('*slanted*')).toEqual([
+            ['*', 'marker'],
+            ['slanted', 'emphasis'],
+            ['*', 'marker'],
+        ]);
+    });
+
+    test('the underscore spellings work too', () => {
+        expect(tokenize('_slanted_').map(([, style]) => style))
+            .toEqual(['marker', 'emphasis', 'marker']);
+        expect(tokenize('__bold__').map(([, style]) => style))
+            .toEqual(['marker', 'strong', 'marker']);
+    });
+
+    test('arithmetic is not emphasis', () => {
+        expect(tokenize('2 * 3 * 4')).toEqual([]);
+        expect(tokenize('a * b')).toEqual([]);
+    });
+
+    test('an identifier is not emphasis', () => {
+        expect(tokenize('foo_bar_baz')).toEqual([]);
+        expect(tokenize('SCREAMING_SNAKE_CASE')).toEqual([]);
+    });
+
+    test('an underscore span still works between words', () => {
+        expect(tokenize('say _this_ loudly').map(([text]) => text))
+            .toEqual(['_', 'this', '_']);
+    });
+
+    test('a delimiter with nothing after it opens nothing', () => {
+        expect(tokenize('trailing * ')).toEqual([]);
+        expect(tokenize('ends with *')).toEqual([]);
+    });
+
+    test('an unclosed delimiter is left as plain text', () => {
+        expect(tokenize('*never closed')).toEqual([]);
+    });
+
+    test('emphasis does not span lines', () => {
+        expect(tokenize('*open\nclose*')).toEqual([]);
+    });
+
+    test('inline spans inside emphasis are still scanned', () => {
+        expect(tokenize('**see `code`**').map(([text, style]) => `${text}:${style}`))
+            .toContain('`code`:code');
+    });
+
+    test('a list marker is not read as emphasis', () => {
+        expect(tokenize('* item')).toEqual([['*', 'listMarker']]);
+    });
+
+    test('emphasis inside a heading keeps both', () => {
+        const text = '# A **strong** title';
+        const styles = tokenize(text).map(([, style]) => style);
+        expect(styles).toContain('heading');
+        expect(styles).toContain('strong');
+    });
+});
+
+describe('tokenizeMarkdown — attention', () => {
+    test('a !!! line marks its content', () => {
+        expect(tokenize('!!! important')).toEqual([
+            ['!!!', 'marker'],
+            ['important', 'attention'],
+        ]);
+    });
+
+    test('it needs a space after the marks', () => {
+        expect(tokenize('!!!important')).toEqual([]);
+    });
+
+    test('an emphatic sentence is not an attention line', () => {
+        expect(tokenize('that is wild!!!')).toEqual([]);
+        expect(tokenize('!! close')).toEqual([]);
+    });
+
+    test('inline spans inside an attention line are scanned', () => {
+        expect(tokenize('!!! check `this`').map(([, style]) => style))
+            .toContain('code');
     });
 });
 
@@ -253,6 +332,35 @@ describe('resolveHighlightSegments', () => {
             .toEqual(segments.map((segment) => text.slice(segment.start, segment.end)));
         expect(parts!.map((part) => part.className))
             .toEqual(segments.map((segment) => segment.className));
+    });
+});
+
+describe('resolveHighlightSegments — additive styles', () => {
+    /**
+     * A segment carries one class string, so weight and colour cannot be
+     * chosen between: emphasis composes onto whatever construct it sits in.
+     */
+    test('emphasis inside a heading keeps the heading colour and gains weight', () => {
+        const text = '# A **strong** title';
+        const segment = resolveHighlightSegments(text, tokenizeMarkdown(text))
+            .find((candidate) => text.slice(candidate.start, candidate.end) === 'strong');
+        expect(segment!.className.includes('font-semibold')).toBe(true);
+        expect(segment!.className.includes('--syntax-keyword')).toBe(true);
+    });
+
+    test('emphasis on its own still renders over the default text colour', () => {
+        const text = '*slanted*';
+        const segment = resolveHighlightSegments(text, tokenizeMarkdown(text))
+            .find((candidate) => text.slice(candidate.start, candidate.end) === 'slanted');
+        expect(segment!.className.includes('italic')).toBe(true);
+    });
+
+    test('a style is not repeated when two identical ranges overlap', () => {
+        const parts = resolveHighlightSegments('abcd', [
+            { start: 0, end: 4, style: 'strong' },
+            { start: 0, end: 4, style: 'strong' },
+        ]);
+        expect(parts[0].className.split('font-semibold').length - 1).toBe(1);
     });
 });
 

@@ -263,7 +263,16 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
         React.useEffect(() => {
             const view = viewRef.current;
             const host = hostRef.current;
-            if (!view || !host || fillContainer) return;
+            if (!view || !host) return;
+
+            // Filling the container means there is no line limit — and the
+            // limit from the collapsed composer has to be released, or the
+            // expanded editor keeps scrolling inside an invisible eight-line
+            // window while the rest of the surface sits empty.
+            if (fillContainer) {
+                view.scrollDOM.style.maxHeight = '';
+                return;
+            }
 
             const applyLimit = () => {
                 const lineHeight = parseFloat(
