@@ -120,6 +120,7 @@ import {
     toProjectRelativeMentionPath,
     toServerFileUrl,
 } from './composer/attachments/filePaths';
+import { buildOutgoingMessage } from './composer/submit/buildOutgoingMessage';
 import {
     buildCommandVariables,
     canRunCommand,
@@ -566,7 +567,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     }), [attachmentFilenames, inputMode, knownAgentNames, knownSlashNames, knownSnippetTriggers]);
 
     const sanitizeAttachmentsForSend = React.useCallback(
-        (files: AttachedFile[] | undefined): AttachedFile[] => (files ?? [])
+        (files: readonly AttachedFile[] | undefined): AttachedFile[] => [...(files ?? [])]
             .map((file) => ({
                 ...file,
                 dataUrl: file.source === 'server' && file.serverPath
@@ -988,132 +989,48 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         const sendMessageOptions = delivery ? { delivery } : undefined;
 
-        // Build the primary message (first part) and additional parts
-        let primaryText = '';
-        let primaryAttachments: AttachedFile[] = [];
-        let agentMentionName: string | undefined;
-        const additionalParts: Array<{ text: string; attachments?: AttachedFile[]; synthetic?: boolean }> = [];
-        const availableSkillNames = new Set(useSkillsStore.getState().skills.map((skill) => skill.name));
-        const mentionedSkillNames: string[] = [];
-        const addMentionedSkills = (text: string) => {
-            for (const name of collectInlineSkillMentions(text, availableSkillNames)) {
-                if (!mentionedSkillNames.includes(name)) mentionedSkillNames.push(name);
-            }
-        };
-
-        // Consume any pending synthetic parts (from conflict resolution, etc.)
+        // Inline review comments and synthetic context are consumed before
+        // assembly so a failed send can restore exactly what it took.
         const syntheticParts = consumePendingSyntheticParts();
+        const consumedDraftTarget = queuedOnly ? null : inlineDraftTarget;
+        const drafts: InlineCommentDraft[] = consumedDraftTarget
+            ? consumeDrafts(consumedDraftTarget)
+            : [];
 
-        // Process queued messages first
-        for (let i = 0; i < queuedMessagesToSend.length; i++) {
-            const queuedMsg = queuedMessagesToSend[i];
-            const { sanitizedText, mention } = parseAgentMentions(queuedMsg.content, agents);
-            const { sanitizedText: queuedText, attachments: mentionAttachments } = extractInlineFileMentions(sanitizedText);
-            addMentionedSkills(queuedText);
+        const availableSkillNames = new Set(
+            useSkillsStore.getState().skills.map((skill) => skill.name),
+        );
 
-            // Use agent mention from first message that has one
-            if (!agentMentionName && mention?.name) {
-                agentMentionName = mention.name;
-            }
+        const outgoing = buildOutgoingMessage({
+            queued: queuedMessagesToSend,
+            composerText: !queuedOnly && inputSnapshot.hasContent ? inputSnapshot.message : null,
+            composerAttachments: attachedFiles,
+            inlineComments: drafts,
+            syntheticTexts: syntheticParts?.map((part) => part.text) ?? [],
+            linkedIssueContext: linkedIssue?.contextText ?? null,
+            linkedPr: linkedPr
+                ? { instructions: linkedPr.instructionsText, context: linkedPr.contextText }
+                : null,
+        }, {
+            parseAgentMention: (text) => {
+                const { sanitizedText, mention } = parseAgentMentions(text, agents);
+                return { text: sanitizedText, agentName: mention?.name };
+            },
+            extractFileMentions: (text) => {
+                const { sanitizedText, attachments } = extractInlineFileMentions(text);
+                return { text: sanitizedText, attachments };
+            },
+            sanitizeAttachments: sanitizeAttachmentsForSend,
+            collectSkillNames: (text) => collectInlineSkillMentions(text, availableSkillNames),
+            appendComments: (text, comments) =>
+                appendInlineComments(text, comments as InlineCommentDraft[]),
+            buildSkillInstruction: buildSkillMentionInstruction,
+        });
 
-            if (i === 0) {
-                // First queued message becomes primary
-                primaryText = queuedText;
-                primaryAttachments = [
-                    ...sanitizeAttachmentsForSend(queuedMsg.attachments),
-                    ...mentionAttachments,
-                ];
-            } else {
-                // Subsequent queued messages become additional parts
-                const queuedAttachments = sanitizeAttachmentsForSend(queuedMsg.attachments);
-                additionalParts.push({
-                    text: queuedText,
-                    attachments: [...queuedAttachments, ...mentionAttachments],
-                });
-            }
-        }
+        let primaryText = outgoing.primaryText;
+        const { primaryAttachments, additionalParts, agentMentionName } = outgoing;
 
-        // Add current input (skip for queued-only auto-send)
-        if (!queuedOnly && inputSnapshot.hasContent) {
-            const messageToSend = inputSnapshot.message.replace(/^\n+|\n+$/g, '');
-            const { sanitizedText, mention } = parseAgentMentions(messageToSend, agents);
-            const { sanitizedText: messageText, attachments: mentionAttachments } = extractInlineFileMentions(sanitizedText);
-            const attachmentsToSend = sanitizeAttachmentsForSend(attachedFiles);
-            addMentionedSkills(messageText);
-
-            if (!agentMentionName && mention?.name) {
-                agentMentionName = mention.name;
-            }
-
-            if (queuedMessagesToSend.length === 0) {
-                // No queue - current input is primary
-                primaryText = messageText;
-                primaryAttachments = [...attachmentsToSend, ...mentionAttachments];
-            } else {
-                // Has queue - current input is additional part
-                additionalParts.push({
-                    text: messageText,
-                    attachments: [...attachmentsToSend, ...mentionAttachments],
-                });
-            }
-        }
-
-        const consumedDraftTarget = inlineDraftTarget;
-        let drafts: InlineCommentDraft[] = [];
-        if (!queuedOnly && consumedDraftTarget) {
-            drafts = consumeDrafts(consumedDraftTarget);
-        }
-
-        if (drafts.length > 0) {
-            if (queuedMessagesToSend.length === 0) {
-                primaryText = appendInlineComments(primaryText, drafts);
-            } else if (additionalParts.length > 0) {
-                const lastPart = additionalParts[additionalParts.length - 1];
-                lastPart.text = appendInlineComments(lastPart.text, drafts);
-            } else {
-                primaryText = appendInlineComments(primaryText, drafts);
-            }
-        }
-
-        // Add synthetic parts (from conflict resolution, etc.)
-        if (syntheticParts && syntheticParts.length > 0) {
-            for (const part of syntheticParts) {
-                additionalParts.push({
-                    text: part.text,
-                    synthetic: true,
-                });
-            }
-        }
-
-        // Add linked issue as synthetic part (only the parts with synthetic: true)
-        // The text part (synthetic: false) is completely dropped per requirements
-        if (linkedIssue) {
-            additionalParts.push({
-                text: linkedIssue.contextText,
-                synthetic: true,
-            });
-        }
-
-        if (linkedPr) {
-            additionalParts.push({
-                text: linkedPr.instructionsText,
-                synthetic: true,
-            });
-            additionalParts.push({
-                text: linkedPr.contextText,
-                synthetic: true,
-            });
-        }
-
-        const skillMentionInstruction = buildSkillMentionInstruction(mentionedSkillNames);
-        if (skillMentionInstruction) {
-            additionalParts.push({
-                text: skillMentionInstruction,
-                synthetic: true,
-            });
-        }
-
-        if (!primaryText && primaryAttachments.length === 0 && additionalParts.length === 0) return;
+        if (outgoing.isEmpty) return;
 
         // Clear queue and input
         if (messageQueueTarget && queuedMessageId) {
