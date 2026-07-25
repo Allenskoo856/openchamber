@@ -57,6 +57,22 @@ import { MobileSessionStatusBar, MobileSessionPanelTrigger } from './MobileSessi
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
+import { HarnessClientError } from '@/lib/harness/client';
+import {
+    clearPendingHandoffTarget,
+    getPendingHandoffTarget,
+    resolveSourceHarnessId,
+    shouldPersistHandoffWarnDismissal,
+    shouldShowHandoffBillingNotice,
+} from '@/lib/harness/session-handoff';
+import {
+    getCachedWarnOnOpenCodeHandoff,
+    setCachedWarnOnOpenCodeHandoff,
+    withEnginesSettingsDefaults,
+} from '@/lib/harness/settings';
+import { updateDesktopSettings } from '@/lib/persistence';
+import { runtimeFetch } from '@/lib/runtime-fetch';
+import { HandoffConfirmDialog } from '@/components/harness/HandoffConfirmDialog';
 // useMessageStore removed — messages now come from sync system
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { isIMECompositionEvent } from '@/lib/ime';
@@ -1119,6 +1135,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const isExpandedInput = useUIStore((state) => state.isExpandedInput);
     const setExpandedInput = useUIStore((state) => state.setExpandedInput);
     const setTimelineDialogOpen = useUIStore((state) => state.setTimelineDialogOpen);
+    const setSettingsDialogOpen = useUIStore((state) => state.setSettingsDialogOpen);
+    const setSettingsPage = useUIStore((state) => state.setSettingsPage);
     const { git: runtimeGit, vscode: vscodeApi } = useRuntimeAPIs();
     const cycleAgentShortcutOverride = useUIStore((state) => state.shortcutOverrides.cycle_agent);
     const cycleAgentShortcut = React.useMemo(() => (
@@ -1500,6 +1518,36 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     // Issue linking state
     const [issuePickerOpen, setIssuePickerOpen] = React.useState(false);
     const [prPickerOpen, setPrPickerOpen] = React.useState(false);
+    const [handoffConfirmOpen, setHandoffConfirmOpen] = React.useState(false);
+    const handoffConfirmPassedRef = React.useRef(false);
+    const handoffSubmitOptionsRef = React.useRef<SubmitOptions | undefined>(undefined);
+
+    React.useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            try {
+                const response = await runtimeFetch('/api/config/settings', {
+                    method: 'GET',
+                    headers: { Accept: 'application/json' },
+                });
+                if (!response.ok || cancelled) return;
+                const data = await response.json().catch(() => null) as Record<string, unknown> | null;
+                if (!data || cancelled) return;
+                const resolved = withEnginesSettingsDefaults({
+                    enginesClaudeCodeWarnOnOpenCodeHandoff:
+                        typeof data.enginesClaudeCodeWarnOnOpenCodeHandoff === 'boolean'
+                            ? data.enginesClaudeCodeWarnOnOpenCodeHandoff
+                            : undefined,
+                });
+                setCachedWarnOnOpenCodeHandoff(resolved.enginesClaudeCodeWarnOnOpenCodeHandoff);
+            } catch {
+                // keep cached default
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
     const [linkedIssue, setLinkedIssue] = React.useState<{ 
         number: number; 
         title: string; 
@@ -2093,6 +2141,27 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         if (!primaryText && primaryAttachments.length === 0 && additionalParts.length === 0) return;
 
+        // OpenCode → Claude Code billing notice before handoff Send.
+        if (currentSessionId && !queuedOnly && !handoffConfirmPassedRef.current) {
+            const pendingHandoff = getPendingHandoffTarget(currentSessionId);
+            if (pendingHandoff) {
+                const sourceHarnessId = resolveSourceHarnessId(currentSessionId);
+                if (
+                    pendingHandoff.harnessId !== sourceHarnessId
+                    && shouldShowHandoffBillingNotice({
+                        sourceHarnessId,
+                        targetHarnessId: pendingHandoff.harnessId,
+                        warnOnOpenCodeHandoff: getCachedWarnOnOpenCodeHandoff(),
+                    })
+                ) {
+                    handoffSubmitOptionsRef.current = options;
+                    setHandoffConfirmOpen(true);
+                    return;
+                }
+            }
+        }
+        handoffConfirmPassedRef.current = false;
+
         // Clear queue and input
         if (messageQueueTarget && queuedMessageId) {
             removeFromQueue(messageQueueTarget, queuedMessageId);
@@ -2475,6 +2544,31 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 if (allAttachments.length > 0) {
                     useInputStore.getState().setAttachedFiles(allAttachments);
                 }
+                return;
+            }
+
+            if (error instanceof HarnessClientError) {
+                const harnessMessage = error.code === 'CLAUDE_NOT_READY'
+                    || error.code === 'CLAUDE_MISSING_CLI'
+                    || error.code === 'CLAUDE_NEEDS_LOGIN'
+                    ? t('chat.engines.notReady')
+                    : error.code === 'CLAUDE_SHELL_UNSUPPORTED'
+                        ? t('chat.engines.shellUnsupported')
+                        : error.code === 'CLAUDE_SLASH_UNSUPPORTED'
+                            ? t('chat.engines.slashUnsupported')
+                            : (rawMessage || t('chat.chatInput.toast.messageSendFailed'));
+                if (allAttachments.length > 0) {
+                    useInputStore.getState().setAttachedFiles(allAttachments);
+                }
+                toast.error(harnessMessage, {
+                    action: {
+                        label: t('chat.engines.manageEngines'),
+                        onClick: () => {
+                            setSettingsPage('engines');
+                            setSettingsDialogOpen(true);
+                        },
+                    },
+                });
                 return;
             }
 
@@ -5661,6 +5755,27 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             projectDirectory={currentSessionDirectoryForSync ?? currentDirectory ?? null}
             submitting={reviewFlowSubmitting}
             onConfirm={handleStartReviewFlow}
+        />
+        <HandoffConfirmDialog
+            open={handoffConfirmOpen}
+            onOpenChange={setHandoffConfirmOpen}
+            onCancel={() => {
+                if (currentSessionId) {
+                    clearPendingHandoffTarget(currentSessionId);
+                }
+                handoffConfirmPassedRef.current = false;
+                handoffSubmitOptionsRef.current = undefined;
+            }}
+            onContinue={async (dontShowAgain) => {
+                if (shouldPersistHandoffWarnDismissal({ confirmed: true, dontShowAgain })) {
+                    setCachedWarnOnOpenCodeHandoff(false);
+                    void updateDesktopSettings({ enginesClaudeCodeWarnOnOpenCodeHandoff: false });
+                }
+                handoffConfirmPassedRef.current = true;
+                const resumeOptions = handoffSubmitOptionsRef.current;
+                handoffSubmitOptionsRef.current = undefined;
+                await handleSubmit(resumeOptions);
+            }}
         />
         <ToolOutputDialog
             popup={attachmentPreview}

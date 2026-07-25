@@ -345,7 +345,12 @@ describe('routeMessage skill invocation', () => {
 
     // Minimal optimistic + connection machinery so routeMessage can dispatch.
     const childStore = {
-      getState: () => ({ session_status: {} }),
+      getState: () => ({
+        session: [],
+        message: {},
+        part: {},
+        session_status: {},
+      }),
       setState: () => {},
     };
     const childStores = {

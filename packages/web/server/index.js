@@ -1607,6 +1607,8 @@ async function main(options = {}) {
     getOpenChamberEventClients: () => uiOpenChamberEventClients,
     writeSseEvent,
     permissionAutoAcceptRuntime,
+    getBroadcastGlobalUiEvent: () => broadcastGlobalUiEvent,
+    getOpenCodeReady: () => isOpenCodeReady,
   });
 
   const previewProxyRuntime = createPreviewProxyRuntime({

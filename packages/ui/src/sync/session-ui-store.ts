@@ -70,8 +70,27 @@ import { setSessionOpener } from "./session-navigation"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
+import { HarnessClientError, harnessPrompt } from "@/lib/harness/client"
+import {
+  persistSessionExecutionTarget,
+  resolveExecutionTarget,
+} from "@/lib/harness/resolve-execution-target"
+import {
+  clearPendingHandoffTarget,
+  createEngineHandoffSession,
+  getPendingHandoffTarget,
+} from "@/lib/harness/session-handoff"
+import { useHarnessStore } from "@/stores/useHarnessStore"
+import type { ExecutionTarget } from "@/types/harness"
 
 export type { AttachedFile }
+
+const CLAUDE_SHELL_UNSUPPORTED =
+  "Shell mode is not available on Claude Code. Switch to OpenCode or send a normal message."
+const CLAUDE_SLASH_UNSUPPORTED =
+  "Slash commands are not available on Claude Code. Switch to OpenCode or send a normal message."
+const CLAUDE_NOT_READY_MESSAGE =
+  "Claude Code is not ready. Open Settings → Engines to install, log in, or re-detect."
 
 // ---------------------------------------------------------------------------
 // Send routing — shell mode, slash commands, or normal prompt
@@ -90,8 +109,89 @@ export function routeMessage(params: {
   files?: Array<{ type: "file"; mime: string; url: string; filename: string }>
   additionalParts?: Array<{ text: string; synthetic?: boolean; files?: Array<{ type: "file"; mime: string; url: string; filename: string }> }>
   delivery?: 'steer'
+  seedFromSessionId?: string
+  /** When set, skip resolve and use this target (handoff to a freshly created session). */
+  executionTarget?: ExecutionTarget
 }): Promise<void> {
   const requestDirectory = params.directory ?? undefined
+  const target = params.executionTarget && params.executionTarget.harnessId
+    ? params.executionTarget
+    : resolveExecutionTarget({
+      sessionId: params.sessionId,
+      providerID: params.providerID,
+      modelID: params.modelID,
+      agent: params.agent,
+      variant: params.variant,
+    })
+
+  if (params.sessionId) {
+    persistSessionExecutionTarget(params.sessionId, target)
+  }
+
+  if (target.harnessId === "claude-code") {
+    if (params.inputMode === "shell") {
+      return Promise.reject(new HarnessClientError(CLAUDE_SHELL_UNSUPPORTED, "CLAUDE_SHELL_UNSUPPORTED", 400))
+    }
+
+    // Reject slash/shell on Claude rather than silently falling back to OpenCode.
+    if (params.content.startsWith("/")) {
+      const [head] = params.content.split(" ")
+      const cmdName = head.slice(1)
+      const dirState = getDirectoryState(requestDirectory)
+      const syncCommands = dirState?.command ?? []
+      const storeCommands = useCommandsStore.getState().commands
+      const isCommand = syncCommands.find((c) => c.name === cmdName)
+        || storeCommands.find((c) => c.name === cmdName)
+        || useSkillsStore.getState().skills.some((s) => s.name === cmdName)
+      if (isCommand) {
+        return Promise.reject(new HarnessClientError(CLAUDE_SLASH_UNSUPPORTED, "CLAUDE_SLASH_UNSUPPORTED", 400))
+      }
+    }
+
+    const claudeCatalog = useHarnessStore.getState().getCatalog("claude-code")
+    if (!claudeCatalog || claudeCatalog.status !== "ready") {
+      return Promise.reject(new HarnessClientError(CLAUDE_NOT_READY_MESSAGE, "CLAUDE_NOT_READY", 503, claudeCatalog?.status))
+    }
+
+    const directory = requestDirectory?.trim()
+    if (!directory) {
+      return Promise.reject(new HarnessClientError("directory is required for Claude Code", "PROMPT_INVALID", 400))
+    }
+
+    const providerID = "claude-code"
+    const modelID = target.modelRef
+    const seedParts = (params.additionalParts ?? [])
+      .filter((part) => part.synthetic && typeof part.text === "string" && part.text.trim().length > 0)
+      .map((part) => part.text.trim())
+    const harnessText = seedParts.length > 0
+      ? `${seedParts.join("\n\n")}\n\n${params.content}`
+      : params.content
+
+    // Normal prompt — optimistic insert; transport is /api/harness/prompt (not OpenCode SDK).
+    return optimisticSend({
+      sessionId: params.sessionId,
+      content: harnessText,
+      providerID,
+      modelID,
+      agent: params.agent,
+      directory: requestDirectory,
+      files: params.files,
+      send: (messageID) => harnessPrompt({
+        sessionId: params.sessionId,
+        directory,
+        target,
+        text: harnessText,
+        files: params.files?.map((file) => ({
+          mime: file.mime,
+          url: file.url,
+          filename: file.filename,
+        })),
+        messageId: messageID,
+        seedFromSessionId: params.seedFromSessionId,
+      }).then(() => {}),
+    })
+  }
+
   if (params.inputMode === "shell") {
     return opencodeClient.shellSession({
       sessionId: params.sessionId,
@@ -1123,6 +1223,96 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const configAgentName = useConfigStore.getState().currentAgentName
     const effectiveAgent = trimmedAgent || sessionAgentSelection || configAgentName || undefined
 
+    const currentSessionDirectory = targetSessionId
+      ? normalizePath(options?.directory ?? get().getDirectoryForSession(targetSessionId))
+      : null
+
+    // Cross-engine handoff: used session with a pending target → new session + seed.
+    const pendingHandoff = targetSessionId ? getPendingHandoffTarget(targetSessionId) : null
+    const stickyTarget = targetSessionId
+      ? useSelectionStore.getState().getSessionTarget(targetSessionId)
+      : null
+    const sourceHarnessId = stickyTarget?.harnessId ?? "opencode"
+    if (
+      targetSessionId
+      && pendingHandoff
+      && pendingHandoff.harnessId !== sourceHarnessId
+    ) {
+      const sourceSessionId = targetSessionId
+      const handoff = await createEngineHandoffSession({
+        sourceSessionId,
+        directory: currentSessionDirectory,
+        createSession: (title, directoryOverride) => get().createSession(title, directoryOverride),
+      })
+
+      clearPendingHandoffTarget(sourceSessionId)
+      persistSessionExecutionTarget(handoff.sessionId, pendingHandoff)
+
+      const createdDirectory = normalizePath(handoff.directory ?? currentSessionDirectory)
+      const handoffProviderID = pendingHandoff.harnessId === "claude-code"
+        ? "claude-code"
+        : pendingHandoff.providerId
+      const handoffModelID = pendingHandoff.harnessId === "claude-code"
+        ? pendingHandoff.modelRef
+        : pendingHandoff.modelId
+
+      useSelectionStore.getState().saveSessionModelSelection(handoff.sessionId, handoffProviderID, handoffModelID)
+      if (effectiveAgent && pendingHandoff.harnessId === "opencode") {
+        useSelectionStore.getState().saveSessionAgentSelection(handoff.sessionId, effectiveAgent)
+        useSelectionStore.getState().saveAgentModelForSession(handoff.sessionId, effectiveAgent, handoffProviderID, handoffModelID)
+        useSelectionStore.getState().saveAgentModelVariantForSession(
+          handoff.sessionId,
+          effectiveAgent,
+          handoffProviderID,
+          handoffModelID,
+          variant,
+        )
+      }
+
+      notifyMessageSent(handoff.sessionId)
+      markPendingUserSendAnimation(handoff.sessionId)
+
+      const files = attachments?.map((a) => ({
+        type: "file" as const,
+        mime: a.mimeType,
+        url: a.dataUrl,
+        filename: a.filename,
+      }))
+
+      const handoffAdditionalParts = [
+        ...(handoff.seed.text ? [{ text: handoff.seed.text, synthetic: true as const }] : []),
+        ...(additionalParts ?? []).map((p) => ({
+          text: p.text,
+          synthetic: p.synthetic,
+          files: p.attachments?.map((a) => ({
+            type: "file" as const,
+            mime: a.mimeType,
+            url: a.dataUrl,
+            filename: a.filename,
+          })),
+        })),
+      ]
+
+      await routeMessage({
+        sessionId: handoff.sessionId,
+        directory: createdDirectory,
+        content,
+        providerID: handoffProviderID,
+        modelID: handoffModelID,
+        agent: pendingHandoff.harnessId === "opencode" ? effectiveAgent : undefined,
+        agentMentionName,
+        variant: pendingHandoff.harnessId === "opencode" ? variant : undefined,
+        inputMode,
+        files,
+        delivery: options?.delivery,
+        seedFromSessionId: sourceSessionId,
+        executionTarget: pendingHandoff,
+        additionalParts: handoffAdditionalParts.length > 0 ? handoffAdditionalParts : undefined,
+      })
+      applyArmedGoal(handoff.sessionId, createdDirectory)
+      return
+    }
+
     if (targetSessionId) {
       useSelectionStore.getState().saveSessionModelSelection(targetSessionId, providerID, modelID)
     }
@@ -1150,9 +1340,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       }
     }
 
-    const currentSessionDirectory = targetSessionId
-      ? normalizePath(options?.directory ?? get().getDirectoryForSession(targetSessionId))
-      : null
     if (targetSessionId) {
       notifyMessageSent(targetSessionId)
     }

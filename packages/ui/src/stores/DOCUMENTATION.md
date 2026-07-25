@@ -37,6 +37,7 @@ Examples:
 - `useDirectoryStore.ts`
 - `useFeatureFlagsStore.ts`
 - `useUpdateStore.ts`
+- `useHarnessStore.ts` — OpenChamber `/api/harness` catalog/status client (not OpenCode SDK). Fetch failure must not clear prior catalogs to a fake ready-empty state.
 
 These stores coordinate visible app state, navigation, selected tabs, dialogs, and lightweight feature flags.
 

@@ -5,6 +5,30 @@ export type {
   ProviderResult
 } from './quota';
 
+export type {
+  HarnessId,
+  ExecutionTarget,
+  ClaudePermissionMode,
+  CapabilityLevel,
+  HarnessCapability,
+  HarnessRuntimeStatus,
+  HarnessAuthMode,
+  HarnessDescriptor,
+  EngineCatalog,
+  EngineCatalogModel,
+  EngineCatalogSection,
+} from './harness';
+
+export {
+  HARNESS_IDS,
+  HARNESS_CAPABILITIES,
+  isHarnessId,
+  isHarnessRuntimeStatus,
+  isCapabilityLevel,
+  isClaudePermissionMode,
+  isExecutionTarget,
+} from './harness';
+
 export interface ModelMetadata {
   id: string;
   providerId: string;

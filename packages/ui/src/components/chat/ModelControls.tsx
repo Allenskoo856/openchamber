@@ -9,6 +9,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
@@ -16,7 +17,7 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import type { IconName } from "@/components/icon/icons";
-import { ModelPickerList, type ModelPickerEntry, type ModelPickerProvider } from '@/components/model-picker/ModelPickerList';
+import { ModelPickerList, type ModelPickerEntry, type ModelPickerEngineOption, type ModelPickerProvider } from '@/components/model-picker/ModelPickerList';
 import { useIsVSCodeRuntime } from '@/hooks/useRuntimeAPIs';
 import { isDesktopShell } from '@/lib/desktop';
 import { getAgentColor } from '@/lib/agentColors';
@@ -27,6 +28,7 @@ import { getEditModeColors } from '@/lib/permissions/editModeColors';
 import { cn, fuzzyMatch } from '@/lib/utils';
 import { useContextStore } from '@/stores/contextStore';
 import { useConfigStore } from '@/stores/useConfigStore';
+import { useHarnessStore } from '@/stores/useHarnessStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useSessionMessages, useSessionRenderable } from '@/sync/sync-context';
@@ -39,6 +41,29 @@ import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
 import { useOpenCodeReadiness } from '@/hooks/useOpenCodeReadiness';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
 import { markStartupTrace } from '@/lib/startupTrace';
+import { runtimeFetch } from '@/lib/runtime-fetch';
+import { withEnginesSettingsDefaults } from '@/lib/harness/settings';
+import { buildOpenCodeExecutionTarget, persistSessionExecutionTarget } from '@/lib/harness/resolve-execution-target';
+import { applySessionExecutionTargetSelection } from '@/lib/harness/session-handoff';
+import type { ExecutionTarget, HarnessId, HarnessRuntimeStatus } from '@/types/harness';
+import { useShallow } from 'zustand/react/shallow';
+
+const CLAUDE_PICKER_PROVIDER_ID = 'claude-code';
+
+const ENGINE_STATUS_LABEL_KEYS: Record<
+    HarnessRuntimeStatus,
+    | 'settings.engines.sidebar.status.ready'
+    | 'settings.engines.sidebar.status.needsLogin'
+    | 'settings.engines.sidebar.status.missingCli'
+    | 'settings.engines.sidebar.status.unsupportedHost'
+    | 'settings.engines.sidebar.status.error'
+> = {
+    ready: 'settings.engines.sidebar.status.ready',
+    'needs-login': 'settings.engines.sidebar.status.needsLogin',
+    'missing-cli': 'settings.engines.sidebar.status.missingCli',
+    'unsupported-host': 'settings.engines.sidebar.status.unsupportedHost',
+    error: 'settings.engines.sidebar.status.error',
+};
 
 type IconComponent = IconName;
 
@@ -338,6 +363,26 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const getAgentModelForSession = useSelectionStore((state) => state.getAgentModelForSession);
     const saveAgentModelVariantForSession = useSelectionStore((state) => state.saveAgentModelVariantForSession);
     const getAgentModelVariantForSession = useSelectionStore((state) => state.getAgentModelVariantForSession);
+    const getLastUsedTarget = useSelectionStore((state) => state.getLastUsedTarget);
+    const sessionTarget = useSelectionStore((state) =>
+        currentSessionId ? state.sessionTargets.get(currentSessionId) ?? null : null
+    );
+    const pendingHandoffTarget = useSelectionStore((state) =>
+        currentSessionId ? state.pendingHandoffTargets.get(currentSessionId) ?? null : null
+    );
+    const lastUsedTarget = useSelectionStore((state) => state.lastUsedTarget);
+
+    const {
+        harnessCatalogsById,
+        refreshHarnessCatalog,
+    } = useHarnessStore(useShallow((s) => ({
+        harnessCatalogsById: s.catalogsById,
+        refreshHarnessCatalog: s.refresh,
+    })));
+    const claudeCatalog = harnessCatalogsById['claude-code'];
+    const [enginesClaudeCodeEnabled, setEnginesClaudeCodeEnabled] = React.useState(true);
+    const [pickerHarnessId, setPickerHarnessId] = React.useState<HarnessId>('opencode');
+    const [claudeModelRef, setClaudeModelRef] = React.useState('sonnet');
 
     const contextHydrated = useContextStore((state) => state.hasHydrated);
 
@@ -427,6 +472,115 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         setAgentMenuOpen(false);
         closeMobilePanel();
     }, [setSelectedProvider, setSettingsPage, setSettingsDialogOpen, setAgentMenuOpen, closeMobilePanel]);
+    const openEnginesSettings = React.useCallback(() => {
+        setSettingsPage('engines');
+        setSettingsDialogOpen(true);
+        setAgentMenuOpen(false);
+        closeMobilePanel();
+    }, [setSettingsPage, setSettingsDialogOpen, setAgentMenuOpen, closeMobilePanel]);
+
+    React.useEffect(() => {
+        void refreshHarnessCatalog();
+    }, [refreshHarnessCatalog]);
+
+    React.useEffect(() => {
+        let cancelled = false;
+        void (async () => {
+            try {
+                const response = await runtimeFetch('/api/config/settings', {
+                    method: 'GET',
+                    headers: { Accept: 'application/json' },
+                });
+                if (!response.ok || cancelled) return;
+                const data = await response.json().catch(() => null) as Record<string, unknown> | null;
+                if (!data || cancelled) return;
+                const resolved = withEnginesSettingsDefaults({
+                    enginesClaudeCodeEnabled: typeof data.enginesClaudeCodeEnabled === 'boolean'
+                        ? data.enginesClaudeCodeEnabled
+                        : undefined,
+                });
+                setEnginesClaudeCodeEnabled(resolved.enginesClaudeCodeEnabled);
+            } catch {
+                // keep default
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    // Rehydrate picker engine from pending handoff / sticky / last-used; hydrate OpenCode sessions missing a target.
+    React.useEffect(() => {
+        const sticky = pendingHandoffTarget
+            ?? sessionTarget
+            ?? (currentSessionId ? null : lastUsedTarget)
+            ?? getLastUsedTarget();
+        if (sticky?.harnessId === 'claude-code') {
+            setPickerHarnessId('claude-code');
+            setClaudeModelRef(sticky.modelRef || 'sonnet');
+            return;
+        }
+        if (sticky?.harnessId === 'opencode') {
+            setPickerHarnessId('opencode');
+            return;
+        }
+        if (currentSessionId && currentProviderId && currentModelId && !sessionTarget && !pendingHandoffTarget) {
+            const opencodeTarget = buildOpenCodeExecutionTarget({
+                providerID: currentProviderId,
+                modelID: currentModelId,
+            });
+            persistSessionExecutionTarget(currentSessionId, opencodeTarget);
+            setPickerHarnessId('opencode');
+        }
+    }, [
+        currentSessionId,
+        currentProviderId,
+        currentModelId,
+        sessionTarget,
+        pendingHandoffTarget,
+        lastUsedTarget,
+        getLastUsedTarget,
+    ]);
+
+    const persistTarget = React.useCallback((target: ExecutionTarget) => {
+        const directory = currentSessionId
+            ? getDirectoryForSession(currentSessionId)
+            : null;
+        applySessionExecutionTargetSelection(currentSessionId, target, { directory });
+    }, [currentSessionId, getDirectoryForSession]);
+
+    const resolveDefaultClaudeModelRef = React.useCallback(() => {
+        const fromLast = getLastUsedTarget();
+        if (fromLast?.harnessId === 'claude-code' && fromLast.modelRef) {
+            return fromLast.modelRef;
+        }
+        const first = claudeCatalog?.sections.flatMap((section) => section.models)[0]?.id;
+        return first || claudeModelRef || 'sonnet';
+    }, [claudeCatalog, claudeModelRef, getLastUsedTarget]);
+
+    const handleSelectEngine = React.useCallback((engineId: string) => {
+        if (engineId === 'claude-code') {
+            if (!enginesClaudeCodeEnabled) return;
+            const modelRef = resolveDefaultClaudeModelRef();
+            setPickerHarnessId('claude-code');
+            setClaudeModelRef(modelRef);
+            persistTarget({ harnessId: 'claude-code', modelRef });
+            return;
+        }
+        setPickerHarnessId('opencode');
+        if (currentProviderId && currentModelId) {
+            persistTarget(buildOpenCodeExecutionTarget({
+                providerID: currentProviderId,
+                modelID: currentModelId,
+            }));
+        }
+    }, [
+        enginesClaudeCodeEnabled,
+        resolveDefaultClaudeModelRef,
+        persistTarget,
+        currentProviderId,
+        currentModelId,
+    ]);
     const [desktopModelQuery, setDesktopModelQuery] = React.useState('');
     const keyboardOwnsModelSelectionRef = React.useRef(false);
     const lastModelPointerPositionRef = React.useRef<{ x: number; y: number } | null>(null);
@@ -1243,6 +1397,21 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         options?: { applyVariant?: boolean; variant?: string | undefined; agentName?: string | null },
     ) => {
         try {
+            if (providerId === CLAUDE_PICKER_PROVIDER_ID || pickerHarnessId === 'claude-code') {
+                setPickerHarnessId('claude-code');
+                setClaudeModelRef(modelId);
+                persistTarget({ harnessId: 'claude-code', modelRef: modelId });
+                setAgentMenuOpen(false);
+                if (isCompact) {
+                    closeMobilePanel();
+                }
+                requestAnimationFrame(() => {
+                    const textarea = document.querySelector<HTMLTextAreaElement>('textarea[data-chat-input="true"]');
+                    textarea?.focus();
+                });
+                return;
+            }
+
             const effectiveAgentName = options?.agentName ?? resolveLiveAgentName() ?? undefined;
             const result = options?.applyVariant
                 ? applyModelSelectionWithVariant(providerId, modelId, options.variant, effectiveAgentName)
@@ -1255,6 +1424,13 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 }
                 return;
             }
+            setPickerHarnessId('opencode');
+            persistTarget(buildOpenCodeExecutionTarget({
+                providerID: providerId,
+                modelID: modelId,
+                agent: effectiveAgentName,
+                variant: options?.applyVariant ? options.variant : currentVariant,
+            }));
             if (!options?.applyVariant) {
                 // Add to recent models on successful selection.
                 addRecentModel(providerId, modelId);
@@ -1282,7 +1458,16 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         return provider?.name || currentProviderId;
     };
 
+    const getClaudeModelDisplayName = React.useCallback((modelRef: string) => {
+        const models = claudeCatalog?.sections.flatMap((section) => section.models) ?? [];
+        const match = models.find((model) => model.id === modelRef);
+        return match?.name || modelRef;
+    }, [claudeCatalog]);
+
     const getCurrentModelDisplayName = () => {
+        if (pickerHarnessId === 'claude-code') {
+            return t('chat.engines.chip.claude', { model: getClaudeModelDisplayName(claudeModelRef) });
+        }
         if (!currentModelId) return t('chat.modelControls.selectModel');
         const currentModel = models.find((m: ProviderModel) => m.id === currentModelId);
         return getModelDisplayName(currentModel, currentModelId) || t('chat.modelControls.selectModel');
@@ -1613,6 +1798,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         };
 
         const handleMobileModelApply = (providerId: string, modelId: string, variant: string | undefined) => {
+            if (providerId === CLAUDE_PICKER_PROVIDER_ID || pickerHarnessId === 'claude-code') {
+                handleProviderAndModelChange(CLAUDE_PICKER_PROVIDER_ID, modelId);
+                setExpandedMobileModelKey(null);
+                return;
+            }
             const result = applyModelSelectionWithVariant(providerId, modelId, variant);
             if (result !== 'applied') {
                 if (result === 'provider-missing') {
@@ -1622,6 +1812,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 }
                 return;
             }
+            setPickerHarnessId('opencode');
+            persistTarget(buildOpenCodeExecutionTarget({
+                providerID: providerId,
+                modelID: modelId,
+                variant,
+            }));
 
             setExpandedMobileModelKey(null);
             closeMobilePanel();
@@ -1645,9 +1841,14 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             showProviderLogo: boolean;
         }) => {
             const rowKey = buildModelRefKey(providerId, modelId);
-            const isSelected = providerId === currentProviderId && modelId === currentModelId;
-            const metadata = mergeModelMetadataWithLiveModel(providerId, model, getModelMetadata(providerId, modelId));
-            const variantOptions = getModelVariantOptions(providerId, modelId);
+            const isClaudeRow = providerId === CLAUDE_PICKER_PROVIDER_ID;
+            const isSelected = isClaudeRow
+                ? pickerHarnessId === 'claude-code' && modelId === claudeModelRef
+                : pickerHarnessId === 'opencode' && providerId === currentProviderId && modelId === currentModelId;
+            const metadata = isClaudeRow
+                ? undefined
+                : mergeModelMetadataWithLiveModel(providerId, model, getModelMetadata(providerId, modelId));
+            const variantOptions = isClaudeRow ? [] : getModelVariantOptions(providerId, modelId);
             const hasVariants = variantOptions.length > 0;
             const resolvedVariant = resolveModelVariantSelection(providerId, modelId);
             const variantLabel = hasVariants ? formatEffortLabel(resolvedVariant) : null;
@@ -1800,7 +2001,15 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             );
         };
 
-        const hasResults = filteredFavorites.length > 0 || filteredRecents.length > 0 || filteredProviders.length > 0;
+        const claudeMobileModels = (claudeCatalog?.sections.flatMap((section) => section.models) ?? [])
+            .filter((model) => {
+                if (normalizedQuery.length === 0) return true;
+                return matchesModelSearch(model.name, normalizedQuery) || matchesModelSearch(model.id, normalizedQuery);
+            });
+
+        const hasResults = pickerHarnessId === 'claude-code'
+            ? claudeMobileModels.length > 0
+            : filteredFavorites.length > 0 || filteredRecents.length > 0 || filteredProviders.length > 0;
 
         return (
             <MobileOverlayPanel
@@ -1837,14 +2046,59 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         </div>
                     </div>
 
+                    <div className="flex flex-wrap gap-1.5 px-0.5">
+                        <Button
+                            type="button"
+                            variant="chip"
+                            size="xs"
+                            aria-pressed={pickerHarnessId === 'opencode'}
+                            onClick={() => handleSelectEngine('opencode')}
+                        >
+                            {t('chat.engines.opencode')}
+                        </Button>
+                        {enginesClaudeCodeEnabled ? (
+                            <Button
+                                type="button"
+                                variant="chip"
+                                size="xs"
+                                aria-pressed={pickerHarnessId === 'claude-code'}
+                                onClick={() => handleSelectEngine('claude-code')}
+                            >
+                                {t('chat.engines.claudeCode')}
+                                {claudeCatalog ? (
+                                    <span className="typography-micro text-muted-foreground ml-1">
+                                        {t(ENGINE_STATUS_LABEL_KEYS[claudeCatalog.status])}
+                                    </span>
+                                ) : null}
+                            </Button>
+                        ) : null}
+                    </div>
+
                     {!hasResults && (
                         <div className="px-3 py-8 text-center typography-meta text-muted-foreground">
                             {t('chat.modelControls.noProvidersOrModelsFound')}
                         </div>
                     )}
 
+                    {pickerHarnessId === 'claude-code' && claudeMobileModels.length > 0 && (
+                        <div className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
+                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                <Icon name="sparkling" className="size-3 inline-block mr-1.5" />
+                                {t('chat.engines.claudeCode')}
+                            </div>
+                            <div className="flex flex-col border-t border-border/30">
+                                {claudeMobileModels.map((model) => renderMobileModelRow({
+                                    model: { id: model.id, name: model.name },
+                                    providerId: CLAUDE_PICKER_PROVIDER_ID,
+                                    modelId: model.id,
+                                    showProviderLogo: false,
+                                }))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Favorites Section for Mobile */}
-                    {filteredFavorites.length > 0 && (
+                    {pickerHarnessId === 'opencode' && filteredFavorites.length > 0 && (
                         <div className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
                             <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                 <Icon name="star-fill" className="size-3 inline-block mr-1.5 text-primary" />
@@ -1862,7 +2116,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                     )}
 
                     {/* Recent Section for Mobile */}
-                    {filteredRecents.length > 0 && (
+                    {pickerHarnessId === 'opencode' && filteredRecents.length > 0 && (
                         <div className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
                             <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                 <Icon name="time" className="size-3 inline-block mr-1.5" />
@@ -1879,7 +2133,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         </div>
                     )}
 
-                    {filteredProviders.map(({ provider, providerModels }) => {
+                    {pickerHarnessId === 'opencode' && filteredProviders.map(({ provider, providerModels }) => {
                         if (providerModels.length === 0) {
                             return null;
                         }
@@ -1932,6 +2186,27 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                             </div>
                         );
                     })}
+
+                    <div className="flex flex-col gap-1 pt-1">
+                        <button
+                            type="button"
+                            onClick={openEnginesSettings}
+                            className="typography-meta flex w-full items-center gap-2 rounded-xl border border-border/40 bg-[var(--surface-elevated)] px-3 py-2 text-left hover:bg-interactive-hover/50"
+                        >
+                            <Icon name="settings-3" className="size-4 text-muted-foreground" />
+                            <span className="font-medium text-foreground">{t('chat.engines.manageEngines')}</span>
+                        </button>
+                        {pickerHarnessId === 'opencode' ? (
+                            <button
+                                type="button"
+                                onClick={openAddProviderSettings}
+                                className="typography-meta flex w-full items-center gap-2 rounded-xl border border-border/40 bg-[var(--surface-elevated)] px-3 py-2 text-left hover:bg-interactive-hover/50"
+                            >
+                                <Icon name="add" className="size-4 text-muted-foreground" />
+                                <span className="font-medium text-foreground">{t('chat.modelControls.addNewProvider')}</span>
+                            </button>
+                        ) : null}
+                    </div>
                 </div>
             </MobileOverlayPanel>
         );
@@ -2255,7 +2530,67 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             input: t('chat.modelControls.input'),
             output: t('chat.modelControls.output'),
             costPerMillion: t('chat.modelControls.costPerMillion'),
+            engines: t('chat.engines.section'),
         };
+
+        const engineOptions: ModelPickerEngineOption[] = [
+            {
+                id: 'opencode',
+                name: t('chat.engines.opencode'),
+                selected: pickerHarnessId === 'opencode',
+            },
+            ...(enginesClaudeCodeEnabled ? [{
+                id: 'claude-code',
+                name: t('chat.engines.claudeCode'),
+                statusLabel: claudeCatalog
+                    ? t(ENGINE_STATUS_LABEL_KEYS[claudeCatalog.status])
+                    : t('settings.engines.sidebar.status.loading'),
+                selected: pickerHarnessId === 'claude-code',
+            } satisfies ModelPickerEngineOption] : []),
+        ];
+
+        const claudePickerProviders: ModelPickerProvider[] = [{
+            id: CLAUDE_PICKER_PROVIDER_ID,
+            name: t('chat.engines.claudeCode'),
+            models: (claudeCatalog?.sections ?? []).flatMap((section) =>
+                section.models.map((model) => ({ id: model.id, name: model.name })),
+            ),
+        }];
+
+        const pickerProviders = pickerHarnessId === 'claude-code'
+            ? claudePickerProviders
+            : providers as ModelPickerProvider[];
+
+        const pickerSelectedModel = pickerHarnessId === 'claude-code'
+            ? { providerID: CLAUDE_PICKER_PROVIDER_ID, modelID: claudeModelRef }
+            : (currentProviderId && currentModelId ? { providerID: currentProviderId, modelID: currentModelId } : null);
+
+        const pickerActionsFooter = (
+            <>
+                <button
+                    type="button"
+                    onClick={openEnginesSettings}
+                    className="typography-meta group flex w-full items-center gap-1 rounded-md px-2 py-1.5 cursor-pointer hover:bg-interactive-hover/50"
+                >
+                    <span className="flex size-4 items-center justify-center text-muted-foreground">
+                        <Icon name="settings-3" className="size-4" />
+                    </span>
+                    <span className="font-medium text-foreground">{t('chat.engines.manageEngines')}</span>
+                </button>
+                {pickerHarnessId === 'opencode' ? (
+                    <button
+                        type="button"
+                        onClick={openAddProviderSettings}
+                        className="typography-meta group flex w-full items-center gap-1 rounded-md px-2 py-1.5 cursor-pointer hover:bg-interactive-hover/50"
+                    >
+                        <span className="flex size-4 items-center justify-center text-muted-foreground">
+                            <Icon name="add" className="size-4 -mr-0.5" />
+                        </span>
+                        <span className="font-medium text-foreground">{t('chat.modelControls.addNewProvider')}</span>
+                    </button>
+                ) : null}
+            </>
+        );
 
         const renderThinkingSlot = (entry: ModelPickerEntry, { isHighlighted, isSelected }: { isHighlighted: boolean; isSelected: boolean }) => {
             const hasThinkingVariants = getModelVariantOptions(entry.providerID, entry.modelID).length > 0;
@@ -2300,6 +2635,8 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                                 {readinessLabel}
                                             </span>
                                         </>
+                                    ) : pickerHarnessId === 'claude-code' ? (
+                                        <Icon name="sparkling" className={cn(controlIconSize, 'text-muted-foreground flex-shrink-0')} />
                                     ) : currentProviderId ? (
                                         <>
                                             <ProviderLogo
@@ -2314,7 +2651,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                     {isReady && (
                                         <span
                                             ref={modelLabelRef}
-                                            key={`${currentProviderId}-${currentModelId}`}
+                                            key={`${pickerHarnessId}-${pickerHarnessId === 'claude-code' ? claudeModelRef : `${currentProviderId}-${currentModelId}`}`}
                                             className={cn(
                                                 'model-controls__model-label overflow-hidden',
                                                 controlTextSize,
@@ -2336,61 +2673,54 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                             alignOffset={-40}
                             onKeyDownCapture={handleModelShortcutKeyDownCapture}
                         >
-                            <div className="p-1 border-b border-border/40">
-                                <button
-                                    type="button"
-                                    onClick={openAddProviderSettings}
-                                    className="typography-meta group flex w-full items-center gap-1 rounded-md px-2 py-1.5 cursor-pointer hover:bg-interactive-hover/50"
-                                >
-                                    <span className="flex size-4 items-center justify-center text-muted-foreground">
-                                        <Icon name="add" className="size-4 -mr-0.5" />
-                                    </span>
-                                    <span className="font-medium text-foreground">{t('chat.modelControls.addNewProvider')}</span>
-                                </button>
-                            </div>
                             <ModelPickerList
-                                providers={providers as ModelPickerProvider[]}
-                                favoriteModels={favoriteModelsList}
-                                recentModels={recentModelsList}
+                                providers={pickerProviders}
+                                favoriteModels={pickerHarnessId === 'opencode' ? favoriteModelsList : []}
+                                recentModels={pickerHarnessId === 'opencode' ? recentModelsList : []}
                                 modelsMetadata={useConfigStore.getState().modelsMetadata}
                                 searchQuery={desktopModelQuery}
                                 onSearchQueryChange={setDesktopModelQuery}
                                 onSelect={handleSharedModelSelect}
                                 labels={modelPickerLabels}
-                                selectedModel={currentProviderId && currentModelId ? { providerID: currentProviderId, modelID: currentModelId } : null}
-                                hiddenModels={hiddenModels}
+                                selectedModel={pickerSelectedModel}
+                                hiddenModels={pickerHarnessId === 'opencode' ? hiddenModels : []}
                                 onActiveKeyDown={handleModelPickerKeyDown}
                                 onActiveEntryChange={(entry) => { activeModelPickerEntryRef.current = entry; }}
-                                onVariantKey={handleThinkingVariantKey}
-                                isFavorite={(entry) => isFavoriteModel(entry.providerID, entry.modelID)}
-                                onToggleFavorite={(entry) => toggleFavoriteModel(entry.providerID, entry.modelID)}
-                                renderRowEnd={renderThinkingSlot}
+                                onVariantKey={pickerHarnessId === 'opencode' ? handleThinkingVariantKey : undefined}
+                                isFavorite={pickerHarnessId === 'opencode' ? (entry) => isFavoriteModel(entry.providerID, entry.modelID) : undefined}
+                                onToggleFavorite={pickerHarnessId === 'opencode' ? (entry) => toggleFavoriteModel(entry.providerID, entry.modelID) : undefined}
+                                renderRowEnd={pickerHarnessId === 'opencode' ? renderThinkingSlot : undefined}
                                 renderVersion={modelPickerRenderVersion}
-                                onReorderFavorite={(active, over) => reorderFavoriteModel(
+                                onReorderFavorite={pickerHarnessId === 'opencode' ? (active, over) => reorderFavoriteModel(
                                     active.providerID,
                                     active.modelID,
                                     over.providerID,
                                     over.modelID,
-                                )}
+                                ) : undefined}
                                 reorderFavoriteAriaLabel={t('chat.modelControls.reorderFavoriteAria')}
                                 reorderFavoriteTitle={t('chat.modelControls.reorderFavoriteTitle')}
-                                providerOrder={providerOrder}
-                                onReorderProvider={setProviderOrder}
+                                providerOrder={pickerHarnessId === 'opencode' ? providerOrder : undefined}
+                                onReorderProvider={pickerHarnessId === 'opencode' ? setProviderOrder : undefined}
                                 reorderProviderTitle={t('chat.modelControls.reorderProviderTitle')}
+                                engines={engineOptions}
+                                onSelectEngine={handleSelectEngine}
+                                actionsFooter={pickerActionsFooter}
                                 footerContent={(activeEntry) => {
-                                    const activeHasThinkingVariants = activeEntry
+                                    const activeHasThinkingVariants = pickerHarnessId === 'opencode' && activeEntry
                                         ? getModelVariantOptions(activeEntry.providerID, activeEntry.modelID).length > 0
                                         : false;
 
                                     return (
                                         <div className="flex items-center gap-x-2 whitespace-nowrap overflow-hidden">
                                             <span>{t('chat.modelControls.keyboardHintNavigate')}</span>
-                                            <span>{t('chat.modelControls.keyboardHintSwitchAgent', { shortcut: 'Tab' })}</span>
+                                            {pickerHarnessId === 'opencode' ? (
+                                                <span>{t('chat.modelControls.keyboardHintSwitchAgent', { shortcut: 'Tab' })}</span>
+                                            ) : null}
                                             {activeHasThinkingVariants ? <span>{t('chat.modelControls.keyboardHintThinking')}</span> : null}
                                         </div>
                                     );
                                 }}
-                                tooltipsEnabled={agentMenuOpen}
+                                tooltipsEnabled={agentMenuOpen && pickerHarnessId === 'opencode'}
                                 onEscape={() => setAgentMenuOpen(false)}
                             />
                         </DropdownMenuContent>
@@ -2418,7 +2748,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                             </>
                         ) : (
                             <>
-                                {currentProviderId ? (
+                                {pickerHarnessId === 'claude-code' ? (
+                                    <Icon name="sparkling" className={cn(controlIconSize, 'text-muted-foreground flex-shrink-0')} />
+                                ) : currentProviderId ? (
                                     <ProviderLogo
                                         providerId={currentProviderId}
                                         className={cn(controlIconSize, 'flex-shrink-0')}

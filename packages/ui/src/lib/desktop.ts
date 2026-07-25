@@ -127,6 +127,12 @@ export type DesktopSettings = {
   sessionGoalDefaultBudgetEnabled?: boolean;
   sessionGoalDefaultBudget?: number;
   smallModelOverride?: string; // format: "provider/model"
+  /** Default execution engine for new sessions. */
+  enginesDefaultHarnessId?: 'opencode' | 'claude-code';
+  /** Show billing notice when handing off OpenCode → Claude Code. Default true. */
+  enginesClaudeCodeWarnOnOpenCodeHandoff?: boolean;
+  /** Feature flag: expose Claude Code engine in picker / routing. Default true. */
+  enginesClaudeCodeEnabled?: boolean;
   defaultGitIdentityId?: string; // ''/undefined = unset, 'global' or profile id
   openInAppId?: string;
   autoCreateWorktree?: boolean;

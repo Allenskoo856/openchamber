@@ -312,6 +312,13 @@ const scrollIntoView = (container: HTMLElement | null, node: HTMLElement | null)
   container.scrollTop = Math.max(0, Math.min(target, max));
 };
 
+export type ModelPickerEngineOption = {
+  id: string;
+  name: string;
+  statusLabel?: string;
+  selected: boolean;
+};
+
 interface ModelPickerListProps {
   providers: ModelPickerProvider[];
   favoriteModels: ModelPickerFavoriteEntry[];
@@ -335,6 +342,7 @@ interface ModelPickerListProps {
     input?: string;
     output?: string;
     costPerMillion?: string;
+    engines?: string;
   };
   selectedModel?: { providerID: string; modelID: string } | null;
   hiddenModels?: HiddenModel[];
@@ -362,6 +370,11 @@ interface ModelPickerListProps {
   providerOrder?: string[];
   onReorderProvider?: (orderedProviderIDs: string[]) => void;
   reorderProviderTitle?: string;
+  /** Engines rows rendered between Recents and provider/model lists. */
+  engines?: ModelPickerEngineOption[];
+  onSelectEngine?: (engineId: string) => void;
+  /** Actions rendered under the model list (e.g. Manage engines…, Add provider…). */
+  actionsFooter?: React.ReactNode;
   footerContent?: React.ReactNode | ((activeEntry: ModelPickerEntry | undefined) => React.ReactNode);
   renderVersion?: number;
   tooltipsEnabled?: boolean;
@@ -402,6 +415,9 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
   providerOrder,
   onReorderProvider,
   reorderProviderTitle,
+  engines,
+  onSelectEngine,
+  actionsFooter,
   footerContent,
   renderVersion,
   tooltipsEnabled = true,
@@ -801,7 +817,48 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
             </div>
           ) : null}
 
-          {(filteredFavorites.length > 0 || filteredRecents.length > 0) && filteredProviders.length > 0 ? <div className="h-px bg-border/40 my-1" /> : null}
+          {engines && engines.length > 0 ? (
+            <div>
+              {(filteredFavorites.length > 0 || filteredRecents.length > 0) ? <div className="h-px bg-border/40 my-1" /> : null}
+              {renderSectionHeader('engines', <Icon name="stack" className="h-4 w-4" />, labels.engines ?? 'Engines')}
+              {!isSectionCollapsed('engines') ? (
+                <div className="flex flex-col gap-0.5 pb-1">
+                  {engines.map((engine) => (
+                    <button
+                      key={engine.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => onSelectEngine?.(engine.id)}
+                      className={cn(
+                        'w-full text-left px-2 py-1.5 rounded-md typography-meta flex items-center gap-2 cursor-pointer',
+                        !disabled && (engine.selected ? 'bg-interactive-selection' : 'hover:bg-interactive-hover/50'),
+                        disabled && 'cursor-not-allowed opacity-60',
+                        rowClassName,
+                      )}
+                      aria-pressed={engine.selected}
+                    >
+                      <span className={cn(
+                        'flex size-4 flex-shrink-0 items-center justify-center',
+                        engine.selected ? 'text-foreground' : 'text-muted-foreground',
+                      )}>
+                        <Icon name={engine.selected ? 'checkbox-circle' : 'checkbox-blank'} className="size-4" />
+                      </span>
+                      <Icon
+                        name={engine.id === 'claude-code' ? 'sparkling' : 'terminal-box'}
+                        className="size-3.5 flex-shrink-0 text-muted-foreground"
+                      />
+                      <span className="font-medium truncate flex-1 min-w-0">{engine.name}</span>
+                      {engine.statusLabel ? (
+                        <span className="typography-micro text-muted-foreground flex-shrink-0">{engine.statusLabel}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {(filteredFavorites.length > 0 || filteredRecents.length > 0 || (engines && engines.length > 0)) && filteredProviders.length > 0 ? <div className="h-px bg-border/40 my-1" /> : null}
 
           {providerSortingEnabled ? (
             <DndContext sensors={providerSectionSensors} collisionDetection={closestCenter} onDragEnd={handleProviderDragEnd}>
@@ -822,6 +879,12 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
           )}
         </div>
       </ScrollableOverlay>
+
+      {actionsFooter ? (
+        <div className="border-t border-border/40 p-1 flex flex-col gap-0.5">
+          {actionsFooter}
+        </div>
+      ) : null}
 
       <div className="px-3 pt-1 pb-1.5 border-t border-border/40 typography-micro text-muted-foreground">
         <ModelPickerFooter store={selectionStore} flatModelList={flatModelList} footerContent={footerContent} fallback={labels.keyboardHint} />

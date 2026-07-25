@@ -725,6 +725,27 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['markdown', 'prompt', 'template'],
   },
   {
+    id: 'engines.opencode',
+    page: 'engines',
+    titleKey: 'settings.engines.opencode.title',
+    descriptionKey: 'settings.engines.opencode.description',
+    keywords: ['opencode', 'default engine', 'providers', 'agents'],
+  },
+  {
+    id: 'engines.claude-code',
+    page: 'engines',
+    titleKey: 'settings.engines.claudeCode.title',
+    descriptionKey: 'settings.engines.claudeCode.description',
+    keywords: ['claude', 'claude code', 'subscription', 'cli', 'detect'],
+  },
+  {
+    id: 'engines.claude-code.warn-handoff',
+    page: 'engines',
+    titleKey: 'settings.engines.claudeCode.warnHandoff.label',
+    descriptionKey: 'settings.engines.claudeCode.warnHandoff.info',
+    keywords: ['handoff', 'billing', 'warning', 'subscription', 'switch engine'],
+  },
+  {
     id: 'providers.connect',
     page: 'providers',
     titleKey: 'settings.providers.page.connect.title',
