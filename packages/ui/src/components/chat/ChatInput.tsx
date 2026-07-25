@@ -18,7 +18,7 @@ import {
 } from '@/sync/attachment-files';
 import type { AttachedFile } from '@/stores/types/sessionTypes';
 import * as sessionActions from '@/sync/session-actions';
-import { useDirectorySync, useUserMessageHistory } from '@/sync/sync-context';
+import { useUserMessageHistory } from "@/sync/sync-context";
 import { getInlineCommentDraftKey, useInlineCommentDraftStore, type InlineCommentDraft, type InlineCommentDraftTarget } from '@/stores/useInlineCommentDraftStore';
 import { useSnippetsStore } from '@/stores/useSnippetsStore';
 import { appendInlineComments } from '@/lib/messages/inlineComments';
@@ -44,7 +44,7 @@ import { FileMentionAutocomplete, type FileMentionHandle } from './FileMentionAu
 import { CommandAutocomplete, type CommandAutocompleteHandle, type CommandInfo } from './CommandAutocomplete';
 import { SkillAutocomplete, type SkillAutocompleteHandle } from './SkillAutocomplete';
 import { SnippetAutocomplete, type SnippetAutocompleteHandle } from './SnippetAutocomplete';
-import { cn, formatDirectoryName, isMacOS } from '@/lib/utils';
+import { cn, formatDirectoryName } from "@/lib/utils";
 import { ModelControls } from './ModelControls';
 import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { StatusRow } from './StatusRow';
@@ -55,19 +55,10 @@ import { MobileModelButton } from './MobileModelButton';
 import { MobileSessionStatusBar, MobileSessionPanelTrigger } from './MobileSessionStatusBar';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { toast } from '@/components/ui';
-import { Button } from '@/components/ui/button';
 // useMessageStore removed — messages now come from sync system
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { isIMECompositionEvent } from '@/lib/ime';
-import { StopIcon } from '@/components/icons/StopIcon';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getCycledPrimaryAgentName, type MobileControlsPanel } from './mobileControlsUtils';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
@@ -96,9 +87,7 @@ import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
 import { getSyncMessages } from '@/sync/sync-refs';
-import { EMPTY_REVERTED_MESSAGE_DOCK_STATE, buildRevertedMessageDockState, type RevertedMessageDockState } from './revertedMessageDockState';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
-import { isSyntheticPart } from '@/lib/messages/synthetic';
 import {
     assignImageAttachmentFilenames,
     buildAttachmentCitationText,
@@ -138,10 +127,14 @@ import {
     findMagicPromptCommand,
     parseSlashCommand,
 } from './composer/submit/slashCommands';
+import { ComposerActionButtons } from './composer/ui/ComposerActionButtons';
+import { ComposerAttachmentControls } from './composer/ui/ComposerAttachmentControls';
+import { FocusModeButton } from './composer/ui/FocusModeButton';
+import { PermissionAutoAcceptButton } from './composer/ui/PermissionAutoAcceptButton';
+import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
 import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
-import type { Part } from '@opencode-ai/sdk/v2/client';
 
 const MAX_VISIBLE_COMPOSER_LINES = 8;
 const EMPTY_QUEUE: QueuedMessage[] = [];
@@ -182,26 +175,6 @@ const hasUserMessages = (sessionId: string, directory?: string) => {
     return getSyncMessages(sessionId, directory).some((message) => message.role === 'user');
 };
 
-const getRevertedPreview = (parts: Part[], fallback: string): string => {
-    const text = parts
-        .filter((part) => part.type === 'text' && !isSyntheticPart(part))
-        .map((part) => {
-            const record = part as Record<string, unknown>;
-            return typeof record.text === 'string'
-                ? record.text
-                : typeof record.content === 'string'
-                    ? record.content
-                    : '';
-        })
-        .join('\n')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    if (text) return text;
-    const filePart = parts.find((part) => part.type === 'file') as (Part & { filename?: string }) | undefined;
-    return filePart?.filename ? `[${filePart.filename}]` : fallback;
-};
-
 const getProjectDisplayLabel = (project: { label?: string; path: string }): string => {
     const label = project.label?.trim();
     if (label) {
@@ -236,488 +209,6 @@ const MemoComposerDictation = React.memo(ComposerDictation);
 const MemoMobileAgentButton = React.memo(MobileAgentButton);
 const MemoMobileModelButton = React.memo(MobileModelButton);
 const MemoStatusRow = React.memo(StatusRow);
-
-type RevertedMessageDockProps = {
-    sessionId: string | null;
-    directory?: string;
-};
-
-const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.memo(({ sessionId, directory }) => {
-    const { t } = useI18n();
-    const revertToMessage = useSessionUIStore((s) => s.revertToMessage);
-    const forkFromMessage = useSessionUIStore((s) => s.forkFromMessage);
-    const handleSlashRedo = useSessionUIStore((s) => s.handleSlashRedo);
-    const [restoringId, setRestoringId] = React.useState<string | null>(null);
-    const [forkingId, setForkingId] = React.useState<string | null>(null);
-    const [collapsed, setCollapsed] = React.useState(true);
-    const revertedStateRef = React.useRef<RevertedMessageDockState>(EMPTY_REVERTED_MESSAGE_DOCK_STATE);
-    const revertedState = useDirectorySync(
-        React.useCallback((state) => {
-            const next = buildRevertedMessageDockState(state, sessionId, revertedStateRef.current);
-            revertedStateRef.current = next;
-            return next;
-        }, [sessionId]),
-        directory,
-    );
-    const revertMessageID = revertedState.revertMessageID;
-    const userMessages = React.useMemo(
-        () => revertedState.records.map((record) => record.message),
-        [revertedState],
-    );
-    const noTextContent = t('chat.revertPopover.noTextContent');
-    const items = React.useMemo(() => {
-        if (!revertMessageID) return [];
-        return revertedState.records.map((record) => ({
-            id: record.message.id,
-            text: getRevertedPreview(record.parts, noTextContent),
-        }));
-    }, [noTextContent, revertMessageID, revertedState]);
-    const firstRevertedMessageId = items[0]?.id;
-
-    React.useEffect(() => {
-        setCollapsed(true);
-    }, [revertMessageID, firstRevertedMessageId]);
-
-    const handleRestore = React.useCallback(async (messageId: string) => {
-        if (!sessionId || restoringId) return;
-        setRestoringId(messageId);
-        try {
-            const nextMessage = userMessages.find((message) => message.id > messageId);
-            if (nextMessage) {
-                await revertToMessage(sessionId, nextMessage.id, { skipRedoPush: true });
-            } else {
-                await handleSlashRedo(sessionId, { fullUnrevert: true });
-            }
-        } finally {
-            setRestoringId(null);
-        }
-    }, [handleSlashRedo, revertToMessage, restoringId, sessionId, userMessages]);
-
-    const handleFork = React.useCallback(async (messageId: string) => {
-        if (!sessionId || forkingId) return;
-        setForkingId(messageId);
-        try {
-            await forkFromMessage(sessionId, messageId);
-        } finally {
-            setForkingId(null);
-        }
-    }, [forkFromMessage, forkingId, sessionId]);
-
-    if (!sessionId || items.length === 0) return null;
-
-    return (
-        <div className="pb-2 w-full px-1">
-            <div className="rounded-xl border border-border/60 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-sm overflow-hidden">
-                <button
-                    type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--interactive-hover)] transition-colors"
-                    onClick={() => setCollapsed((value) => !value)}
-                    aria-expanded={!collapsed}
-                >
-                    <span className="typography-ui-label font-medium text-foreground flex-shrink-0">
-                        {t('chat.revertPopover.title')} messages {items.length}
-                    </span>
-                    <Icon
-                        name="arrow-down-s"
-                        className={cn("ml-auto h-4 w-4 text-muted-foreground transition-transform", !collapsed && "rotate-180")}
-                        aria-hidden="true"
-                    />
-                </button>
-                {!collapsed && (
-                    <div className="px-3 pb-3 flex flex-col gap-1.5 max-h-[10.5rem] overflow-y-auto">
-                        {items.map((item) => (
-                            <div key={item.id} className="flex min-w-0 items-center gap-2 py-1">
-                                <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground">
-                                    {item.text}
-                                </span>
-                                <Button
-                                    type="button"
-                                    variant="secondary"
-                                    size="xs"
-                                    disabled={Boolean(restoringId || forkingId)}
-                                    onClick={() => { void handleFork(item.id); }}
-                                >
-                                    {forkingId === item.id ? (
-                                        <Icon name="loader-4" className="h-3 w-3 animate-spin" aria-hidden="true" />
-                                    ) : (
-                                        <Icon name="git-branch" className="h-3 w-3" aria-hidden="true" />
-                                    )}
-                                    {t('chat.revertPopover.fork')}
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="secondary"
-                                    size="xs"
-                                    disabled={Boolean(restoringId || forkingId)}
-                                    onClick={() => { void handleRestore(item.id); }}
-                                >
-                                    {restoringId === item.id ? (
-                                        <Icon name="loader-4" className="h-3 w-3 animate-spin" aria-hidden="true" />
-                                    ) : (
-                                        <Icon name="arrow-go-forward" className="h-3 w-3" aria-hidden="true" />
-                                    )}
-                                    {t('chat.revertPopover.restore')}
-                                </Button>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-});
-
-RevertedMessageDock.displayName = 'RevertedMessageDock';
-
-type ComposerAttachmentControlsProps = {
-    isVSCode: boolean;
-    footerIconButtonClass: string;
-    iconSizeClass: string;
-    handlePickLocalFiles: () => void;
-    openIssuePicker: () => void;
-    openPrPicker: () => void;
-    onOpenSettings?: () => void;
-    onMenuOpenChange?: (open: boolean) => void;
-    /** Mobile: open the attachment bottom sheet instead of the dropdown menu. */
-    onOpenMobileSheet?: () => void;
-};
-
-const ComposerAttachmentControls = React.memo(function ComposerAttachmentControls(props: ComposerAttachmentControlsProps) {
-    const { t } = useI18n();
-    const {
-        isVSCode,
-        footerIconButtonClass,
-        iconSizeClass,
-        handlePickLocalFiles,
-        openIssuePicker,
-        openPrPicker,
-        onOpenSettings,
-    } = props;
-
-    return (
-        <div className="flex items-center gap-x-1.5">
-            <div className="relative inline-flex">
-                {props.onOpenMobileSheet ? (
-                    <button
-                        type="button"
-                        className={footerIconButtonClass}
-                        onClick={props.onOpenMobileSheet}
-                        // Same guard as PermissionAutoAcceptButton: keep the tap
-                        // from dismissing the keyboard. On Android's
-                        // resizes-content viewport the keyboard-close relayout
-                        // moves this button mid-tap and the click never lands.
-                        onMouseDown={(event) => event.preventDefault()}
-                        onPointerDownCapture={(event) => {
-                            if (event.pointerType === 'touch') {
-                                event.preventDefault();
-                            }
-                        }}
-                        title={t('chat.chatInput.actions.addAttachment')}
-                        aria-label={t('chat.chatInput.actions.addAttachment')}
-                    >
-                        <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
-                    </button>
-                ) : isVSCode ? (
-                    <button
-                        type="button"
-                        className={footerIconButtonClass}
-                        onClick={handlePickLocalFiles}
-                        title={t('chat.chatInput.actions.attachFiles')}
-                        aria-label={t('chat.chatInput.actions.attachFiles')}
-                    >
-                        <Icon name="attachment-2" className={cn(iconSizeClass, 'text-current')} />
-                    </button>
-                ) : (
-                    <DropdownMenu onOpenChange={props.onMenuOpenChange}>
-                        <DropdownMenuTrigger asChild>
-                            <button
-                                type="button"
-                                className={footerIconButtonClass}
-                                title={t('chat.chatInput.actions.addAttachment')}
-                                aria-label={t('chat.chatInput.actions.addAttachment')}
-                            >
-                                <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
-                            </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="start">
-                            <DropdownMenuItem
-                                onSelect={() => {
-                                    requestAnimationFrame(handlePickLocalFiles);
-                                }}
-                            >
-                                <Icon name="attachment-2"/>
-                                {t('chat.chatInput.actions.attachFiles')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onSelect={() => {
-                                    requestAnimationFrame(openIssuePicker);
-                                }}
-                            >
-                                <Icon name="github"/>
-                                {t('chat.chatInput.actions.linkGithubIssue')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onSelect={() => {
-                                    requestAnimationFrame(openPrPicker);
-                                }}
-                            >
-                                <Icon name="git-pull-request"/>
-                                {t('chat.chatInput.actions.linkGithubPr')}
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                )}
-            </div>
-
-            {onOpenSettings ? (
-                <button
-                    type="button"
-                    onClick={onOpenSettings}
-                    className={footerIconButtonClass}
-                    title={t('chat.chatInput.actions.modelAgentSettings')}
-                    aria-label={t('chat.chatInput.actions.modelAgentSettings')}
-                >
-                    <Icon name="ai-agent" className={cn(iconSizeClass, 'text-current')} />
-                </button>
-            ) : null}
-        </div>
-    );
-}, (prev, next) => (
-    prev.isVSCode === next.isVSCode
-    && prev.footerIconButtonClass === next.footerIconButtonClass
-    && prev.iconSizeClass === next.iconSizeClass
-    && prev.onOpenSettings === next.onOpenSettings
-    && prev.onMenuOpenChange === next.onMenuOpenChange
-    && prev.onOpenMobileSheet === next.onOpenMobileSheet
-));
-
-type PermissionAutoAcceptButtonProps = {
-    footerIconButtonClass: string;
-    iconSizeClass: string;
-    isInteractive: boolean;
-    permissionAutoAcceptEnabled: boolean;
-    handlePermissionAutoAcceptToggle: () => void;
-    withTooltip?: boolean;
-};
-
-const PermissionAutoAcceptButton = React.memo(function PermissionAutoAcceptButton(props: PermissionAutoAcceptButtonProps) {
-    const { t } = useI18n();
-    const {
-        footerIconButtonClass,
-        iconSizeClass,
-        isInteractive,
-        permissionAutoAcceptEnabled,
-        handlePermissionAutoAcceptToggle,
-        withTooltip = false,
-    } = props;
-
-    const ariaLabel = permissionAutoAcceptEnabled
-        ? t('chat.chatInput.permissionAutoAccept.disable')
-        : t('chat.chatInput.permissionAutoAccept.enable');
-    const tooltipLabel = permissionAutoAcceptEnabled
-        ? t('chat.chatInput.permissionAutoAccept.on')
-        : t('chat.chatInput.permissionAutoAccept.off');
-
-    const button = (
-        <button
-            type="button"
-            onClick={handlePermissionAutoAcceptToggle}
-            className={cn(
-                footerIconButtonClass,
-                'rounded-md hover:bg-transparent',
-                !isInteractive && 'opacity-30',
-            )}
-            onMouseDown={(event) => {
-                event.preventDefault();
-            }}
-            onPointerDownCapture={(event) => {
-                if (event.pointerType === 'touch') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                }
-            }}
-            aria-pressed={permissionAutoAcceptEnabled}
-            aria-label={ariaLabel}
-            title={ariaLabel}
-        >
-            {permissionAutoAcceptEnabled ? (
-                <Icon name="shield-check" className={cn(iconSizeClass)} style={{ color: 'var(--status-info)' }} />
-            ) : (
-                <Icon name="shield-user" className={cn(iconSizeClass)} />
-            )}
-        </button>
-    );
-
-    if (!withTooltip) {
-        return button;
-    }
-
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                {button}
-            </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={8}>
-                {tooltipLabel}
-            </TooltipContent>
-        </Tooltip>
-    );
-});
-
-type FocusModeButtonProps = {
-    footerIconButtonClass: string;
-    iconSizeClass: string;
-    isExpandedInput: boolean;
-    onToggle: () => void;
-};
-
-const FocusModeButton = React.memo(function FocusModeButton(props: FocusModeButtonProps) {
-    const { footerIconButtonClass, iconSizeClass, isExpandedInput, onToggle } = props;
-    const { t } = useI18n();
-
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <button
-                    type="button"
-                    className={cn(
-                        footerIconButtonClass,
-                        'rounded-md',
-                        isExpandedInput
-                            ? 'text-primary'
-                            : 'text-foreground hover:bg-[var(--interactive-hover)]/40'
-                    )}
-                    onMouseDown={(event) => {
-                        event.preventDefault();
-                    }}
-                    onClick={onToggle}
-                    aria-label={t('chat.chatInput.focusMode.toggleAria')}
-                    aria-pressed={isExpandedInput}
-                >
-                    <Icon name="fullscreen" className={cn(iconSizeClass)} />
-                </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={8}>
-                <div className="flex flex-col gap-0.5 text-center">
-                    <span>{t('chat.chatInput.focusMode.label')}</span>
-                    <span className="font-mono opacity-60">
-                        {isMacOS() ? '⌘⇧E' : 'Ctrl+Shift+E'}
-                    </span>
-                </div>
-            </TooltipContent>
-        </Tooltip>
-    );
-});
-
-type ComposerActionButtonsProps = {
-    isMobile: boolean;
-    footerIconButtonClass: string;
-    sendIconSizeClass: string;
-    stopIconSizeClass: string;
-    canSend: boolean;
-    canAbort: boolean;
-    hasContent: boolean;
-    currentSessionId: string | null;
-    newSessionDraftOpen: boolean;
-    onPrimaryAction: () => void;
-    onQueueMessage: () => void;
-    onAbort: () => void;
-};
-
-const ComposerActionButtons = React.memo(function ComposerActionButtons(props: ComposerActionButtonsProps) {
-    const {
-        isMobile,
-        footerIconButtonClass,
-        sendIconSizeClass,
-        stopIconSizeClass,
-        canSend,
-        canAbort,
-        hasContent,
-        currentSessionId,
-        newSessionDraftOpen,
-        onPrimaryAction,
-        onQueueMessage,
-        onAbort,
-    } = props;
-    const { t } = useI18n();
-
-    const sendButton = (
-        <button
-            type={isMobile ? 'button' : 'submit'}
-            disabled={!canSend || (!currentSessionId && !newSessionDraftOpen)}
-            onClick={(event) => {
-                if (!isMobile) {
-                    return;
-                }
-
-                event.preventDefault();
-                onPrimaryAction();
-            }}
-            className={cn(
-                footerIconButtonClass,
-                canSend && (currentSessionId || newSessionDraftOpen)
-                    ? 'text-primary hover:text-primary'
-                    : 'opacity-30'
-            )}
-            aria-label={t('chat.chatInput.actions.sendMessageAria')}
-        >
-            <Icon name="send-plane-2" className={cn(sendIconSizeClass)} />
-        </button>
-    );
-
-    if (!canAbort) {
-        return sendButton;
-    }
-
-    return (
-        <div className="relative">
-            {hasContent ? (
-                <button
-                    type="button"
-                    disabled={!currentSessionId}
-                    onClick={(event) => {
-                        if (isMobile) {
-                            event.preventDefault();
-                        }
-                        onQueueMessage();
-                    }}
-                    className={cn(
-                        footerIconButtonClass,
-                        'absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1',
-                        currentSessionId ? 'text-primary hover:text-primary' : 'opacity-30'
-                    )}
-                    aria-label={t('chat.chatInput.actions.queueMessageAria')}
-                >
-                    <Icon name="send-plane-2" className={cn(sendIconSizeClass, '-rotate-90')} />
-                </button>
-            ) : null}
-            <button
-                type="button"
-                onClick={onAbort}
-                className={cn(
-                    footerIconButtonClass,
-                    'text-[var(--status-error)] hover:text-[var(--status-error)]'
-                )}
-                aria-label={t('chat.chatInput.actions.stopGeneratingAria')}
-            >
-                <StopIcon className={cn(stopIconSizeClass)} />
-            </button>
-        </div>
-    );
-}, (prev, next) => (
-    prev.isMobile === next.isMobile
-    && prev.footerIconButtonClass === next.footerIconButtonClass
-    && prev.sendIconSizeClass === next.sendIconSizeClass
-    && prev.stopIconSizeClass === next.stopIconSizeClass
-    && prev.canSend === next.canSend
-    && prev.canAbort === next.canAbort
-    && prev.hasContent === next.hasContent
-    && prev.currentSessionId === next.currentSessionId
-    && prev.newSessionDraftOpen === next.newSessionDraftOpen
-    && prev.onPrimaryAction === next.onPrimaryAction
-    && prev.onQueueMessage === next.onQueueMessage
-    && prev.onAbort === next.onAbort
-));
 
 interface ChatInputProps {
     onOpenSettings?: () => void;
