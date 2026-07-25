@@ -5,8 +5,7 @@ import { BottomTerminalDock } from './BottomTerminalDock';
 import { Sidebar } from './Sidebar';
 import { SidebarTopBar } from './SidebarTopBar';
 import { TitlebarLeftControls } from './TitlebarLeftControls';
-import { RightSidebar } from './RightSidebar';
-import { ProjectContextPanel, RightSidebarTabs } from './RightSidebarTabs';
+import { ProjectContextPanel } from './RightSidebarTabs';
 import { ContextPanel } from './ContextPanel';
 import { ContextPanelRail } from './ContextPanelRail';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
@@ -42,8 +41,6 @@ const SettingsWindow = lazyWithChunkRecovery(() => import('@/components/views/Se
 const MultiRunWindow = lazyWithChunkRecovery(() => import('@/components/views/MultiRunWindow').then(m => ({ default: m.MultiRunWindow })));
 
 export const MainLayout: React.FC = () => {
-    const RIGHT_SIDEBAR_AUTO_CLOSE_WIDTH = 1140;
-    const RIGHT_SIDEBAR_AUTO_OPEN_WIDTH = 1220;
     const BOTTOM_TERMINAL_AUTO_CLOSE_HEIGHT = 640;
     const BOTTOM_TERMINAL_AUTO_OPEN_HEIGHT = 700;
     const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
@@ -60,7 +57,6 @@ export const MainLayout: React.FC = () => {
     const setMultiRunLauncherOpen = useUIStore((state) => state.setMultiRunLauncherOpen);
     const multiRunLauncherPrefillPrompt = useUIStore((state) => state.multiRunLauncherPrefillPrompt);
     const { isMobile, isTablet } = useDeviceInfo();
-    const rightSidebarAutoClosedRef = React.useRef(false);
     const bottomTerminalAutoClosedRef = React.useRef(false);
     const mobilePanelsResetRef = React.useRef(false);
 
@@ -265,26 +261,12 @@ export const MainLayout: React.FC = () => {
 
         const handleResponsivePanels = () => {
             const state = useUIStore.getState();
-            const width = window.innerWidth;
             const height = window.innerHeight;
 
             // Touch devices frequently resize when the on-screen keyboard opens.
             // Treat panel auto-collapse/restore as desktop-only so keyboard
             // viewport changes do not churn drawer or terminal layout state.
             if (!isMobile && !isTablet) {
-                const shouldCloseRightSidebar = width < RIGHT_SIDEBAR_AUTO_CLOSE_WIDTH;
-                const canAutoOpenRightSidebar = width >= RIGHT_SIDEBAR_AUTO_OPEN_WIDTH;
-
-                if (shouldCloseRightSidebar) {
-                    if (state.isRightSidebarOpen) {
-                        setRightSidebarOpen(false);
-                        rightSidebarAutoClosedRef.current = true;
-                    }
-                } else if (canAutoOpenRightSidebar && rightSidebarAutoClosedRef.current) {
-                    setRightSidebarOpen(true);
-                    rightSidebarAutoClosedRef.current = false;
-                }
-
                 const shouldCloseBottomTerminal =
                     height < BOTTOM_TERMINAL_AUTO_CLOSE_HEIGHT;
                 const canAutoOpenBottomTerminal =
@@ -329,16 +311,10 @@ export const MainLayout: React.FC = () => {
         }
 
         const unsubscribe = useUIStore.subscribe((state, prevState) => {
-            const width = window.innerWidth;
             const height = window.innerHeight;
 
-            const rightCanAutoOpen = width >= RIGHT_SIDEBAR_AUTO_OPEN_WIDTH;
             const bottomCanAutoOpen =
                 height >= BOTTOM_TERMINAL_AUTO_OPEN_HEIGHT;
-
-            if (state.isRightSidebarOpen !== prevState.isRightSidebarOpen && rightCanAutoOpen) {
-                rightSidebarAutoClosedRef.current = false;
-            }
 
             if (state.isBottomTerminalOpen !== prevState.isBottomTerminalOpen && bottomCanAutoOpen) {
                 bottomTerminalAutoClosedRef.current = false;
@@ -548,12 +524,6 @@ export const MainLayout: React.FC = () => {
                                         ) : null}
                                     </BottomTerminalDock>
                                 </div>
-                                <RightSidebar
-                                    isOpen={isRightSidebarOpen}
-                                    className="bg-background border-t border-border/50"
-                                >
-                                    <ErrorBoundary><RightSidebarTabs /></ErrorBoundary>
-                                </RightSidebar>
                                 <div className="border-t border-border/50" data-page-scroll-lock="true">
                                     <ErrorBoundary><ContextPanelRail /></ErrorBoundary>
                                 </div>

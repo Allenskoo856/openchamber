@@ -3,7 +3,7 @@ import { isTerminalEventTarget } from '@/lib/terminalFocus';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import * as sessionActions from '@/sync/session-actions';
-import { useUIStore } from '@/stores/useUIStore';
+import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { createWorktreeSession } from '@/lib/worktreeSessionCreator';
@@ -25,9 +25,6 @@ export const useKeyboardShortcuts = () => {
   const toggleCommandPalette = useUIStore((s) => s.toggleCommandPalette);
   const toggleHelpDialog = useUIStore((s) => s.toggleHelpDialog);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
-  const toggleRightSidebar = useUIStore((s) => s.toggleRightSidebar);
-  const setRightSidebarOpen = useUIStore((s) => s.setRightSidebarOpen);
-  const setRightSidebarTab = useUIStore((s) => s.setRightSidebarTab);
   const toggleBottomTerminal = useUIStore((s) => s.toggleBottomTerminal);
   const setBottomTerminalExpanded = useUIStore((s) => s.setBottomTerminalExpanded);
   const isMobile = useUIStore((s) => s.isMobile);
@@ -308,51 +305,54 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
+      // Legacy right-sidebar shortcuts now target the context surfaces that
+      // replaced the sidebar's tabs.
       if (eventMatchesShortcut(e, combo('toggle_right_sidebar'))) {
-        const { isMobile } = useUIStore.getState();
-        if (isMobile) {
+        const state = useUIStore.getState();
+        if (state.isMobile || !currentDirectory) {
           return;
         }
         e.preventDefault();
-        toggleRightSidebar();
+        const directory = normalizeContextPanelDirectoryKey(currentDirectory);
+        const panelState = state.contextPanelByDirectory[directory];
+        if (panelState?.isOpen) {
+          state.closeContextPanel(directory);
+        } else if (panelState?.activeTabId) {
+          state.setActiveContextPanelTab(directory, panelState.activeTabId);
+        } else {
+          state.openContextSurface(directory, 'git');
+        }
         return;
       }
 
       if (eventMatchesShortcut(e, combo('open_right_sidebar_git'))) {
-        const { isMobile } = useUIStore.getState();
-        if (isMobile) {
+        const state = useUIStore.getState();
+        if (state.isMobile || !currentDirectory) {
           return;
         }
         e.preventDefault();
-        setRightSidebarOpen(true);
-        setRightSidebarTab('git');
+        state.openContextSurface(normalizeContextPanelDirectoryKey(currentDirectory), 'git');
         return;
       }
 
       if (eventMatchesShortcut(e, combo('open_right_sidebar_files'))) {
-        const { isMobile } = useUIStore.getState();
-        if (isMobile) {
+        const state = useUIStore.getState();
+        if (state.isMobile || !currentDirectory) {
           return;
         }
         e.preventDefault();
-        setRightSidebarOpen(true);
-        setRightSidebarTab('files');
+        state.openContextSurface(normalizeContextPanelDirectoryKey(currentDirectory), 'file');
         return;
       }
 
       if (eventMatchesShortcut(e, combo('cycle_right_sidebar_tab'))) {
-        const { isMobile, rightSidebarTab } = useUIStore.getState();
+        const { isMobile } = useUIStore.getState();
         if (isMobile) {
           return;
         }
-
-        const tabs = ['git', 'files', 'context'] as const;
-        const currentIndex = tabs.indexOf(rightSidebarTab);
-        const nextTab = tabs[(currentIndex + 1) % tabs.length];
-
+        // The right sidebar's tab cycle has no surface equivalent; the rail
+        // replaces it. Swallow the combo so it does not type into inputs.
         e.preventDefault();
-        setRightSidebarOpen(true);
-        setRightSidebarTab(nextTab);
         return;
       }
 
@@ -616,9 +616,6 @@ export const useKeyboardShortcuts = () => {
     toggleCommandPalette,
     toggleHelpDialog,
     toggleSidebar,
-    toggleRightSidebar,
-    setRightSidebarOpen,
-    setRightSidebarTab,
     toggleBottomTerminal,
     setBottomTerminalExpanded,
     isMobile,

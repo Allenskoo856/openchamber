@@ -85,7 +85,6 @@ export const CommandPalette: React.FC = () => {
   const setSettingsPage = useUIStore((s) => s.setSettingsPage);
   const setSessionSwitcherOpen = useUIStore((s) => s.setSessionSwitcherOpen);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
-  const toggleRightSidebar = useUIStore((s) => s.toggleRightSidebar);
   const toggleBottomTerminal = useUIStore((s) => s.toggleBottomTerminal);
   const openContextOverview = useUIStore((s) => s.openContextOverview);
   const openContextFile = useUIStore((s) => s.openContextFile);
@@ -214,14 +213,6 @@ export const CommandPalette: React.FC = () => {
         }),
       },
       {
-        id: 'toggle-right-sidebar',
-        title: t('commandPalette.item.toggleRightSidebar'),
-        icon: <Icon name="layout-right" className="mr-2 h-4 w-4" />,
-        shortcutId: 'toggle_right_sidebar',
-        searchText: t('commandPalette.item.toggleRightSidebar'),
-        onSelect: run(() => toggleRightSidebar()),
-      },
-      {
         id: 'toggle-terminal',
         title: t('commandPalette.item.toggleTerminal'),
         icon: <Icon name="terminal-box" className="mr-2 h-4 w-4" />,
@@ -273,7 +264,6 @@ export const CommandPalette: React.FC = () => {
     setSessionSwitcherOpen,
     openNewSessionDraft,
     toggleSidebar,
-    toggleRightSidebar,
     toggleBottomTerminal,
     currentDirectory,
     openContextOverview,

@@ -33,6 +33,7 @@ import { Icon } from "@/components/icon/Icon";
 import { OpenChamberLogo } from "@/components/ui/OpenChamberLogo";
 import { invokeDesktopCommand } from '@/lib/desktopNative';
 import { getOrCreateEmbeddedSessionChatURL, type EmbeddedSessionChatURLCacheEntry } from './contextPanelEmbeddedChat';
+import { getContextSurfaceWidthFraction } from '@/lib/surfaces/registry';
 import {
   type PreviewElementMetadata,
   isPreviewElementMetadata,
@@ -2113,7 +2114,13 @@ export const ContextPanel: React.FC = () => {
   const activeTab = tabs.find((tab) => tab.id === panelState?.activeTabId) ?? tabs[tabs.length - 1] ?? null;
   const isOpen = Boolean(panelState?.isOpen && activeTab);
   const isExpanded = Boolean(isOpen && panelState?.expanded);
-  const width = clampWidth(panelState?.width ?? CONTEXT_PANEL_DEFAULT_WIDTH);
+  const [availablePanelAreaWidth, setAvailablePanelAreaWidth] = React.useState<number | null>(null);
+  const activeModeForWidth = activeTab?.mode ?? null;
+  const manualWidth = activeModeForWidth ? panelState?.widthByMode?.[activeModeForWidth] : undefined;
+  const widthFraction = activeModeForWidth ? getContextSurfaceWidthFraction(activeModeForWidth) : 0.5;
+  const widthFallbackBase = availablePanelAreaWidth
+    ?? (typeof window !== 'undefined' ? window.innerWidth : CONTEXT_PANEL_DEFAULT_WIDTH * 2);
+  const width = clampWidth(manualWidth ?? Math.round(widthFraction * widthFallbackBase));
   const chatSessionIDs = React.useMemo(() => {
     const ids: string[] = [];
     for (const tab of tabs) {
@@ -2135,7 +2142,6 @@ export const ContextPanel: React.FC = () => {
   const chatFrameRefs = React.useRef<Map<string, HTMLIFrameElement>>(new Map());
   const chatFrameSrcByTabIDRef = React.useRef<Map<string, EmbeddedSessionChatURLCacheEntry>>(new Map());
   const wasOpenRef = React.useRef(false);
-  const previousIsOpenRef = React.useRef(isOpen);
   const suppressWidthTransitionFrameRef = React.useRef<number | null>(null);
 
   const suppressWidthTransitionForFrame = React.useCallback(() => {
@@ -2156,20 +2162,27 @@ export const ContextPanel: React.FC = () => {
   }, []);
 
   React.useLayoutEffect(() => {
-    const wasOpen = previousIsOpenRef.current;
-    previousIsOpenRef.current = isOpen;
-
     if (!isOpen) {
       setSuppressWidthTransition(false);
+    }
+  }, [isOpen]);
+
+  // Tracks the panel area width so fraction-based surface defaults stay
+  // proportional as the window resizes; manual widths remain fixed px.
+  React.useLayoutEffect(() => {
+    const parent = panelRef.current?.parentElement;
+    if (!parent || typeof ResizeObserver === 'undefined') {
       return;
     }
 
-    if (wasOpen) {
-      return;
-    }
+    const observer = new ResizeObserver(() => {
+      setAvailablePanelAreaWidth(parent.clientWidth || null);
+    });
+    observer.observe(parent);
+    setAvailablePanelAreaWidth(parent.clientWidth || null);
 
-    suppressWidthTransitionForFrame();
-  }, [isOpen, suppressWidthTransitionForFrame]);
+    return () => observer.disconnect();
+  }, []);
 
   React.useEffect(() => {
     if (!isOpen || wasOpenRef.current) {
@@ -2244,10 +2257,12 @@ export const ContextPanel: React.FC = () => {
     suppressWidthTransitionForFrame();
     applyLiveWidth(finalWidth);
     resizingWidthRef.current = finalWidth;
-    setContextPanelWidth(directoryKey, finalWidth);
+    if (activeModeForWidth) {
+      setContextPanelWidth(directoryKey, activeModeForWidth, finalWidth);
+    }
     setIsResizing(false);
     activeResizePointerIDRef.current = null;
-  }, [applyLiveWidth, directoryKey, setContextPanelWidth, suppressWidthTransitionForFrame, width]);
+  }, [activeModeForWidth, applyLiveWidth, directoryKey, setContextPanelWidth, suppressWidthTransitionForFrame, width]);
 
   React.useEffect(() => {
     if (!isResizing) {
@@ -2637,15 +2652,14 @@ export const ContextPanel: React.FC = () => {
     </header>
   );
 
+  // width/min/max stay interpolable across open/close (no instant min/max
+  // jumps) so the 200ms width transition matches the sidebars.
   const panelStyle: React.CSSProperties = !isOpen
     ? {
         ['--oc-context-panel-width' as string]: `${isResizing ? (resizingWidthRef.current ?? width) : width}px`,
         width: 0,
-        minWidth: 0,
-        maxWidth: 0,
-        opacity: 0,
-        overflow: 'hidden',
-        visibility: 'hidden',
+        maxWidth: '100%',
+        overflowX: 'clip',
       }
     : isExpanded
       ? {
@@ -2656,8 +2670,8 @@ export const ContextPanel: React.FC = () => {
         }
       : {
           width: 'min(var(--oc-context-panel-width), 100%)',
-          minWidth: `min(${CONTEXT_PANEL_MIN_WIDTH}px, 100%)`,
           maxWidth: '100%',
+          overflowX: 'clip',
           ['--oc-context-panel-width' as string]: `${isResizing ? (resizingWidthRef.current ?? width) : width}px`,
         };
 
@@ -2674,7 +2688,10 @@ export const ContextPanel: React.FC = () => {
           ? 'absolute inset-0 z-20 min-w-0'
           : 'relative h-full flex-shrink-0',
         !isOpen && 'pointer-events-none',
-        isResizing || !isOpen || suppressWidthTransition ? 'transition-none' : 'transition-[width] duration-200 ease-in-out'
+        'will-change-[width] motion-reduce:transition-none',
+        isResizing || suppressWidthTransition
+          ? 'transition-none'
+          : 'transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]'
       )}
       onKeyDownCapture={handlePanelKeyDownCapture}
       style={panelStyle}
@@ -2694,6 +2711,14 @@ export const ContextPanel: React.FC = () => {
           aria-label={t('contextPanel.actions.resizePanelAria')}
         />
       )}
+      <div
+        className={cn(
+          'relative z-10 flex h-full min-h-0 shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+          !isOpen && 'pointer-events-none select-none opacity-0'
+        )}
+        style={{ width: isExpanded ? '100%' : 'var(--oc-context-panel-width)' }}
+        aria-hidden={!isOpen}
+      >
       {header}
       <div className={cn('relative min-h-0 flex-1 overflow-hidden', isResizing && 'pointer-events-none')}>
         {hasFileTabs ? (
@@ -2775,6 +2800,7 @@ export const ContextPanel: React.FC = () => {
           </div>
         ))}
         {activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' ? activeNonChatContent : null}
+      </div>
       </div>
     </aside>
   );

@@ -63,11 +63,25 @@ describe('useUIStore openContextSurface', () => {
   });
 
   test('does nothing for content-driven modes without existing content', () => {
-    useUIStore.getState().openContextSurface(directory, 'file');
     useUIStore.getState().openContextSurface(directory, 'preview');
     useUIStore.getState().openContextSurface(directory, 'chat');
 
     expect(useUIStore.getState().contextPanelByDirectory[directory]).toBe(undefined);
+  });
+
+  test('opens an empty editor tab that a real file later replaces', () => {
+    useUIStore.getState().openContextSurface(directory, 'file');
+
+    let state = useUIStore.getState().contextPanelByDirectory[directory];
+    expect(state?.isOpen).toBe(true);
+    expect(state?.tabs.map((tab) => tab.mode)).toEqual(['file']);
+    expect(state?.tabs[0]?.targetPath).toBe(null);
+
+    useUIStore.getState().openContextFile(directory, '/repo/a.ts');
+
+    state = useUIStore.getState().contextPanelByDirectory[directory];
+    expect(state?.tabs.filter((tab) => tab.mode === 'file')).toHaveLength(1);
+    expect(state?.tabs.find((tab) => tab.mode === 'file')?.targetPath).toBe('/repo/a.ts');
   });
 
   test('activates the most recently touched tab of a content-driven mode', () => {
@@ -81,6 +95,21 @@ describe('useUIStore openContextSurface', () => {
     const activeTab = state?.tabs.find((tab) => tab.id === state.activeTabId);
     expect(activeTab?.mode).toBe('file');
     expect(activeTab?.targetPath).toBe('/repo/b.ts');
+  });
+});
+
+describe('useUIStore per-surface panel widths', () => {
+  const directory = '/repo';
+
+  test('setContextPanelWidth stores a clamped manual width for one mode only', () => {
+    useUIStore.getState().openContextPanelTab(directory, { mode: 'diff' });
+    useUIStore.getState().setContextPanelWidth(directory, 'diff', 700);
+    useUIStore.getState().setContextPanelWidth(directory, 'git', 100);
+
+    const state = useUIStore.getState().contextPanelByDirectory[directory];
+    expect(state?.widthByMode.diff).toBe(700);
+    expect(state?.widthByMode.git).toBe(380);
+    expect(state?.widthByMode.browser).toBe(undefined);
   });
 });
 

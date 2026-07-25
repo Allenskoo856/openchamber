@@ -57,7 +57,9 @@ type ContextPanelDirectoryState = {
   expanded: boolean;
   tabs: ContextPanelTab[];
   activeTabId: string | null;
-  width: number;
+  // Manual per-surface widths (px), populated only by user resize; surfaces
+  // without an entry fall back to their registry defaultWidthFraction.
+  widthByMode: Partial<Record<ContextPanelMode, number>>;
   touchedAt: number;
 };
 
@@ -350,7 +352,7 @@ const touchContextPanelState = (prev?: ContextPanelDirectoryState): ContextPanel
     expanded: false,
     tabs: [],
     activeTabId: null,
-    width: CONTEXT_PANEL_DEFAULT_WIDTH,
+    widthByMode: {},
     touchedAt: Date.now(),
   };
 };
@@ -360,10 +362,15 @@ const upsertContextPanelTab = (
   descriptor: ContextPanelTabDescriptor,
 ): ContextPanelDirectoryState => {
   const nextTab = createContextPanelTab(descriptor);
-  const existingIndex = current.tabs.findIndex((tab) => tab.id === nextTab.id);
+  // A real file tab replaces the empty editor placeholder ('file' with no
+  // target) that the rail can open before any file is picked.
+  const baseTabs = nextTab.mode === 'file' && nextTab.targetPath
+    ? current.tabs.filter((tab) => !(tab.mode === 'file' && !tab.targetPath))
+    : current.tabs;
+  const existingIndex = baseTabs.findIndex((tab) => tab.id === nextTab.id);
   const tabs = existingIndex === -1
-    ? [...current.tabs, nextTab]
-    : current.tabs.map((tab, index) => (index === existingIndex
+    ? [...baseTabs, nextTab]
+    : baseTabs.map((tab, index) => (index === existingIndex
       ? {
           ...tab,
           mode: nextTab.mode,
@@ -470,7 +477,7 @@ const sanitizeContextPanelByDirectory = (
       expanded?: unknown;
       tabs?: unknown;
       activeTabId?: unknown;
-      width?: unknown;
+      widthByMode?: unknown;
       touchedAt?: unknown;
       mode?: unknown;
       targetPath?: unknown;
@@ -494,12 +501,27 @@ const sanitizeContextPanelByDirectory = (
     const resolvedActiveTabId = resolveActiveContextPanelTabID(tabs, activeTabId);
     const clampedTabs = clampContextPanelTabs(tabs, CONTEXT_PANEL_MAX_TABS, resolvedActiveTabId);
 
+    // Legacy single `width` values are intentionally dropped: widths are now
+    // per-surface, seeded from registry defaults until the user resizes.
+    const widthByMode: Partial<Record<ContextPanelMode, number>> = {};
+    if (candidate.widthByMode && typeof candidate.widthByMode === 'object') {
+      for (const [mode, value] of Object.entries(candidate.widthByMode as Record<string, unknown>)) {
+        if (
+          (mode === 'diff' || mode === 'file' || mode === 'context' || mode === 'plan' || mode === 'chat' || mode === 'preview' || mode === 'browser' || mode === 'git' || mode === 'notes')
+          && typeof value === 'number'
+          && Number.isFinite(value)
+        ) {
+          widthByMode[mode] = clampContextPanelWidth(value);
+        }
+      }
+    }
+
     next[directory] = {
       isOpen: candidate.isOpen === true,
       expanded: candidate.expanded === true,
       tabs: clampedTabs,
       activeTabId: resolveActiveContextPanelTabID(clampedTabs, resolvedActiveTabId),
-      width: clampContextPanelWidth(typeof candidate.width === 'number' ? candidate.width : CONTEXT_PANEL_DEFAULT_WIDTH),
+      widthByMode,
       touchedAt: typeof candidate.touchedAt === 'number' && Number.isFinite(candidate.touchedAt)
         ? candidate.touchedAt
         : Date.now(),
@@ -703,7 +725,7 @@ interface UIStore {
   closeContextPanelTab: (directory: string, tabID: string) => void;
   closeContextPanel: (directory: string) => void;
   toggleContextPanelExpanded: (directory: string) => void;
-  setContextPanelWidth: (directory: string, width: number) => void;
+  setContextPanelWidth: (directory: string, mode: ContextPanelMode, width: number) => void;
   toggleBottomTerminal: () => void;
   setBottomTerminalOpen: (open: boolean) => void;
   setBottomTerminalExpanded: (expanded: boolean) => void;
@@ -1126,9 +1148,10 @@ export const useUIStore = create<UIStore>()(
             return;
           }
 
-          // Content-driven modes need a payload (a file path, preview URL, or
-          // session); the rail renders them disabled until content exists.
-          if (mode === 'file' || mode === 'preview' || mode === 'chat') {
+          // Content-driven modes need a payload (a preview URL or session);
+          // the rail renders them disabled until content exists. 'file' opens
+          // an empty editor whose embedded tree picks the first file.
+          if (mode === 'preview' || mode === 'chat') {
             return;
           }
 
@@ -1402,7 +1425,7 @@ export const useUIStore = create<UIStore>()(
           });
         },
 
-        setContextPanelWidth: (directory, width) => {
+        setContextPanelWidth: (directory, mode, width) => {
           const normalizedDirectory = normalizeDirectoryPath((directory || '').trim());
           if (!normalizedDirectory) {
             return;
@@ -1415,7 +1438,10 @@ export const useUIStore = create<UIStore>()(
               ...state.contextPanelByDirectory,
               [normalizedDirectory]: {
                 ...current,
-                width: clampContextPanelWidth(width),
+                widthByMode: {
+                  ...current.widthByMode,
+                  [mode]: clampContextPanelWidth(width),
+                },
               },
             };
 

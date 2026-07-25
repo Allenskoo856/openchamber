@@ -28,19 +28,25 @@ export type ContextSurfaceDescriptor = {
   availability: 'always' | 'has-content';
   /** Hint shown while a 'has-content' surface has no content yet. */
   unavailableHintKey?: I18nKey;
+  /**
+   * Default panel width as a fraction of the available content area, used
+   * until the user manually resizes this surface.
+   */
+  defaultWidthFraction: number;
 };
 
 export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   {
     id: 'editor',
+    defaultWidthFraction: 3 / 5,
     mode: 'file',
     icon: 'file-code',
     labelKey: 'contextPanel.mode.files',
-    availability: 'has-content',
-    unavailableHintKey: 'contextRail.hint.editorUnavailable',
+    availability: 'always',
   },
   {
     id: 'git',
+    defaultWidthFraction: 2 / 5,
     mode: 'git',
     icon: 'git-branch',
     labelKey: 'layout.rightSidebar.git',
@@ -48,6 +54,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'diff',
+    defaultWidthFraction: 3 / 5,
     mode: 'diff',
     icon: 'arrow-left-right',
     labelKey: 'contextPanel.mode.diff',
@@ -55,6 +62,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'plan',
+    defaultWidthFraction: 0.45,
     mode: 'plan',
     icon: 'file-text',
     labelKey: 'contextPanel.mode.plan',
@@ -62,6 +70,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'notes',
+    defaultWidthFraction: 1 / 3,
     mode: 'notes',
     icon: 'sticky-note',
     labelKey: 'contextRail.surface.notes',
@@ -69,6 +78,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'context',
+    defaultWidthFraction: 0.45,
     mode: 'context',
     icon: 'donut-chart-fill',
     labelKey: 'contextPanel.mode.context',
@@ -76,6 +86,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'browser',
+    defaultWidthFraction: 0.45,
     mode: 'browser',
     icon: 'global',
     labelKey: 'contextPanel.mode.browser',
@@ -83,6 +94,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'preview',
+    defaultWidthFraction: 0.45,
     mode: 'preview',
     icon: 'window',
     labelKey: 'contextPanel.mode.preview',
@@ -91,6 +103,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'chat',
+    defaultWidthFraction: 0.45,
     mode: 'chat',
     icon: 'chat-4',
     labelKey: 'contextPanel.mode.chat',
@@ -100,6 +113,11 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
 ];
 
 const SURFACE_BY_ID = new Map(CONTEXT_SURFACES.map((surface) => [surface.id, surface]));
+const FRACTION_BY_MODE = new Map(CONTEXT_SURFACES.map((surface) => [surface.mode, surface.defaultWidthFraction]));
+
+export const getContextSurfaceWidthFraction = (mode: ContextPanelMode): number => {
+  return FRACTION_BY_MODE.get(mode) ?? 1 / 2;
+};
 
 const isContextSurfaceId = (value: unknown): value is ContextSurfaceId => {
   return typeof value === 'string' && SURFACE_BY_ID.has(value as ContextSurfaceId);
