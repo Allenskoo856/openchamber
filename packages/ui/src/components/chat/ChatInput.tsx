@@ -121,6 +121,8 @@ import {
     findMagicPromptCommand,
     parseSlashCommand,
 } from './composer/submit/slashCommands';
+import { useAutocompletePosition } from './composer/state/useAutocompletePosition';
+import { useMessageHistory } from './composer/state/useMessageHistory';
 import { useComposerDraft } from './composer/state/useComposerDraft';
 import { useDraftTarget } from './composer/state/useDraftTarget';
 import { useMobileComposerShell } from './composer/state/useMobileComposerShell';
@@ -199,13 +201,6 @@ interface ChatInputProps {
     scrollToBottom?: () => void;
 }
 
-type AutocompleteOverlayPosition = {
-    top: number;
-    left: number;
-    place: 'above' | 'below';
-    maxHeight: number;
-};
-
 const resolveChatDraftIdentity = (sessionId: string | null): ChatDraftIdentity | null => {
     const sessionState = useSessionUIStore.getState();
     const newSessionDirectory = sessionState.newSessionDraft?.open
@@ -247,8 +242,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const [mobileDraftPicker, setMobileDraftPicker] = React.useState<'project' | 'branch' | null>(null);
     const [mobileDraftPickerQuery, setMobileDraftPickerQuery] = React.useState('');
     // Message history navigation state (up/down arrow to recall previous messages)
-    const [historyIndex, setHistoryIndex] = React.useState(-1); // -1 = not browsing, 0+ = index from most recent
-    const [draftMessage, setDraftMessage] = React.useState(''); // Preserves input when entering history mode
     const composerRef = React.useRef<ComposerEditorHandle>(null);
     const composerFormRef = React.useRef<HTMLFormElement | null>(null);
     const cursorPosRef = React.useRef(0);
@@ -615,7 +608,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             attachments,
         };
     }, [chatSearchDirectory]);
-    const [autocompleteOverlayPosition, setAutocompleteOverlayPosition] = React.useState<AutocompleteOverlayPosition | null>(null);
     const abortTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const prevWasAbortedRef = React.useRef(false);
 
@@ -726,7 +718,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
     // User message history for up/down arrow navigation.
     // Keep this on a narrow hook instead of full session message records.
-    const userMessageHistory = useUserMessageHistory(currentSessionId ?? "");
+    const messageHistory = useMessageHistory(useUserMessageHistory(currentSessionId ?? ""));
 
     // Keep messageRef in sync with message state
     React.useEffect(() => {
@@ -1020,9 +1012,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             confirmedMentionsRef.current.clear();
             // Clear per-session draft on submit
             persistDraftImmediately(chatDraftIdentity, '');
-            // Reset message history navigation state
-            setHistoryIndex(-1);
-            setDraftMessage('');
+            messageHistory.reset();
             if (attachedFiles.length > 0) {
                 clearAttachedFiles();
             }
@@ -1446,40 +1436,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
 
-        if (e.key === 'ArrowUp' && canNavigateHistoryUp && userMessageHistory.length > 0) {
+        if (e.key === 'ArrowUp' && canNavigateHistoryUp) {
             e.preventDefault();
-            if (historyIndex === -1) {
-                // Entering history mode - save current input as draft
-                setDraftMessage(message);
-                setHistoryIndex(0);
-                setMessage(userMessageHistory[0]);
-            } else if (historyIndex < userMessageHistory.length - 1) {
-                // Navigate to older message
-                const newIndex = historyIndex + 1;
-                setHistoryIndex(newIndex);
-                setMessage(userMessageHistory[newIndex]);
+            const recalled = messageHistory.older(message);
+            if (recalled !== null) {
+                setMessage(recalled);
+                // Caret to the start, so the recalled message reads from its
+                // beginning rather than from wherever the draft's caret was.
+                requestAnimationFrame(() => composerRef.current?.setSelection(0, 0));
             }
-            // Move cursor to start after history navigation
-            requestAnimationFrame(() => {
-                composerRef.current?.setSelection(0, 0);
-            });
-            // If at oldest message, do nothing
             return;
         }
 
-        if (e.key === 'ArrowDown' && canNavigateHistoryDown && historyIndex >= 0) {
+        if (e.key === 'ArrowDown' && canNavigateHistoryDown) {
             e.preventDefault();
-            if (historyIndex === 0) {
-                // Exit history mode - restore draft
-                setHistoryIndex(-1);
-                setMessage(draftMessage);
-                setDraftMessage('');
-            } else {
-                // Navigate to newer message
-                const newIndex = historyIndex - 1;
-                setHistoryIndex(newIndex);
-                setMessage(userMessageHistory[newIndex]);
-            }
+            const recalled = messageHistory.newer();
+            if (recalled !== null) setMessage(recalled);
             return;
         }
 
@@ -1510,72 +1482,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
     };
 
-    const updateAutocompleteOverlayPosition = React.useCallback(() => {
-        if (!isDesktopExpanded) {
-            setAutocompleteOverlayPosition(null);
-            return;
-        }
-
-        if (openAutocomplete === null) {
-            setAutocompleteOverlayPosition(null);
-            return;
-        }
-
-        const editor = composerRef.current;
-        const container = dropZoneRef.current;
-        if (!editor || !container) return;
-
-        // The editor reports the caret's viewport position directly, so the
-        // popup no longer has to be placed from a hand-measured text mirror.
-        const caret = editor.caretCoords();
-        if (!caret) return;
-
-        const containerRect = container.getBoundingClientRect();
-        const caretY = caret.top - containerRect.top;
-        const caretX = caret.left - containerRect.left;
-
-        const popupMargin = 8;
-        const estimatedPopupHeight = 260;
-        const spaceAbove = caretY - popupMargin;
-        const spaceBelow = containerRect.height - caretY - popupMargin;
-        const place: 'above' | 'below' = spaceBelow >= estimatedPopupHeight || spaceBelow >= spaceAbove ? 'below' : 'above';
-
-        const desiredWidth = openAutocomplete === 'mention' ? 520 : openAutocomplete === 'skill' ? 360 : 450;
-        const clampedLeft = Math.max(
-            popupMargin,
-            Math.min(caretX - 24, containerRect.width - desiredWidth - popupMargin)
-        );
-
-        const maxHeight = Math.max(120, Math.min(estimatedPopupHeight, place === 'below' ? spaceBelow : spaceAbove));
-
-        setAutocompleteOverlayPosition({
-            top: place === 'below' ? caretY + 22 : caretY - 6,
-            left: clampedLeft,
-            place,
-            maxHeight,
-        });
-    }, [
-        isDesktopExpanded,
+    // Focus mode places the open picker at the caret; elsewhere each picker
+    // anchors to the composer itself.
+    const {
+        position: autocompleteOverlayPosition,
+        update: updateAutocompleteOverlayPosition,
+    } = useAutocompletePosition({
+        enabled: isDesktopExpanded,
         openAutocomplete,
-    ]);
-
-    React.useLayoutEffect(() => {
-        updateAutocompleteOverlayPosition();
-    }, [
-        updateAutocompleteOverlayPosition,
         message,
-        openAutocomplete,
-        isDesktopExpanded,
-    ]);
-
-    React.useEffect(() => {
-        if (!isDesktopExpanded) return;
-        const onResize = () => updateAutocompleteOverlayPosition();
-        window.addEventListener('resize', onResize);
-        return () => {
-            window.removeEventListener('resize', onResize);
-        };
-    }, [isDesktopExpanded, updateAutocompleteOverlayPosition]);
+        editorRef: composerRef,
+        containerRef: dropZoneRef,
+    });
 
     const startAbortIndicator = React.useCallback(() => {
         if (abortTimeoutRef.current) {
