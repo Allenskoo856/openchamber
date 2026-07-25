@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import type { Theme } from '@/types/theme';
 import { MobileSessionPanelTrigger } from '../../MobileSessionStatusBar';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
+import { kbLog } from '../debug/kbTimeline';
 
 export interface MobilePillComposerProps {
     message: string;
@@ -44,6 +45,13 @@ export interface MobilePillComposerProps {
 
 export function MobilePillComposer(props: MobilePillComposerProps) {
     const { t } = useI18n();
+
+    // TEMPORARY diagnostic (see kbTimeline.ts): the pill unmounting is the
+    // moment React swapped in the full composer, and vice versa.
+    React.useEffect(() => {
+        kbLog('pill-mounted');
+        return () => kbLog('pill-unmounted');
+    }, []);
     const {
         message,
         sessionId: currentSessionId,

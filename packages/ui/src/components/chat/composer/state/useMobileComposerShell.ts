@@ -19,6 +19,7 @@ import React from 'react';
 import { flushSync } from 'react-dom';
 
 import { isCapacitorApp } from '@/lib/platform';
+import { kbLog, kbLogPaints, wireKbTimeline } from '../debug/kbTimeline';
 import type { ComposerEditorHandle } from '../editor/ComposerEditor';
 
 /**
@@ -97,17 +98,26 @@ export function useMobileComposerShell(
         expandedRef.current = expanded;
     });
 
+    // TEMPORARY diagnostic (see kbTimeline.ts).
+    React.useEffect(() => {
+        if (isMobile) wireKbTimeline();
+    }, [isMobile]);
+
     const expand = React.useCallback(() => {
+        kbLog('tap-expand');
         expandIntentRef.current = 'focus';
         // flushSync so the editor exists NOW and focus() still runs inside the
         // gesture's call stack: mobile browsers only open the soft keyboard for
         // focus calls made synchronously from the tap (an rAF here worked in
         // the Capacitor WebView but not in Safari or Chrome).
         flushSync(() => setExpanded(true));
+        kbLog('expand-committed');
+        kbLogPaints('expand');
         // Capacitor's choreography positions everything, so the browser's own
         // scroll-into-view must stay off. Mobile browsers have no choreography
         // — the native reveal is the only thing that moves the composer.
         editorRef.current?.focus({ preventScroll: isCapacitorApp() });
+        kbLog(`focus() ran focused=${String(editorRef.current?.isFocused() ?? 'no-editor')}`);
     }, [editorRef]);
 
     const onDictationActiveChange = React.useCallback((active: boolean) => {
@@ -268,6 +278,7 @@ export function useMobileComposerShell(
             // Collapsing would unmount the focused editor and kill the keyboard.
             if (editorRef.current?.isFocused()) return;
             expandIntentRef.current = null;
+            kbLog('collapse-fallback-250ms');
             setExpanded(false);
             setExpandedInput(false);
         }, 250);
@@ -322,10 +333,12 @@ export function useMobileComposerShell(
             // that closed the keyboard, a drag) — the fallback path handles it.
             if (busyRef.current) return;
             expandIntentRef.current = null;
+            kbLog('collapse-intent-flushsync');
             flushSync(() => {
                 setExpanded(false);
                 setExpandedInput(false);
             });
+            kbLogPaints('collapse');
         };
         window.addEventListener('oc:keyboard-intent', handleIntent);
         return () => window.removeEventListener('oc:keyboard-intent', handleIntent);
