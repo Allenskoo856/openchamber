@@ -36,10 +36,10 @@ import ToolOutputDialog from './message/ToolOutputDialog';
 import type { ToolPopupContent } from './message/types';
 import { QueuedMessageChips } from './QueuedMessageChips';
 import { AutoReviewBanner } from './AutoReviewBanner';
-import { FileMentionAutocomplete, type FileMentionHandle } from './FileMentionAutocomplete';
-import { CommandAutocomplete, type CommandAutocompleteHandle, type CommandInfo } from './CommandAutocomplete';
-import { SkillAutocomplete, type SkillAutocompleteHandle } from './SkillAutocomplete';
-import { SnippetAutocomplete, type SnippetAutocompleteHandle } from './SnippetAutocomplete';
+import type { FileMentionHandle } from './FileMentionAutocomplete';
+import type { CommandAutocompleteHandle, CommandInfo } from './CommandAutocomplete';
+import type { SkillAutocompleteHandle } from './SkillAutocomplete';
+import type { SnippetAutocompleteHandle } from './SnippetAutocomplete';
 import { cn } from "@/lib/utils";
 import { ModelControls } from './ModelControls';
 import { parseAgentMentions } from '@/lib/messages/agentMentions';
@@ -89,7 +89,7 @@ import {
     scanMentions,
 } from './composer/language/mentions';
 import { collectKnownTokenNames } from './composer/language/prefixTokens';
-import { resolveAutocompleteTrigger } from './composer/language/triggers';
+import { resolveAutocompleteTrigger, type AutocompleteKind } from './composer/language/triggers';
 import { type ComposerLanguageContext } from './composer/language/tokenize';
 import {
     ComposerEditor,
@@ -130,6 +130,7 @@ import {
     MobileDraftTargetSheets,
     MobileDraftTargetTriggers,
 } from './composer/ui/DraftTargetSelectors';
+import { ComposerAutocompletePopups } from './composer/ui/ComposerAutocompletePopups';
 import { ComposerFooter } from './composer/ui/ComposerFooter';
 import { MobilePillComposer } from './composer/ui/MobilePillComposer';
 import { ComposerContextChips } from './composer/ui/ComposerContextChips';
@@ -237,14 +238,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const [inputMode, setInputMode] = React.useState<'normal' | 'shell'>('normal');
     const [isDragging, setIsDragging] = React.useState(false);
     const [isInternalDrag, setIsInternalDrag] = React.useState(false);
-    const [showFileMention, setShowFileMention] = React.useState(false);
-    const [mentionQuery, setMentionQuery] = React.useState('');
-    const [showCommandAutocomplete, setShowCommandAutocomplete] = React.useState(false);
-    const [commandQuery, setCommandQuery] = React.useState('');
-    const [showSkillAutocomplete, setShowSkillAutocomplete] = React.useState(false);
-    const [skillQuery, setSkillQuery] = React.useState('');
-    const [showSnippetAutocomplete, setShowSnippetAutocomplete] = React.useState(false);
-    const [snippetQuery, setSnippetQuery] = React.useState('');
+    // At most one picker is open at a time; the prompt language decides which.
+    const [openAutocomplete, setOpenAutocomplete] = React.useState<AutocompleteKind | null>(null);
+    const [autocompleteQuery, setAutocompleteQuery] = React.useState('');
+    const closeAutocomplete = React.useCallback(() => setOpenAutocomplete(null), []);
     const [mobileControlsPanel, setMobileControlsPanel] = React.useState<MobileControlsPanel>(null);
     const [mobileAttachMenuOpen, setMobileAttachMenuOpen] = React.useState(false);
     const [mobileDraftPicker, setMobileDraftPicker] = React.useState<'project' | 'branch' | null>(null);
@@ -1339,7 +1336,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
 
-        if (showCommandAutocomplete && commandRef.current) {
+        if (openAutocomplete === 'command' && commandRef.current) {
             if (e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Escape' || e.key === 'Tab') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1348,7 +1345,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
 
-        if (showSkillAutocomplete && skillRef.current) {
+        if (openAutocomplete === 'skill' && skillRef.current) {
             if (e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Escape' || e.key === 'Tab') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1357,7 +1354,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
 
-        if (showSnippetAutocomplete && snippetRef.current) {
+        if (openAutocomplete === 'snippet' && snippetRef.current) {
             if (e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Escape' || e.key === 'Tab') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1366,7 +1363,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
 
-        if (showFileMention && mentionRef.current) {
+        if (openAutocomplete === 'mention' && mentionRef.current) {
             if (e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'Escape' || e.key === 'Tab') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1390,7 +1387,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 ? 1
                 : 0;
 
-        if (cycleAgentDirection !== 0 && !showCommandAutocomplete && !showSkillAutocomplete && !showSnippetAutocomplete && !showFileMention) {
+        if (cycleAgentDirection !== 0 && openAutocomplete === null) {
             e.preventDefault();
             e.stopPropagation();
             handleCycleAgent(cycleAgentDirection);
@@ -1400,7 +1397,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // Handle ArrowUp/ArrowDown for message history navigation
         // ArrowUp: only when cursor at start (position 0) or input is empty
         // ArrowDown: also works when cursor at end (to cycle forward through history)
-        const isAnyAutocompleteOpen = showCommandAutocomplete || showSkillAutocomplete || showSnippetAutocomplete || showFileMention;
+        const isAnyAutocompleteOpen = openAutocomplete !== null;
         const cursorAtStart = composerRef.current?.getSelection().start === 0 && composerRef.current?.getSelection().end === 0;
         const cursorAtEnd = composerRef.current?.getSelection().start === message.length && composerRef.current?.getSelection().end === message.length;
         const canNavigateHistoryUp = !isAnyAutocompleteOpen && (message.length === 0 || cursorAtStart);
@@ -1519,7 +1516,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             return;
         }
 
-        if (!showCommandAutocomplete && !showSkillAutocomplete && !showSnippetAutocomplete && !showFileMention) {
+        if (openAutocomplete === null) {
             setAutocompleteOverlayPosition(null);
             return;
         }
@@ -1543,7 +1540,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         const spaceBelow = containerRect.height - caretY - popupMargin;
         const place: 'above' | 'below' = spaceBelow >= estimatedPopupHeight || spaceBelow >= spaceAbove ? 'below' : 'above';
 
-        const desiredWidth = showFileMention ? 520 : showCommandAutocomplete || showSnippetAutocomplete ? 450 : 360;
+        const desiredWidth = openAutocomplete === 'mention' ? 520 : openAutocomplete === 'skill' ? 360 : 450;
         const clampedLeft = Math.max(
             popupMargin,
             Math.min(caretX - 24, containerRect.width - desiredWidth - popupMargin)
@@ -1559,10 +1556,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         });
     }, [
         isDesktopExpanded,
-        showCommandAutocomplete,
-        showFileMention,
-        showSnippetAutocomplete,
-        showSkillAutocomplete,
+        openAutocomplete,
     ]);
 
     React.useLayoutEffect(() => {
@@ -1570,10 +1564,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     }, [
         updateAutocompleteOverlayPosition,
         message,
-        showCommandAutocomplete,
-        showSkillAutocomplete,
-        showSnippetAutocomplete,
-        showFileMention,
+        openAutocomplete,
         isDesktopExpanded,
     ]);
 
@@ -1633,45 +1624,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         inputSource: FileMentionAutocompleteInputSource = 'manual',
         insertedText?: string,
     ) => {
-        if (inputMode === 'shell') {
-            setShowCommandAutocomplete(false);
-            setShowFileMention(false);
-            setShowSkillAutocomplete(false);
-            setShowSnippetAutocomplete(false);
-            return;
-        }
-
-        // At most one picker is open; the grammar decides which.
         const trigger = resolveAutocompleteTrigger(value, cursorPosition, {
             inputMode,
             inputSource,
             insertedText,
         });
-        const kind = trigger?.kind ?? null;
-
-        setShowCommandAutocomplete(kind === 'command');
-        setShowSkillAutocomplete(kind === 'skill');
-        setShowSnippetAutocomplete(kind === 'snippet');
-        setShowFileMention(kind === 'mention');
-
-        if (trigger?.kind === 'command') setCommandQuery(trigger.query);
-        if (trigger?.kind === 'skill') setSkillQuery(trigger.query);
-        if (trigger?.kind === 'snippet') setSnippetQuery(trigger.query);
-        if (trigger?.kind === 'mention') setMentionQuery(trigger.query);
-        // A half-typed skill query must not survive the picker closing: it is
-        // read back when the picker reopens.
-        if (kind !== 'command' && kind !== 'skill') setSkillQuery('');
-    }, [
-        inputMode,
-        setCommandQuery,
-        setMentionQuery,
-        setShowCommandAutocomplete,
-        setShowFileMention,
-        setShowSkillAutocomplete,
-        setShowSnippetAutocomplete,
-        setSkillQuery,
-        setSnippetQuery,
-    ]);
+        setOpenAutocomplete(trigger?.kind ?? null);
+        setAutocompleteQuery(trigger?.query ?? '');
+    }, [inputMode]);
 
     const insertTextAtSelection = React.useCallback((
         text: string,
@@ -1762,9 +1722,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             const nextCursor = Math.max(0, selection.start - 1);
             setInputMode('shell');
             setMessage(shellCommand);
-            setShowCommandAutocomplete(false);
-            setShowSkillAutocomplete(false);
-            setShowFileMention(false);
+            closeAutocomplete();
             requestAnimationFrame(() => composerRef.current?.setSelection(nextCursor));
             return;
         }
@@ -1918,8 +1876,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             });
         }
 
-        setShowFileMention(false);
-        setMentionQuery('');
+        closeAutocomplete();
 
         composerRef.current?.focus();
     };
@@ -1960,8 +1917,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             });
         }
 
-        setShowFileMention(false);
-        setMentionQuery('');
+        closeAutocomplete();
 
         composerRef.current?.focus();
     };
@@ -1988,8 +1944,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             });
         }
 
-        setShowSkillAutocomplete(false);
-        setSkillQuery('');
+        closeAutocomplete();
 
         composerRef.current?.focus();
     };
@@ -2009,8 +1964,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
             updateAutocompleteState(newMessage, nextCursor);
         });
-        setShowSnippetAutocomplete(false);
-        setSnippetQuery('');
+        closeAutocomplete();
         composerRef.current?.focus();
     };
 
@@ -2018,8 +1972,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         setMessage(`/${command.name} `);
 
-        setShowCommandAutocomplete(false);
-        setCommandQuery('');
+        closeAutocomplete();
 
         const refocus = () => {
             if (composerRef.current) {
@@ -2705,83 +2658,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         </div>
                     )}
 
-                    {showCommandAutocomplete && (
-                        <CommandAutocomplete
-                            ref={commandRef}
-                            searchQuery={commandQuery}
-                            onCommandSelect={handleCommandSelect}
-                            onClose={() => setShowCommandAutocomplete(false)}
-                            style={isDesktopExpanded && autocompleteOverlayPosition
-                                ? {
-                                    left: `${autocompleteOverlayPosition.left}px`,
-                                    top: `${autocompleteOverlayPosition.top}px`,
-                                    bottom: 'auto',
-                                    width: `min(450px, calc(100% - ${autocompleteOverlayPosition.left + 8}px))`,
-                                    maxHeight: `${autocompleteOverlayPosition.maxHeight}px`,
-                                    transform: autocompleteOverlayPosition.place === 'above' ? 'translateY(-100%)' : undefined,
-                                }
-                                : undefined}
-                        />
-                    )}
-                    { }
-                    {showSkillAutocomplete && (
-                        <SkillAutocomplete
-                            ref={skillRef}
-                            searchQuery={skillQuery}
-                            onSkillSelect={handleSkillSelect}
-                            onClose={() => setShowSkillAutocomplete(false)}
-                            style={isDesktopExpanded && autocompleteOverlayPosition
-                                ? {
-                                    left: `${autocompleteOverlayPosition.left}px`,
-                                    top: `${autocompleteOverlayPosition.top}px`,
-                                    bottom: 'auto',
-                                    width: `min(360px, calc(100% - ${autocompleteOverlayPosition.left + 8}px))`,
-                                    maxHeight: `${autocompleteOverlayPosition.maxHeight}px`,
-                                    transform: autocompleteOverlayPosition.place === 'above' ? 'translateY(-100%)' : undefined,
-                                }
-                                : undefined}
-                        />
-                    )}
-
-                    {showSnippetAutocomplete && (
-                        <SnippetAutocomplete
-                            ref={snippetRef}
-                            searchQuery={snippetQuery}
-                            onSnippetSelect={handleSnippetSelect}
-                            onClose={() => setShowSnippetAutocomplete(false)}
-                            style={isDesktopExpanded && autocompleteOverlayPosition
-                                ? {
-                                    left: `${autocompleteOverlayPosition.left}px`,
-                                    top: `${autocompleteOverlayPosition.top}px`,
-                                    bottom: 'auto',
-                                    width: `min(450px, calc(100% - ${autocompleteOverlayPosition.left + 8}px))`,
-                                    maxHeight: `${autocompleteOverlayPosition.maxHeight}px`,
-                                    transform: autocompleteOverlayPosition.place === 'above' ? 'translateY(-100%)' : undefined,
-                                }
-                                : undefined}
-                        />
-                    )}
-
-                    {showFileMention && (
-
-                        <FileMentionAutocomplete
-                            ref={mentionRef}
-                            searchQuery={mentionQuery}
-                            onFileSelect={handleFileSelect}
-                            onAgentSelect={handleAgentSelect}
-                            onClose={() => setShowFileMention(false)}
-                            style={isDesktopExpanded && autocompleteOverlayPosition
-                                ? {
-                                    left: `${autocompleteOverlayPosition.left}px`,
-                                    top: `${autocompleteOverlayPosition.top}px`,
-                                    bottom: 'auto',
-                                    width: `min(520px, calc(100% - ${autocompleteOverlayPosition.left + 8}px))`,
-                                    maxHeight: `${autocompleteOverlayPosition.maxHeight}px`,
-                                    transform: autocompleteOverlayPosition.place === 'above' ? 'translateY(-100%)' : undefined,
-                                }
-                                : undefined}
-                        />
-                    )}
+                    <ComposerAutocompletePopups
+                        open={openAutocomplete}
+                        query={autocompleteQuery}
+                        overlayPosition={isDesktopExpanded ? autocompleteOverlayPosition : null}
+                        commandRef={commandRef}
+                        skillRef={skillRef}
+                        snippetRef={snippetRef}
+                        mentionRef={mentionRef}
+                        onCommandSelect={handleCommandSelect}
+                        onSkillSelect={handleSkillSelect}
+                        onSnippetSelect={handleSnippetSelect}
+                        onFileSelect={handleFileSelect}
+                        onAgentSelect={handleAgentSelect}
+                        onClose={closeAutocomplete}
+                    />
                     {/* Positioning context for the dictation overlay: covers the
                         text area + footer exactly, excluding MobileSessionStatusBar. */}
                     <div className={cn('relative flex flex-col', isComposerExpanded && 'flex-1 min-h-0')}>
