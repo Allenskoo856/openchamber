@@ -65,6 +65,19 @@ describe('composerEditorTheme', () => {
         expect(focusedRule!.includes('.cm-selectionLayer')).toBe(true);
     });
 
+    /**
+     * An unknown custom property makes the whole declaration invalid rather
+     * than falling back to something visible, so a misspelled token reads as
+     * "this element was never styled". `color` inherits, which is how a
+     * camelCased `--surface-mutedForeground` left the placeholder at full text
+     * brightness while looking perfectly correct in the source.
+     */
+    test('every theme token is kebab-case, as the theme emits them', () => {
+        const tokens = [...declarations.matchAll(/var\((--[A-Za-z-]+)/g)].map((m) => m[1]);
+        expect(tokens.length > 0).toBe(true);
+        expect(tokens.filter((token) => /[A-Z]/.test(token))).toEqual([]);
+    });
+
     test('the selection is translucent so token colours survive it', () => {
         const rules = selectors
             .filter((selector) => selector.includes('.cm-selectionBackground'))

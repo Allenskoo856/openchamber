@@ -51,7 +51,11 @@ export const COMPOSER_EDITOR_THEME_SPEC = {
         lineHeight: 'inherit',
         overflowX: 'hidden',
     },
-    '.cm-placeholder': { color: 'var(--surface-mutedForeground)' },
+    // Kebab-case: the theme emits `--surface-muted-foreground`. A camelCased
+    // name here is not a missing colour but an invalid declaration, and since
+    // `color` inherits, the placeholder silently renders at full text
+    // brightness instead.
+    '.cm-placeholder': { color: 'var(--surface-muted-foreground)' },
     // `drawSelection()` paints its own selection layer, and CodeMirror styles
     // it for the focused editor through
     // `&light.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground`
