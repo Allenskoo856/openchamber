@@ -127,6 +127,9 @@ const runtimeMemoryKey = (value?: string | null): string => {
   return key || 'default';
 };
 
+// Shared with rail/panel consumers so contextPanelByDirectory lookups agree on keys.
+export const normalizeContextPanelDirectoryKey = (value: string): string => normalizeDirectoryPath(value);
+
 const normalizeDirectoryPath = (value: string): string => {
   if (!value) return '';
 
@@ -536,6 +539,7 @@ interface UIStore {
   hasManuallyResizedRightSidebar: boolean;
   rightSidebarTab: RightSidebarTab;
   contextPanelByDirectory: Record<string, ContextPanelDirectoryState>;
+  contextRailOrder: string[];
   isBottomTerminalOpen: boolean;
   isBottomTerminalExpanded: boolean;
   bottomTerminalHeight: number;
@@ -681,6 +685,8 @@ interface UIStore {
   setRightSidebarOpen: (open: boolean) => void;
   setRightSidebarWidth: (width: number) => void;
   setRightSidebarTab: (tab: RightSidebarTab) => void;
+  setContextRailOrder: (order: string[]) => void;
+  openContextSurface: (directory: string, mode: ContextPanelMode) => void;
   openContextPanelTab: (directory: string, tab: ContextPanelTabDescriptor) => void;
   openContextDiff: (directory: string, filePath: string, staged?: boolean, scope?: PendingDiffScope | null) => void;
   openContextFile: (directory: string, filePath: string) => void;
@@ -860,6 +866,7 @@ export const useUIStore = create<UIStore>()(
         hasManuallyResizedRightSidebar: false,
         rightSidebarTab: 'git',
         contextPanelByDirectory: {},
+        contextRailOrder: [],
         isBottomTerminalOpen: false,
         isBottomTerminalExpanded: false,
         bottomTerminalHeight: 300,
@@ -1075,6 +1082,50 @@ export const useUIStore = create<UIStore>()(
 
         setRightSidebarTab: (tab) => {
           set({ rightSidebarTab: tab });
+        },
+
+        setContextRailOrder: (order) => {
+          const sanitized = Array.isArray(order)
+            ? order.filter((id, index) => typeof id === 'string' && id.trim() !== '' && order.indexOf(id) === index)
+            : [];
+          set({ contextRailOrder: sanitized });
+        },
+
+        // Rail entry point: activates the most recent tab of the requested
+        // mode, opens a fresh singleton tab when none exists, and toggles the
+        // panel closed when the requested mode is already active and visible.
+        openContextSurface: (directory, mode) => {
+          const normalizedDirectory = normalizeDirectoryPath((directory || '').trim());
+          if (!normalizedDirectory) {
+            return;
+          }
+
+          const state = get();
+          const panelState = state.contextPanelByDirectory[normalizedDirectory];
+          const tabs = panelState?.tabs ?? [];
+          const activeTab = tabs.find((tab) => tab.id === panelState?.activeTabId) ?? null;
+
+          if (panelState?.isOpen && activeTab?.mode === mode) {
+            state.closeContextPanel(normalizedDirectory);
+            return;
+          }
+
+          const tabsOfMode = tabs.filter((tab) => tab.mode === mode);
+          if (tabsOfMode.length > 0) {
+            // `>=` so equal timestamps (same-millisecond opens) resolve to the
+            // later tab in insertion order.
+            const mostRecent = tabsOfMode.reduce((best, tab) => (tab.touchedAt >= best.touchedAt ? tab : best));
+            state.setActiveContextPanelTab(normalizedDirectory, mostRecent.id);
+            return;
+          }
+
+          // Content-driven modes need a payload (a file path, preview URL, or
+          // session); the rail renders them disabled until content exists.
+          if (mode === 'file' || mode === 'preview' || mode === 'chat') {
+            return;
+          }
+
+          state.openContextPanelTab(normalizedDirectory, { mode });
         },
 
         openContextPanelTab: (directory, tab) => {
@@ -2334,6 +2385,10 @@ export const useUIStore = create<UIStore>()(
 
           state.fileEditorKeymap = normalizeFileEditorKeymap(state.fileEditorKeymap);
 
+          state.contextRailOrder = Array.isArray(state.contextRailOrder)
+            ? (state.contextRailOrder as unknown[]).filter((id): id is string => typeof id === 'string' && id.trim() !== '')
+            : [];
+
           return state;
         },
         partialize: (state) => ({
@@ -2344,6 +2399,7 @@ export const useUIStore = create<UIStore>()(
           rightSidebarWidth: state.rightSidebarWidth,
           rightSidebarTab: state.rightSidebarTab,
           contextPanelByDirectory: state.contextPanelByDirectory,
+          contextRailOrder: state.contextRailOrder,
           isBottomTerminalOpen: state.isBottomTerminalOpen,
           isBottomTerminalExpanded: state.isBottomTerminalExpanded,
           bottomTerminalHeight: state.bottomTerminalHeight,

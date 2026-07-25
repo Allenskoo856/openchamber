@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
+import { sortContextSurfaces } from '../lib/surfaces/registry';
 import { useUIStore } from './useUIStore';
 
 beforeEach(() => {
-  useUIStore.setState({ contextPanelByDirectory: {} });
+  useUIStore.setState({ contextPanelByDirectory: {}, contextRailOrder: [] });
 });
 
 describe('useUIStore context panel tabs', () => {
@@ -26,5 +27,75 @@ describe('useUIStore context panel tabs', () => {
     const tabs = useUIStore.getState().contextPanelByDirectory[directory]?.tabs ?? [];
     expect(tabs).toHaveLength(1);
     expect(tabs[0]?.readOnly).toBe(false);
+  });
+});
+
+describe('useUIStore openContextSurface', () => {
+  const directory = '/repo';
+
+  test('opens a fresh singleton tab when none of that mode exists', () => {
+    useUIStore.getState().openContextSurface(directory, 'diff');
+
+    const state = useUIStore.getState().contextPanelByDirectory[directory];
+    expect(state?.isOpen).toBe(true);
+    expect(state?.tabs.map((tab) => tab.mode)).toEqual(['diff']);
+  });
+
+  test('activates the existing tab of the requested mode instead of duplicating it', () => {
+    useUIStore.getState().openContextPanelTab(directory, { mode: 'diff' });
+    useUIStore.getState().openContextPanelTab(directory, { mode: 'file', targetPath: '/repo/a.ts' });
+
+    useUIStore.getState().openContextSurface(directory, 'diff');
+
+    const state = useUIStore.getState().contextPanelByDirectory[directory];
+    expect(state?.tabs.filter((tab) => tab.mode === 'diff')).toHaveLength(1);
+    expect(state?.activeTabId).toBe('diff');
+    expect(state?.isOpen).toBe(true);
+  });
+
+  test('toggles the panel closed when the requested mode is already active and open', () => {
+    useUIStore.getState().openContextSurface(directory, 'diff');
+    useUIStore.getState().openContextSurface(directory, 'diff');
+
+    const state = useUIStore.getState().contextPanelByDirectory[directory];
+    expect(state?.isOpen).toBe(false);
+    expect(state?.tabs.map((tab) => tab.mode)).toEqual(['diff']);
+  });
+
+  test('does nothing for content-driven modes without existing content', () => {
+    useUIStore.getState().openContextSurface(directory, 'file');
+    useUIStore.getState().openContextSurface(directory, 'preview');
+    useUIStore.getState().openContextSurface(directory, 'chat');
+
+    expect(useUIStore.getState().contextPanelByDirectory[directory]).toBe(undefined);
+  });
+
+  test('activates the most recently touched tab of a content-driven mode', () => {
+    useUIStore.getState().openContextFile(directory, '/repo/a.ts');
+    useUIStore.getState().openContextFile(directory, '/repo/b.ts');
+    useUIStore.getState().openContextPanelTab(directory, { mode: 'diff' });
+
+    useUIStore.getState().openContextSurface(directory, 'file');
+
+    const state = useUIStore.getState().contextPanelByDirectory[directory];
+    const activeTab = state?.tabs.find((tab) => tab.id === state.activeTabId);
+    expect(activeTab?.mode).toBe('file');
+    expect(activeTab?.targetPath).toBe('/repo/b.ts');
+  });
+});
+
+describe('useUIStore contextRailOrder', () => {
+  test('setContextRailOrder drops empty and duplicate ids', () => {
+    useUIStore.getState().setContextRailOrder(['diff', 'diff', '', 'editor']);
+    expect(useUIStore.getState().contextRailOrder).toEqual(['diff', 'editor']);
+  });
+
+  test('sortContextSurfaces applies persisted order and appends missing surfaces', () => {
+    const ordered = sortContextSurfaces(['browser', 'unknown-id', 'diff']);
+    const ids = ordered.map((surface) => surface.id);
+
+    expect(ids.slice(0, 2)).toEqual(['browser', 'diff']);
+    expect(new Set(ids)).toEqual(new Set(['editor', 'diff', 'plan', 'context', 'browser', 'preview', 'chat']));
+    expect(ids).toHaveLength(7);
   });
 });

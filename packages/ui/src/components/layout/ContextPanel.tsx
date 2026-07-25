@@ -2486,7 +2486,16 @@ export const ContextPanel: React.FC = () => {
     postEmbeddedVisibilityToChats();
   }, [darkThemeId, lightThemeId, postChatSettingsSyncToEmbeddedChat, postEmbeddedVisibilityToChats, postThemeSyncToEmbeddedChat, tabs, themeMode]);
 
-  const tabItems = React.useMemo(() => tabs.map((tab) => {
+  // The rail switches between surfaces (modes); the in-panel strip only lists
+  // instances of the active multi-instance surface (open files, split chats,
+  // preview targets).
+  const isMultiInstanceMode = activeTab?.mode === 'file' || activeTab?.mode === 'chat' || activeTab?.mode === 'preview';
+  const activeModeTabs = React.useMemo(
+    () => (activeTab ? tabs.filter((tab) => tab.mode === activeTab.mode) : []),
+    [activeTab, tabs],
+  );
+
+  const tabItems = React.useMemo(() => activeModeTabs.map((tab) => {
     const rawLabel = getTabLabel(tab, sessionTitleById, t);
     const label = truncateTabLabel(rawLabel, CONTEXT_TAB_LABEL_MAX_CHARS);
     const tabPathLabel = getRelativePathLabel(tab.targetPath, effectiveDirectory);
@@ -2497,7 +2506,7 @@ export const ContextPanel: React.FC = () => {
       title: tabPathLabel ? `${rawLabel}: ${tabPathLabel}` : rawLabel,
       closeLabel: t('contextPanel.tab.closeTabAria', { label }),
     };
-  }), [effectiveDirectory, sessionTitleById, t, tabs]);
+  }), [activeModeTabs, effectiveDirectory, sessionTitleById, t]);
 
   const activeNonChatContent = activeTab?.mode === 'context'
         ? <ContextPanelContent />
@@ -2535,30 +2544,39 @@ export const ContextPanel: React.FC = () => {
 
   const header = (
     <header className="flex h-10 items-stretch border-b border-transparent">
-      <SortableTabsStrip
-        items={tabItems}
-        activeId={activeTab?.id ?? null}
-        onSelect={(tabID) => {
-          if (!directoryKey) {
-            return;
-          }
-          setActiveContextPanelTab(directoryKey, tabID);
-        }}
-        onClose={(tabID) => {
-          if (!directoryKey) {
-            return;
-          }
-          closeContextPanelTab(directoryKey, tabID);
-        }}
-        onReorder={(activeTabID, overTabID) => {
-          if (!directoryKey) {
-            return;
-          }
-          reorderContextPanelTabs(directoryKey, activeTabID, overTabID);
-        }}
-        layoutMode="scrollable"
-        variant="default"
-      />
+      {isMultiInstanceMode ? (
+        <SortableTabsStrip
+          items={tabItems}
+          activeId={activeTab?.id ?? null}
+          onSelect={(tabID) => {
+            if (!directoryKey) {
+              return;
+            }
+            setActiveContextPanelTab(directoryKey, tabID);
+          }}
+          onClose={(tabID) => {
+            if (!directoryKey) {
+              return;
+            }
+            closeContextPanelTab(directoryKey, tabID);
+          }}
+          onReorder={(activeTabID, overTabID) => {
+            if (!directoryKey) {
+              return;
+            }
+            reorderContextPanelTabs(directoryKey, activeTabID, overTabID);
+          }}
+          layoutMode="scrollable"
+          variant="default"
+        />
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 px-3">
+          {activeTab ? getTabIcon(activeTab) : null}
+          <span className="truncate typography-ui-label text-foreground">
+            {activeTab ? getModeLabel(activeTab.mode, t) : null}
+          </span>
+        </div>
+      )}
       <div className="flex items-center gap-1 px-1.5">
         <Button
           type="button"

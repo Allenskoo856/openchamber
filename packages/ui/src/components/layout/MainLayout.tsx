@@ -8,6 +8,7 @@ import { TitlebarLeftControls } from './TitlebarLeftControls';
 import { RightSidebar } from './RightSidebar';
 import { ProjectContextPanel, RightSidebarTabs } from './RightSidebarTabs';
 import { ContextPanel } from './ContextPanel';
+import { ContextPanelRail } from './ContextPanelRail';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { CommandPalette } from '../ui/CommandPalette';
 import { HelpDialog } from '../ui/HelpDialog';
@@ -553,6 +554,9 @@ export const MainLayout: React.FC = () => {
                                 >
                                     <ErrorBoundary><RightSidebarTabs /></ErrorBoundary>
                                 </RightSidebar>
+                                <div className="border-t border-border/50" data-page-scroll-lock="true">
+                                    <ErrorBoundary><ContextPanelRail /></ErrorBoundary>
+                                </div>
                             </div>
                         </div>
                     </div>
