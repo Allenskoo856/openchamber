@@ -130,6 +130,8 @@ import { useComposerDraft } from './composer/state/useComposerDraft';
 import { useDraftTarget, getProjectDisplayLabel } from './composer/state/useDraftTarget';
 import { useMobileComposerShell } from './composer/state/useMobileComposerShell';
 import { useMobileViewportPin } from './composer/state/useMobileViewportPin';
+import { ComposerContextChips } from './composer/ui/ComposerContextChips';
+import { LinkedReferenceRow } from './composer/ui/LinkedReferenceRow';
 import { ComposerActionButtons } from './composer/ui/ComposerActionButtons';
 import { ComposerAttachmentControls } from './composer/ui/ComposerAttachmentControls';
 import { FocusModeButton } from './composer/ui/FocusModeButton';
@@ -2586,192 +2588,45 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     onSendMessage={handleQueuedMessageSend}
                 />
                 <AutoReviewBanner />
-                {hasDrafts && (
-                    <div className="flex flex-wrap items-center gap-2 pb-2">
-                        {terminalContextDrafts.map((draft) => (
-                            <div key={draft.id} className="inline-flex max-w-full items-center gap-1.5 rounded-xl border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-2.5 py-1" title={draft.code}>
-                                <Icon name="terminal" className="h-3.5 w-3.5" />
-                                <span className="truncate text-xs font-medium text-[var(--surface-mutedForeground)]">
-                                    {t('chat.chatInput.terminalContext', { terminal: draft.fileLabel, start: draft.startLine, end: draft.endLine })}
-                                </span>
-                                <button type="button" className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--surface-mutedForeground)] hover:bg-[var(--interactive-hover)] hover:text-[var(--surface-foreground)]" onClick={() => inlineDraftTarget && removeInlineCommentDraft(inlineDraftTarget, draft.id)} aria-label={t('chat.chatInput.terminalContextRemove')} title={t('chat.chatInput.terminalContextRemove')}>
-                                    <Icon name="close" className="h-3 w-3" />
-                                </button>
-                            </div>
-                        ))}
-                        {reviewCount > 0 ? (
-                            <div
-                                className="inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
-                                style={{
-                                    backgroundColor: currentTheme?.colors?.surface?.elevated,
-                                    borderColor: currentTheme?.colors?.interactive?.border,
-                                }}
-                            >
-                                <span className="text-xs font-medium text-muted-foreground">{t('chat.chatInput.reviewComments')}</span>
-                                <span className="text-xs font-semibold" style={{ color: currentTheme?.colors?.status?.info }}>{reviewCount}</span>
-                                <button
-                                    type="button"
-                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
-                                    style={{ minHeight: 0, minWidth: 0 }}
-                                    onClick={removeReviewDrafts}
-                                    aria-label={t('chat.chatInput.reviewCommentsRemove')}
-                                    title={t('chat.chatInput.reviewCommentsRemove')}
-                                >
-                                    <Icon name="close" className="h-3 w-3" />
-                                </button>
-                            </div>
-                        ) : null}
-                        {previewConsoleCount > 0 ? (
-                            <div
-                                className="inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
-                                style={{
-                                    backgroundColor: currentTheme?.colors?.surface?.elevated,
-                                    borderColor: currentTheme?.colors?.interactive?.border,
-                                }}
-                            >
-                                <span className="text-xs font-medium text-muted-foreground">{t('chat.chatInput.devServerLogs')}</span>
-                                <span className="text-xs font-semibold" style={{ color: currentTheme?.colors?.status?.info }}>{previewConsoleCount}</span>
-                                <button
-                                    type="button"
-                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
-                                    style={{ minHeight: 0, minWidth: 0 }}
-                                    onClick={() => removePreviewDrafts('preview-console')}
-                                    aria-label={t('chat.chatInput.devServerLogsRemove')}
-                                    title={t('chat.chatInput.devServerLogsRemove')}
-                                >
-                                    <Icon name="close" className="h-3 w-3" />
-                                </button>
-                            </div>
-                        ) : null}
-                        {previewAnnotationCount > 0 ? (
-                            <div
-                                className="inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
-                                style={{
-                                    backgroundColor: currentTheme?.colors?.surface?.elevated,
-                                    borderColor: currentTheme?.colors?.interactive?.border,
-                                }}
-                            >
-                                <span className="text-xs font-medium text-muted-foreground">{t('chat.chatInput.previewAnnotations')}</span>
-                                <span className="text-xs font-semibold" style={{ color: currentTheme?.colors?.status?.info }}>{previewAnnotationCount}</span>
-                                <button
-                                    type="button"
-                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
-                                    style={{ minHeight: 0, minWidth: 0 }}
-                                    onClick={() => removePreviewDrafts('preview-annotation')}
-                                    aria-label={t('chat.chatInput.previewContextRemove')}
-                                    title={t('chat.chatInput.previewContextRemove')}
-                                >
-                                    <Icon name="close" className="h-3 w-3" />
-                                </button>
-                            </div>
-                        ) : null}
-                    </div>
-                )}
+                {hasDrafts ? (
+                    <ComposerContextChips
+                        terminalDrafts={terminalContextDrafts}
+                        reviewCount={reviewCount}
+                        previewConsoleCount={previewConsoleCount}
+                        previewAnnotationCount={previewAnnotationCount}
+                        draftTarget={inlineDraftTarget}
+                        onRemoveDraft={removeInlineCommentDraft}
+                        onRemoveReviewDrafts={removeReviewDrafts}
+                        onRemovePreviewDrafts={removePreviewDrafts}
+                        colors={currentTheme.colors}
+                    />
+                ) : null}
 
-                {/* Linked Issue row */}
-                {linkedIssue && !isVSCode && (
-                    <div className="pb-2 w-full px-1">
-                        <div className="flex w-full items-center gap-1.5 text-sm h-5 px-1">
-                            <button
-                                type="button"
-                                onClick={() => setIssuePickerOpen(true)}
-                                className="flex min-w-0 flex-1 items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
-                            >
-                                {linkedIssue.author?.avatarUrl && (
-                                    <img
-                                        src={linkedIssue.author.avatarUrl}
-                                        alt={linkedIssue.author.login}
-                                        className="h-5 w-5 rounded-full flex-shrink-0"
-                                    />
-                                )}
-                                <span className="text-muted-foreground flex-shrink-0">
-                                    #{linkedIssue.number}
-                                    {linkedIssue.author && (
-                                        <span className="ml-1">{t('chat.chatInput.linked.byAuthor', { author: linkedIssue.author.login })}</span>
-                                    )}
-                                </span>
-                                <span className="text-foreground truncate">
-                                    {linkedIssue.title}
-                                </span>
-                            </button>
-                            <span className="flex items-center gap-0.5 flex-shrink-0">
-                                <a
-                                    href={linkedIssue.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center justify-center h-6 w-6 hover:bg-[var(--interactive-hover)] rounded-full transition-colors"
-                                    aria-label={t('chat.chatInput.linked.issue.openInBrowserAria')}
-                                >
-                                    <Icon name="external-link" className="h-4 w-4 text-muted-foreground" />
-                                </a>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setLinkedIssue(null);
-                                    }}
-                                    className="flex items-center justify-center h-6 w-6 hover:bg-[var(--interactive-hover)] rounded-full transition-colors"
-                                    aria-label={t('chat.chatInput.linked.issue.removeAria')}
-                                    title={t('chat.chatInput.linked.issue.removeAria')}
-                                >
-                                    <Icon name="close" className="h-4 w-4 text-muted-foreground" />
-                                </button>
-                            </span>
-                        </div>
-                    </div>
-                )}
-                {linkedPr && !isVSCode && (
-                    <div className="pb-2 w-full px-1">
-                        <div className="flex w-full items-center gap-1.5 text-sm h-5 px-1">
-                            <button
-                                type="button"
-                                onClick={() => setPrPickerOpen(true)}
-                                className="flex min-w-0 flex-1 items-center gap-1.5 text-left hover:opacity-80 transition-opacity"
-                            >
-                                {linkedPr.author?.avatarUrl && (
-                                    <img
-                                        src={linkedPr.author.avatarUrl}
-                                        alt={linkedPr.author.login}
-                                        className="h-5 w-5 rounded-full flex-shrink-0"
-                                    />
-                                )}
-                                <span className="text-muted-foreground flex-shrink-0">
-                                    {t('chat.chatInput.linked.pr.number', { number: linkedPr.number })}
-                                    {linkedPr.author && (
-                                        <span className="ml-1">{t('chat.chatInput.linked.byAuthor', { author: linkedPr.author.login })}</span>
-                                    )}
-                                </span>
-                                <span className="text-foreground truncate">
-                                    {linkedPr.title}
-                                </span>
-                                <span className="text-muted-foreground flex-shrink-0 typography-meta">
-                                    {linkedPr.head} → {linkedPr.base}
-                                </span>
-                            </button>
-                            <span className="flex items-center gap-0.5 flex-shrink-0">
-                                <a
-                                    href={linkedPr.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center justify-center h-6 w-6 hover:bg-[var(--interactive-hover)] rounded-full transition-colors"
-                                    aria-label={t('chat.chatInput.linked.pr.openInBrowserAria')}
-                                >
-                                    <Icon name="external-link" className="h-4 w-4 text-muted-foreground" />
-                                </a>
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setLinkedPr(null);
-                                    }}
-                                    className="flex items-center justify-center h-6 w-6 hover:bg-[var(--interactive-hover)] rounded-full transition-colors"
-                                    aria-label={t('chat.chatInput.linked.pr.removeAria')}
-                                    title={t('chat.chatInput.linked.pr.removeAria')}
-                                >
-                                    <Icon name="close" className="h-4 w-4 text-muted-foreground" />
-                                </button>
-                            </span>
-                        </div>
-                    </div>
-                )}
+                {linkedIssue && !isVSCode ? (
+                    <LinkedReferenceRow
+                        numberLabel={`#${linkedIssue.number}`}
+                        title={linkedIssue.title}
+                        url={linkedIssue.url}
+                        author={linkedIssue.author}
+                        openInBrowserLabel={t('chat.chatInput.linked.issue.openInBrowserAria')}
+                        removeLabel={t('chat.chatInput.linked.issue.removeAria')}
+                        onReopenPicker={() => setIssuePickerOpen(true)}
+                        onRemove={() => setLinkedIssue(null)}
+                    />
+                ) : null}
+                {linkedPr && !isVSCode ? (
+                    <LinkedReferenceRow
+                        numberLabel={t('chat.chatInput.linked.pr.number', { number: linkedPr.number })}
+                        title={linkedPr.title}
+                        url={linkedPr.url}
+                        author={linkedPr.author}
+                        branches={{ head: linkedPr.head, base: linkedPr.base }}
+                        openInBrowserLabel={t('chat.chatInput.linked.pr.openInBrowserAria')}
+                        removeLabel={t('chat.chatInput.linked.pr.removeAria')}
+                        onReopenPicker={() => setPrPickerOpen(true)}
+                        onRemove={() => setLinkedPr(null)}
+                    />
+                ) : null}
                 <RevertedMessageDock
                     sessionId={currentSessionId}
                     directory={currentSessionDirectoryForSync ?? currentDirectory}
