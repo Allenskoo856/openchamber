@@ -113,12 +113,18 @@ import {
     buildAttachmentCitationText,
     findAttachmentCitationRanges,
 } from './attachmentCitations';
-import { getFileMentionAutocompleteQuery, type FileMentionAutocompleteInputSource } from './fileMentionAutocompleteState';
+import type { FileMentionAutocompleteInputSource } from './fileMentionAutocompleteState';
 import {
     classifyMention,
     findMentionAt,
     scanMentions,
 } from './composer/language/mentions';
+import {
+    collectKnownTokenNames,
+    filterKnownTokens,
+    scanPrefixTokens,
+} from './composer/language/prefixTokens';
+import { resolveAutocompleteTrigger } from './composer/language/triggers';
 import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
@@ -128,7 +134,6 @@ const MAX_VISIBLE_TEXTAREA_LINES = 8;
 const EMPTY_QUEUE: QueuedMessage[] = [];
 // Single-line URL pasted over a selection becomes a markdown link.
 const PASTE_LINK_URL_PATTERN = /^(https?:\/\/|mailto:)\S+$/i;
-const INLINE_SKILL_TOKEN_PATTERN = /(^|\s)\/([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)/g;
 const CHAT_DRAFT_PERSIST_DEBOUNCE_MS = 500;
 const getChatDraftSnapshotSignature = (text: string, confirmedMentions: Iterable<string>): string => (
     `${text}\u0000${[...confirmedMentions].sort().join('\u0000')}`
@@ -211,19 +216,12 @@ const withInlineInsertionBoundaries = (content: string, before: string, after: s
     return `${needsLeadingSpace ? ' ' : ''}${content}${needsTrailingSpace ? ' ' : ''}`;
 };
 
-const collectInlineSkillMentions = (text: string, skillNames: Set<string>): string[] => {
-    const mentions: string[] = [];
-    INLINE_SKILL_TOKEN_PATTERN.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = INLINE_SKILL_TOKEN_PATTERN.exec(text)) !== null) {
-        const name = match[2] || '';
-        if (!skillNames.has(name) || mentions.includes(name)) {
-            continue;
-        }
-        mentions.push(name);
-    }
-    return mentions;
-};
+/**
+ * Skills the user named inline with `/name`. Matched against the registry's
+ * exact casing, since the name is echoed back to the model as a skill to load.
+ */
+const collectInlineSkillMentions = (text: string, skillNames: Set<string>): string[] =>
+    collectKnownTokenNames(text, '/', skillNames, 'exact');
 
 const buildSkillMentionInstruction = (skillNames: string[]): string | null => {
     if (skillNames.length === 0) return null;
@@ -1303,18 +1301,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (!message || !message.includes('/') || inputMode === 'shell' || knownSlashNames.size === 0) {
             return [];
         }
-        const ranges: HighlightRange[] = [];
-        const slashRegex = /(^|\s)\/([A-Za-z0-9][A-Za-z0-9_-]*)/g;
-        let match: RegExpExecArray | null;
-        while ((match = slashRegex.exec(message)) !== null) {
-            const name = match[2];
-            if (!knownSlashNames.has(name.toLowerCase())) {
-                continue;
-            }
-            const slashStart = match.index + match[1].length;
-            ranges.push({ start: slashStart, end: slashStart + 1 + name.length, style: 'mentionCommand' });
-        }
-        return ranges;
+        return filterKnownTokens(scanPrefixTokens(message, '/'), knownSlashNames)
+            .map((token) => ({
+                start: token.start,
+                end: token.end,
+                style: 'mentionCommand' as const,
+            }));
     }, [inputMode, knownSlashNames, message]);
 
     // Snippet triggers (#name / #alias). Highlighted like commands once the
@@ -1333,18 +1325,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (!message || !message.includes('#') || inputMode === 'shell' || knownSnippetTriggers.size === 0) {
             return [];
         }
-        const ranges: HighlightRange[] = [];
-        const snippetRegex = /(^|\s)#([A-Za-z0-9][A-Za-z0-9_-]*)/g;
-        let match: RegExpExecArray | null;
-        while ((match = snippetRegex.exec(message)) !== null) {
-            const trigger = match[2];
-            if (!knownSnippetTriggers.has(trigger.toLowerCase())) {
-                continue;
-            }
-            const hashStart = match.index + match[1].length;
-            ranges.push({ start: hashStart, end: hashStart + 1 + trigger.length, style: 'mentionSnippet' });
-        }
-        return ranges;
+        return filterKnownTokens(scanPrefixTokens(message, '#'), knownSnippetTriggers)
+            .map((token) => ({
+                start: token.start,
+                end: token.end,
+                style: 'mentionSnippet' as const,
+            }));
     }, [inputMode, knownSnippetTriggers, message]);
 
     // @mention spans (file = blue, agent = green). Computed as character ranges
@@ -3013,69 +2999,26 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             return;
         }
 
-        if (value.startsWith('/')) {
-            const firstSpace = value.indexOf(' ');
-            const firstNewline = value.indexOf('\n');
-            const commandEnd = Math.min(
-                firstSpace === -1 ? value.length : firstSpace,
-                firstNewline === -1 ? value.length : firstNewline
-            );
+        // At most one picker is open; the grammar decides which.
+        const trigger = resolveAutocompleteTrigger(value, cursorPosition, {
+            inputMode,
+            inputSource,
+            insertedText,
+        });
+        const kind = trigger?.kind ?? null;
 
-            if (cursorPosition <= commandEnd && firstSpace === -1) {
-                const commandText = value.substring(1, commandEnd);
-                setCommandQuery(commandText);
-                setShowCommandAutocomplete(true);
-                setShowFileMention(false);
-                setShowSkillAutocomplete(false);
-                setShowSnippetAutocomplete(false);
-                return;
-            }
-        }
+        setShowCommandAutocomplete(kind === 'command');
+        setShowSkillAutocomplete(kind === 'skill');
+        setShowSnippetAutocomplete(kind === 'snippet');
+        setShowFileMention(kind === 'mention');
 
-        setShowCommandAutocomplete(false);
-
-        const textBeforeCursor = value.substring(0, cursorPosition);
-
-        const lastSlashSymbol = textBeforeCursor.lastIndexOf('/');
-        if (lastSlashSymbol !== -1) {
-            const charBefore = lastSlashSymbol > 0 ? textBeforeCursor[lastSlashSymbol - 1] : null;
-            const textAfterSlash = textBeforeCursor.substring(lastSlashSymbol + 1);
-            const hasSeparator = textAfterSlash.includes(' ') || textAfterSlash.includes('\n');
-            const isWordBoundary = !charBefore || /\s/.test(charBefore);
-
-            if (isWordBoundary && !hasSeparator) {
-                setSkillQuery(textAfterSlash);
-                setShowSkillAutocomplete(true);
-                setShowFileMention(false);
-                return;
-            }
-        }
-
-        setShowSkillAutocomplete(false);
-        setSkillQuery('');
-
-        const lastHashSymbol = textBeforeCursor.lastIndexOf('#');
-        if (lastHashSymbol !== -1) {
-            const charBefore = lastHashSymbol > 0 ? textBeforeCursor[lastHashSymbol - 1] : null;
-            const textAfterHash = textBeforeCursor.substring(lastHashSymbol + 1);
-            const isWordBoundary = !charBefore || /\s/.test(charBefore);
-            if (isWordBoundary && !textAfterHash.includes(' ') && !textAfterHash.includes('\n')) {
-                setSnippetQuery(textAfterHash);
-                setShowSnippetAutocomplete(true);
-                setShowFileMention(false);
-                return;
-            }
-        }
-
-        setShowSnippetAutocomplete(false);
-
-        const nextMentionQuery = getFileMentionAutocompleteQuery({ value, cursorPosition, inputSource, insertedText });
-        if (nextMentionQuery === null) {
-            setShowFileMention(false);
-        } else {
-            setMentionQuery(nextMentionQuery);
-            setShowFileMention(true);
-        }
+        if (trigger?.kind === 'command') setCommandQuery(trigger.query);
+        if (trigger?.kind === 'skill') setSkillQuery(trigger.query);
+        if (trigger?.kind === 'snippet') setSnippetQuery(trigger.query);
+        if (trigger?.kind === 'mention') setMentionQuery(trigger.query);
+        // A half-typed skill query must not survive the picker closing: it is
+        // read back when the picker reopens.
+        if (kind !== 'command' && kind !== 'skill') setSkillQuery('');
     }, [
         inputMode,
         setCommandQuery,
