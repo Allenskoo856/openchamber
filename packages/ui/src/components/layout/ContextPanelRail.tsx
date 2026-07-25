@@ -17,6 +17,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 import { Icon } from '@/components/icon/Icon';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useI18n } from '@/lib/i18n';
 import {
@@ -28,31 +29,29 @@ import { useFeatureFlagsStore } from '@/stores/useFeatureFlagsStore';
 import { useGitStatus } from '@/stores/useGitStore';
 import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
 
+const RAIL_TOOLTIP_DELAY_MS = 150;
+const EMPTY_TABS: never[] = [];
+
 type RailItemProps = {
   surface: ContextSurfaceDescriptor;
   isActive: boolean;
-  isAvailable: boolean;
   badgeCount: number | null;
   label: string;
-  hint: string | null;
+  description: string;
   onSelect: (surface: ContextSurfaceDescriptor) => void;
 };
 
 const ContextPanelRailItem: React.FC<RailItemProps> = ({
   surface,
   isActive,
-  isAvailable,
   badgeCount,
   label,
-  hint,
+  description,
   onSelect,
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: surface.id,
-    disabled: !isAvailable && !isActive,
   });
-
-  const title = isAvailable ? label : (hint ?? label);
 
   return (
     <div
@@ -60,38 +59,47 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn('relative', isDragging && 'z-10 opacity-70')}
     >
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        onClick={() => {
-          if (isAvailable) {
-            onSelect(surface);
-          }
-        }}
-        disabled={!isAvailable}
-        title={title}
-        aria-label={title}
-        aria-pressed={isActive}
-        className={cn(
-          'flex h-9 w-9 touch-none select-none items-center justify-center rounded-md transition-colors',
-          isActive
-            ? 'bg-interactive-selection text-interactive-selection-foreground'
-            : isAvailable
-              ? 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground'
-              : 'cursor-default text-muted-foreground/40',
-        )}
-      >
-        <Icon name={surface.icon} className="h-4 w-4" />
-        {badgeCount !== null && badgeCount > 0 ? (
-          <span
-            aria-hidden="true"
-            className="absolute right-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--surface-elevated)] px-0.5 typography-micro leading-none text-muted-foreground"
+      <Tooltip delayDuration={RAIL_TOOLTIP_DELAY_MS}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            onClick={() => onSelect(surface)}
+            aria-label={label}
+            aria-pressed={isActive}
+            className={cn(
+              'flex h-9 w-9 touch-none select-none items-center justify-center rounded-md transition-colors',
+              isActive
+                ? 'text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
           >
-            {badgeCount > 99 ? '99+' : badgeCount}
-          </span>
-        ) : null}
-      </button>
+            <span
+              className={cn(
+                'flex items-center justify-center transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                isActive ? 'scale-125' : 'scale-100',
+              )}
+            >
+              <Icon name={surface.icon} className="h-4 w-4" />
+            </span>
+            {badgeCount !== null && badgeCount > 0 ? (
+              <span
+                aria-hidden="true"
+                className="absolute right-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--surface-elevated)] px-0.5 typography-micro leading-none text-muted-foreground"
+              >
+                {badgeCount > 99 ? '99+' : badgeCount}
+              </span>
+            ) : null}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="left" sideOffset={8}>
+          <div className="flex flex-col gap-0.5">
+            <span>{label}</span>
+            <span className="typography-micro text-muted-foreground">{description}</span>
+          </div>
+        </TooltipContent>
+      </Tooltip>
     </div>
   );
 };
@@ -113,15 +121,24 @@ export const ContextPanelRail: React.FC = () => {
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
   );
 
-  const surfaces = React.useMemo(() => {
-    const ordered = sortContextSurfaces(contextRailOrder);
-    return planModeEnabled ? ordered : ordered.filter((surface) => surface.id !== 'plan');
-  }, [contextRailOrder, planModeEnabled]);
-
-  const tabs = panelState?.tabs ?? [];
+  const tabs = panelState?.tabs ?? EMPTY_TABS;
   const activeTab = tabs.find((tab) => tab.id === panelState?.activeTabId) ?? null;
   const activeMode = panelState?.isOpen ? activeTab?.mode ?? null : null;
   const changedFilesCount = gitStatus?.files.length ?? 0;
+
+  // Content-driven surfaces are hidden (not disabled) until content exists;
+  // an existing tab keeps them visible even if the content source went away.
+  const surfaces = React.useMemo(() => {
+    return sortContextSurfaces(contextRailOrder).filter((surface) => {
+      if (surface.id === 'plan' && !planModeEnabled) {
+        return false;
+      }
+      if (surface.availability === 'has-content') {
+        return tabs.some((tab) => tab.mode === surface.mode);
+      }
+      return true;
+    });
+  }, [contextRailOrder, planModeEnabled, tabs]);
 
   const handleDragEnd = React.useCallback((event: DragEndEvent) => {
     const { active, over } = event;
@@ -146,26 +163,21 @@ export const ContextPanelRail: React.FC = () => {
   return (
     <nav
       aria-label={t('contextRail.aria.rail')}
-      className="flex h-full w-11 flex-shrink-0 flex-col items-center gap-1 border-l border-border/40 bg-background py-2"
+      className="flex h-full w-11 flex-shrink-0 flex-col items-center gap-1 bg-background py-2"
     >
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={surfaces.map((surface) => surface.id)} strategy={verticalListSortingStrategy}>
-          {surfaces.map((surface) => {
-            const hasContent = tabs.some((tab) => tab.mode === surface.mode);
-            const isAvailable = surface.availability === 'always' || hasContent;
-            return (
-              <ContextPanelRailItem
-                key={surface.id}
-                surface={surface}
-                isActive={activeMode === surface.mode}
-                isAvailable={isAvailable}
-                badgeCount={surface.id === 'git' ? changedFilesCount : null}
-                label={t(surface.labelKey)}
-                hint={surface.unavailableHintKey ? t(surface.unavailableHintKey) : null}
-                onSelect={(selected) => openContextSurface(directoryKey, selected.mode)}
-              />
-            );
-          })}
+          {surfaces.map((surface) => (
+            <ContextPanelRailItem
+              key={surface.id}
+              surface={surface}
+              isActive={activeMode === surface.mode}
+              badgeCount={surface.id === 'git' ? changedFilesCount : null}
+              label={t(surface.labelKey)}
+              description={t(surface.descriptionKey)}
+              onSelect={(selected) => openContextSurface(directoryKey, selected.mode)}
+            />
+          ))}
         </SortableContext>
       </DndContext>
     </nav>

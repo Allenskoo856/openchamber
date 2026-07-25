@@ -6,6 +6,7 @@ export type ContextSurfaceId =
   | 'editor'
   | 'git'
   | 'diff'
+  | 'terminal'
   | 'plan'
   | 'notes'
   | 'context'
@@ -22,12 +23,12 @@ export type ContextSurfaceDescriptor = {
   /**
    * 'always' surfaces can be opened empty from the rail.
    * 'has-content' surfaces are content-driven: they need an existing tab of
-   * their mode (a file opened, a preview URL emitted, a split session) and
-   * render disabled on the rail until one exists.
+   * their mode (a preview URL emitted, a split session) and stay hidden on
+   * the rail until one exists.
    */
   availability: 'always' | 'has-content';
-  /** Hint shown while a 'has-content' surface has no content yet. */
-  unavailableHintKey?: I18nKey;
+  /** Short tooltip explanation shown on the rail. */
+  descriptionKey: I18nKey;
   /**
    * Default panel width as a fraction of the available content area, used
    * until the user manually resizes this surface.
@@ -38,6 +39,7 @@ export type ContextSurfaceDescriptor = {
 export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   {
     id: 'editor',
+    descriptionKey: 'contextRail.surface.editor.description',
     defaultWidthFraction: 3 / 5,
     mode: 'file',
     icon: 'file-code',
@@ -46,6 +48,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'git',
+    descriptionKey: 'contextRail.surface.git.description',
     defaultWidthFraction: 2 / 5,
     mode: 'git',
     icon: 'git-branch',
@@ -54,6 +57,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'diff',
+    descriptionKey: 'contextRail.surface.diff.description',
     defaultWidthFraction: 3 / 5,
     mode: 'diff',
     icon: 'arrow-left-right',
@@ -61,7 +65,17 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     availability: 'always',
   },
   {
+    id: 'terminal',
+    descriptionKey: 'contextRail.surface.terminal.description',
+    defaultWidthFraction: 1 / 2,
+    mode: 'terminal',
+    icon: 'terminal-box',
+    labelKey: 'layout.mainTab.terminal',
+    availability: 'always',
+  },
+  {
     id: 'plan',
+    descriptionKey: 'contextRail.surface.plan.description',
     defaultWidthFraction: 0.45,
     mode: 'plan',
     icon: 'file-text',
@@ -70,6 +84,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'notes',
+    descriptionKey: 'contextRail.surface.notes.description',
     defaultWidthFraction: 1 / 3,
     mode: 'notes',
     icon: 'sticky-note',
@@ -78,6 +93,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'context',
+    descriptionKey: 'contextRail.surface.context.description',
     defaultWidthFraction: 0.45,
     mode: 'context',
     icon: 'donut-chart-fill',
@@ -86,6 +102,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'browser',
+    descriptionKey: 'contextRail.surface.browser.description',
     defaultWidthFraction: 0.45,
     mode: 'browser',
     icon: 'global',
@@ -94,21 +111,21 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   },
   {
     id: 'preview',
+    descriptionKey: 'contextRail.surface.preview.description',
     defaultWidthFraction: 0.45,
     mode: 'preview',
     icon: 'window',
     labelKey: 'contextPanel.mode.preview',
     availability: 'has-content',
-    unavailableHintKey: 'contextRail.hint.previewUnavailable',
   },
   {
     id: 'chat',
+    descriptionKey: 'contextRail.surface.chat.description',
     defaultWidthFraction: 0.45,
     mode: 'chat',
     icon: 'chat-4',
     labelKey: 'contextPanel.mode.chat',
     availability: 'has-content',
-    unavailableHintKey: 'contextRail.hint.chatUnavailable',
   },
 ];
 
