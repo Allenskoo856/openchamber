@@ -115,18 +115,24 @@ export function useMobileComposerShell(
         kbLogPaints('expand');
 
         if (isCapacitorApp()) {
-            // WKWebView stops presenting web frames the moment focus starts the
-            // keyboard transition, and holds the LAST PRESENTED frame on glass
-            // until it ends — focusing in the same task as the swap means the
-            // pill stays visible through the whole keyboard rise. Two frames of
-            // delay put the swapped composer on glass first, then raise the
-            // keyboard under it. The Capacitor WebView raises the keyboard for
-            // a focus() from rAF (browsers do not, hence the split); the
-            // choreography positions everything, so preventScroll stays on.
-            requestAnimationFrame(() => requestAnimationFrame(() => {
+            // Timing tuned on device, against WKWebView pausing frame
+            // presentation while the keyboard transition runs:
+            //  - focus in the same task as the swap → the pause starts before
+            //    the swap's first frame, so the pill stays on glass until the
+            //    keyboard is nearly up;
+            //  - focus two frames later → the swap is presented first and the
+            //    keyboard only then begins, a visibly sequential two-step.
+            // Focusing INSIDE the first frame after the commit threads the
+            // needle: the swap's frame is already in the rendering pipeline
+            // when the keyboard transaction starts, so the keyboard rises from
+            // the tap and the composer appears during the rise. The Capacitor
+            // WebView raises the keyboard for a focus() outside the gesture
+            // task (browsers do not, hence the split); the choreography
+            // positions everything, so preventScroll stays on.
+            requestAnimationFrame(() => {
                 editorRef.current?.focus({ preventScroll: true });
                 kbLog(`focus() ran focused=${String(editorRef.current?.isFocused() ?? 'no-editor')}`);
-            }));
+            });
             return;
         }
 
