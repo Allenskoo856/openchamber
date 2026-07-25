@@ -7,8 +7,11 @@
 
 import { EditorView } from '@codemirror/view';
 
-/** Layout and typography. Colour comes from the shared highlight classes. */
-export const composerEditorTheme = EditorView.theme({
+/**
+ * Exported for the regression test, which asserts the caret is styled where it
+ * is actually drawn.
+ */
+export const COMPOSER_EDITOR_THEME_SPEC = {
     '&': {
         backgroundColor: 'transparent',
         color: 'var(--surface-foreground)',
@@ -23,17 +26,23 @@ export const composerEditorTheme = EditorView.theme({
         // clicking the empty space below the last line still lands in it.
         minHeight: '100%',
     },
-    // CodeMirror's base theme hard-codes the caret to black or white with
-    // `.cm-editor.cm-light .cm-content`, which is one class more specific than
-    // a bare `.cm-content` rule and therefore wins. `&.cm-editor` matches that
-    // specificity, and theme rules mount after the base theme, so this takes
-    // effect in both variants.
+    // The caret is NOT the native one. `drawSelection()` hides that with
+    // `caret-color: transparent !important` at the highest precedence and
+    // draws its own `.cm-cursor` element, whose base style is a hard-coded
+    // `border-left: 1.2px solid black`. Styling `caret-color` here therefore
+    // does nothing at all — the border is what has to be coloured.
+    //
+    // CodeMirror recolours it for dark editors through `&dark .cm-cursor`,
+    // which needs the theme to declare itself dark. OpenChamber themes are not
+    // only light or dark, so the cursor takes the surface foreground directly
+    // instead. `&.cm-editor` matches the specificity of that `&dark` rule, and
+    // theme styles mount after the base theme, so this wins in every variant.
     //
     // The `&light` / `&dark` scopes are NOT usable here: EditorView.theme
     // builds its selectors without scopes and throws RangeError on them the
     // moment this module is imported.
-    '&.cm-editor .cm-content': {
-        caretColor: 'var(--surface-foreground)',
+    '&.cm-editor .cm-cursor, &.cm-editor .cm-dropCursor': {
+        borderLeftColor: 'var(--surface-foreground)',
     },
     '.cm-line': { padding: '0' },
     '.cm-scroller': {
@@ -46,4 +55,6 @@ export const composerEditorTheme = EditorView.theme({
     '&.cm-editor .cm-selectionBackground, & .cm-selectionBackground': {
         backgroundColor: 'var(--interactive-selection)',
     },
-});
+};
+
+export const composerEditorTheme = EditorView.theme(COMPOSER_EDITOR_THEME_SPEC);
