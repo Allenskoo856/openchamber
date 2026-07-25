@@ -35,6 +35,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { ComposerLanguageContext } from '../language/tokenize';
 import { composerLanguage, setLanguageContext } from './composerLanguage';
+import { composerEditorTheme } from './theme';
 
 export interface ComposerSelection {
     start: number;
@@ -99,32 +100,6 @@ export interface ComposerEditorProps {
     'data-testid'?: string;
 }
 
-/** Layout and typography. Colour comes from the shared highlight classes. */
-const baseTheme = EditorView.theme({
-    '&': {
-        backgroundColor: 'transparent',
-        color: 'var(--surface-foreground)',
-    },
-    '&.cm-focused': { outline: 'none' },
-    '.cm-content': {
-        padding: '0',
-        caretColor: 'var(--surface-foreground)',
-        fontFamily: 'inherit',
-        fontSize: 'inherit',
-        lineHeight: 'inherit',
-    },
-    '.cm-line': { padding: '0' },
-    '.cm-scroller': {
-        fontFamily: 'inherit',
-        fontSize: 'inherit',
-        lineHeight: 'inherit',
-        overflowX: 'hidden',
-    },
-    '.cm-placeholder': { color: 'var(--surface-mutedForeground)' },
-    '&.cm-editor .cm-selectionBackground, & .cm-selectionBackground': {
-        backgroundColor: 'var(--interactive-selection)',
-    },
-});
 
 /**
  * The text inserted by a transaction, used to tell a typed `@` from a pasted
@@ -196,7 +171,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                         placeholderCompartment.of(
                             placeholderExtension(propsRef.current.placeholder ?? ''),
                         ),
-                        baseTheme,
+                        composerEditorTheme,
                         EditorView.updateListener.of((update) => {
                             const handlers = propsRef.current;
                             const selection = readSelection(update.state);
@@ -314,6 +289,27 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             content.setAttribute('autocapitalize', autoCapitalize);
         }, [autoCapitalize, autoCorrect, spellCheck]);
 
+        /**
+         * The composer box is bigger than its text: it carries padding, and in
+         * focus mode it fills the surface. Clicking that empty space has always
+         * put the caret in the text — with a textarea the element itself filled
+         * the box, so the browser did it. CodeMirror's content element does not
+         * extend into the padding, so the click has to be forwarded.
+         */
+        const handleHostMouseDown = React.useCallback((event: React.MouseEvent) => {
+            const view = viewRef.current;
+            if (!view || !propsRef.current.editable) return;
+            // A click that already landed in the text needs no help, and
+            // forwarding it would break drag-selection.
+            if (view.contentDOM.contains(event.target as Node)) return;
+
+            event.preventDefault();
+            const position = view.posAtCoords({ x: event.clientX, y: event.clientY })
+                ?? view.state.doc.length;
+            view.dispatch({ selection: { anchor: position } });
+            view.focus();
+        }, []);
+
         React.useImperativeHandle(ref, (): ComposerEditorHandle => ({
             focus(options) {
                 const view = viewRef.current;
@@ -388,8 +384,12 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             <div
                 ref={hostRef}
                 data-testid={props['data-testid']}
+                onMouseDown={handleHostMouseDown}
                 className={cn(
                     'composer-editor w-full',
+                    // The editor fills the host so its content box can cover
+                    // the whole clickable area rather than just the text.
+                    '[&_.cm-editor]:h-full',
                     fillContainer && 'flex min-h-0 flex-1 flex-col',
                     className,
                     contentClassName,
