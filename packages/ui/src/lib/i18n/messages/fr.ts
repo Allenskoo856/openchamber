@@ -877,6 +877,8 @@ export const dict = {
   'contextPanel.mode.preview': 'Aperçu',
   'contextPanel.mode.browser': 'Navigateur',
   'contextRail.aria.rail': 'Surfaces du panneau',
+  'contextRail.surface.notes': 'Notes du projet',
+  'contextRail.editorTree.toggle': 'Afficher/masquer l’arborescence de fichiers',
   'contextRail.hint.editorUnavailable': 'Ouvrez un fichier pour utiliser l’éditeur',
   'contextRail.hint.previewUnavailable': 'Lancez un serveur de développement pour ouvrir l’aperçu',
   'contextRail.hint.chatUnavailable': 'Ouvrez une session en vue partagée pour utiliser le chat ici',

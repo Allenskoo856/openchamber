@@ -1046,6 +1046,8 @@ export const dict = {
   'contextPanel.mode.preview': 'Preview',
   'contextPanel.mode.browser': 'Browser',
   'contextRail.aria.rail': 'Panel surfaces',
+  'contextRail.surface.notes': 'Project notes',
+  'contextRail.editorTree.toggle': 'Toggle file tree',
   'contextRail.hint.editorUnavailable': 'Open a file to use the editor',
   'contextRail.hint.previewUnavailable': 'Start a dev server to open a preview',
   'contextRail.hint.chatUnavailable': 'Open a session in split view to use chat here',

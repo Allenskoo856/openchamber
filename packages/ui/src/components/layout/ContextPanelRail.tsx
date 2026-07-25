@@ -159,7 +159,7 @@ export const ContextPanelRail: React.FC = () => {
                 surface={surface}
                 isActive={activeMode === surface.mode}
                 isAvailable={isAvailable}
-                badgeCount={surface.id === 'diff' ? changedFilesCount : null}
+                badgeCount={surface.id === 'git' ? changedFilesCount : null}
                 label={t(surface.labelKey)}
                 hint={surface.unavailableHintKey ? t(surface.unavailableHintKey) : null}
                 onSelect={(selected) => openContextSurface(directoryKey, selected.mode)}

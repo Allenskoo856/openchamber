@@ -1047,6 +1047,8 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.preview': '미리보기',
   'contextPanel.mode.browser': '브라우저',
   'contextRail.aria.rail': '패널 서피스',
+  'contextRail.surface.notes': '프로젝트 노트',
+  'contextRail.editorTree.toggle': '파일 트리 표시 전환',
   'contextRail.hint.editorUnavailable': '에디터를 사용하려면 파일을 여세요',
   'contextRail.hint.previewUnavailable': '미리보기를 열려면 개발 서버를 시작하세요',
   'contextRail.hint.chatUnavailable': '여기서 채팅을 사용하려면 세션을 분할 보기로 여세요',

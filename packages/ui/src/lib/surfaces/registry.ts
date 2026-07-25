@@ -4,8 +4,10 @@ import type { ContextPanelMode } from '@/stores/useUIStore';
 
 export type ContextSurfaceId =
   | 'editor'
+  | 'git'
   | 'diff'
   | 'plan'
+  | 'notes'
   | 'context'
   | 'browser'
   | 'preview'
@@ -38,6 +40,13 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     unavailableHintKey: 'contextRail.hint.editorUnavailable',
   },
   {
+    id: 'git',
+    mode: 'git',
+    icon: 'git-branch',
+    labelKey: 'layout.rightSidebar.git',
+    availability: 'always',
+  },
+  {
     id: 'diff',
     mode: 'diff',
     icon: 'arrow-left-right',
@@ -49,6 +58,13 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     mode: 'plan',
     icon: 'file-text',
     labelKey: 'contextPanel.mode.plan',
+    availability: 'always',
+  },
+  {
+    id: 'notes',
+    mode: 'notes',
+    icon: 'sticky-note',
+    labelKey: 'contextRail.surface.notes',
     availability: 'always',
   },
   {

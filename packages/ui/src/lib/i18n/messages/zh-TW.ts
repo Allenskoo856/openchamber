@@ -1059,6 +1059,8 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.preview': '預覽',
   'contextPanel.mode.browser': '瀏覽器',
   'contextRail.aria.rail': '面板介面',
+  'contextRail.surface.notes': '專案筆記',
+  'contextRail.editorTree.toggle': '切換檔案樹',
   'contextRail.hint.editorUnavailable': '開啟檔案以使用編輯器',
   'contextRail.hint.previewUnavailable': '啟動開發伺服器以開啟預覽',
   'contextRail.hint.chatUnavailable': '在分割檢視中開啟工作階段以在此使用聊天',

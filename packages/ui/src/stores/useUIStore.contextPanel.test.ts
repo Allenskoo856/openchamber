@@ -95,7 +95,7 @@ describe('useUIStore contextRailOrder', () => {
     const ids = ordered.map((surface) => surface.id);
 
     expect(ids.slice(0, 2)).toEqual(['browser', 'diff']);
-    expect(new Set(ids)).toEqual(new Set(['editor', 'diff', 'plan', 'context', 'browser', 'preview', 'chat']));
-    expect(ids).toHaveLength(7);
+    expect(new Set(ids)).toEqual(new Set(['editor', 'git', 'diff', 'plan', 'notes', 'context', 'browser', 'preview', 'chat']));
+    expect(ids).toHaveLength(9);
   });
 });

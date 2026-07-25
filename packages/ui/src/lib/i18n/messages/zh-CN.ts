@@ -1047,6 +1047,8 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.preview': '预览',
   'contextPanel.mode.browser': '浏览器',
   'contextRail.aria.rail': '面板界面',
+  'contextRail.surface.notes': '项目笔记',
+  'contextRail.editorTree.toggle': '切换文件树',
   'contextRail.hint.editorUnavailable': '打开文件以使用编辑器',
   'contextRail.hint.previewUnavailable': '启动开发服务器以打开预览',
   'contextRail.hint.chatUnavailable': '在分屏视图中打开会话以在此使用聊天',

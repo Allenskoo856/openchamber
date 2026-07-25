@@ -1382,6 +1382,8 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.preview': 'Podgląd',
   'contextPanel.mode.browser': 'Przeglądarka',
   'contextRail.aria.rail': 'Powierzchnie panelu',
+  'contextRail.surface.notes': 'Notatki projektu',
+  'contextRail.editorTree.toggle': 'Przełącz drzewo plików',
   'contextRail.hint.editorUnavailable': 'Otwórz plik, aby użyć edytora',
   'contextRail.hint.previewUnavailable': 'Uruchom serwer deweloperski, aby otworzyć podgląd',
   'contextRail.hint.chatUnavailable': 'Otwórz sesję w widoku podzielonym, aby korzystać tutaj z czatu',

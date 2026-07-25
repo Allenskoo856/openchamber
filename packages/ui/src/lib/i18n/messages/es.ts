@@ -1047,6 +1047,8 @@ export const dict: Record<I18nKey, string> = {
   "contextPanel.mode.preview": "Vista previa",
   "contextPanel.mode.browser": "Navegador",
   "contextRail.aria.rail": "Superficies del panel",
+  "contextRail.surface.notes": "Notas del proyecto",
+  "contextRail.editorTree.toggle": "Alternar árbol de archivos",
   "contextRail.hint.editorUnavailable": "Abre un archivo para usar el editor",
   "contextRail.hint.previewUnavailable": "Inicia un servidor de desarrollo para abrir la vista previa",
   "contextRail.hint.chatUnavailable": "Abre una sesión en vista dividida para usar el chat aquí",

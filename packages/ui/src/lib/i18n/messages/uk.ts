@@ -1047,6 +1047,8 @@ export const dict: Record<I18nKey, string> = {
   "contextPanel.mode.preview": "Перегляд",
   "contextPanel.mode.browser": "Браузер",
   "contextRail.aria.rail": "Поверхні панелі",
+  "contextRail.surface.notes": "Нотатки проєкту",
+  "contextRail.editorTree.toggle": "Перемкнути дерево файлів",
   "contextRail.hint.editorUnavailable": "Відкрийте файл, щоб користуватися редактором",
   "contextRail.hint.previewUnavailable": "Запустіть дев-сервер, щоб відкрити перегляд",
   "contextRail.hint.chatUnavailable": "Відкрийте сесію в розділеному вигляді, щоб користуватися чатом тут",

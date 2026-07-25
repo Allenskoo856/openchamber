@@ -5,7 +5,10 @@ import { Button } from '@/components/ui/button';
 import { SortableTabsStrip } from '@/components/ui/sortable-tabs-strip';
 import { DiffView } from '@/components/views/DiffView';
 import { FilesView } from '@/components/views/FilesView';
+import { GitView } from '@/components/views/GitView';
 import { PlanView } from '@/components/views/PlanView';
+import { ProjectContextPanel } from './RightSidebarTabs';
+import { SidebarFilesTree } from './SidebarFilesTree';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { openExternalUrl } from '@/lib/url';
 import { copyTextToClipboard } from '@/lib/clipboard';
@@ -157,6 +160,8 @@ const getModeLabel = (
   if (mode === 'plan') return t('contextPanel.mode.plan');
   if (mode === 'preview') return t('contextPanel.mode.preview');
   if (mode === 'browser') return t('contextPanel.mode.browser');
+  if (mode === 'git') return t('layout.rightSidebar.git');
+  if (mode === 'notes') return t('contextRail.surface.notes');
   return t('contextPanel.mode.context');
 };
 
@@ -237,6 +242,14 @@ const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }):
 
   if (tab.mode === 'diff') {
     return <Icon name="arrow-left-right" className="h-3.5 w-3.5" />;
+  }
+
+  if (tab.mode === 'git') {
+    return <Icon name="git-branch" className="h-3.5 w-3.5" />;
+  }
+
+  if (tab.mode === 'notes') {
+    return <Icon name="sticky-note" className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'plan') {
@@ -2091,6 +2104,8 @@ export const ContextPanel: React.FC = () => {
   const reorderContextPanelTabs = useUIStore((state) => state.reorderContextPanelTabs);
   const setSelectedFilePath = useFilesViewTabsStore((state) => state.setSelectedPath);
   const openContextPreview = useUIStore((state) => state.openContextPreview);
+  const contextEditorTreeVisible = useUIStore((state) => state.contextEditorTreeVisible);
+  const toggleContextEditorTree = useUIStore((state) => state.toggleContextEditorTree);
   const allowPromptingSubagentSessions = useUIStore((state) => state.allowPromptingSubagentSessions);
   const { themeMode, setThemeMode, lightThemeId, darkThemeId, currentTheme } = useThemeSystem();
 
@@ -2510,6 +2525,10 @@ export const ContextPanel: React.FC = () => {
 
   const activeNonChatContent = activeTab?.mode === 'context'
         ? <ContextPanelContent />
+        : activeTab?.mode === 'git'
+            ? <GitView isActive={isOpen} />
+            : activeTab?.mode === 'notes'
+                ? <ProjectContextPanel />
         : activeTab?.mode === 'plan'
             ? <PlanView targetPath={activeTab.targetPath} />
             : activeTab?.mode === 'preview'
@@ -2578,6 +2597,20 @@ export const ContextPanel: React.FC = () => {
         </div>
       )}
       <div className="flex items-center gap-1 px-1.5">
+        {isFileTabActive ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={toggleContextEditorTree}
+            className="h-7 w-7 p-0"
+            title={t('contextRail.editorTree.toggle')}
+            aria-label={t('contextRail.editorTree.toggle')}
+            aria-pressed={contextEditorTreeVisible}
+          >
+            <Icon name="layout-left" className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="ghost"
@@ -2664,8 +2697,15 @@ export const ContextPanel: React.FC = () => {
       {header}
       <div className={cn('relative min-h-0 flex-1 overflow-hidden', isResizing && 'pointer-events-none')}>
         {hasFileTabs ? (
-          <div className={cn('absolute inset-0', isFileTabActive ? 'block' : 'hidden')}>
-            <FilesView mode="editor-only" />
+          <div className={cn('absolute inset-0 flex', isFileTabActive ? 'flex' : 'hidden')}>
+            {isFileTabActive && contextEditorTreeVisible ? (
+              <div className="h-full w-60 flex-shrink-0 overflow-hidden border-r border-border/40">
+                <SidebarFilesTree />
+              </div>
+            ) : null}
+            <div className="h-full min-w-0 flex-1">
+              <FilesView mode="editor-only" />
+            </div>
           </div>
         ) : null}
         {chatTabs.map((tab) => {

@@ -7,7 +7,7 @@ import { Icon } from "@/components/icon/Icon";
 import { useGitStore } from '@/stores/useGitStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useUIStore } from '@/stores/useUIStore';
+import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { formatDirectoryName, cn } from '@/lib/utils';
@@ -128,26 +128,33 @@ export const RightSidebarTabs: React.FC = () => {
 
   useRightSidebarGitSync(directory, isRightSidebarOpen, rightSidebarTab, activeMainTab);
 
-  // When the main view already hosts a right-tab equivalent (e.g. main tab
-  // 'git' renders GitView in the secondary slot), the right sidebar's
-  // matching tab is hidden to avoid two live GitView instances running
-  // effects. The map is small and stable; expand it if more shared
-  // secondary/right views are added.
-  const hiddenRightTab: RightTab | null =
-    activeMainTab === 'git'
-      ? 'git'
-      : activeMainTab === 'context'
-        ? 'context'
-        : null;
+  const directoryKey = directory ? normalizeContextPanelDirectoryKey(directory) : '';
+  const contextPanelActiveMode = useUIStore((state) => {
+    if (!directoryKey) return null;
+    const panelState = state.contextPanelByDirectory[directoryKey];
+    if (!panelState?.isOpen) return null;
+    return panelState.tabs.find((tab) => tab.id === panelState.activeTabId)?.mode ?? null;
+  });
+
+  // When another surface already hosts a right-tab equivalent (main tab 'git'
+  // renders GitView in the secondary slot; the context panel can host the
+  // 'git' and 'notes' surfaces), the right sidebar's matching tab is hidden
+  // to avoid two live instances running effects.
+  const hiddenRightTabs = React.useMemo(() => {
+    const hidden = new Set<RightTab>();
+    if (activeMainTab === 'git' || contextPanelActiveMode === 'git') hidden.add('git');
+    if (activeMainTab === 'context' || contextPanelActiveMode === 'notes') hidden.add('context');
+    return hidden;
+  }, [activeMainTab, contextPanelActiveMode]);
 
   // Persisted right sidebar tab can be stale across main-tab switches (e.g.
   // user opened main 'git' while right tab was 'git'). Snap to the fallback
-  // so the visible tab never equals the hidden one.
+  // so the visible tab never equals a hidden one.
   React.useEffect(() => {
-    if (hiddenRightTab && rightSidebarTab === hiddenRightTab) {
+    if (hiddenRightTabs.has(rightSidebarTab)) {
       setRightSidebarTab(RIGHT_TAB_FALLBACK);
     }
-  }, [hiddenRightTab, rightSidebarTab, setRightSidebarTab]);
+  }, [hiddenRightTabs, rightSidebarTab, setRightSidebarTab]);
 
   const tabItems = React.useMemo(() => [
     {
@@ -168,10 +175,10 @@ export const RightSidebarTabs: React.FC = () => {
   ], [t]);
 
   const visibleTabItems = React.useMemo(
-    () => (hiddenRightTab ? tabItems.filter((item) => item.id !== hiddenRightTab) : tabItems),
-    [tabItems, hiddenRightTab]
+    () => tabItems.filter((item) => !hiddenRightTabs.has(item.id as RightTab)),
+    [tabItems, hiddenRightTabs]
   );
-  const isRightGitTabActive = isRightSidebarOpen && rightSidebarTab === 'git' && hiddenRightTab !== 'git';
+  const isRightGitTabActive = isRightSidebarOpen && rightSidebarTab === 'git' && !hiddenRightTabs.has('git');
 
   const handleTabSelect = React.useCallback(
     (tabID: string) => {

@@ -13,7 +13,7 @@ import type { TerminalShell } from '@/lib/api/types';
 export type MainTab = 'chat' | 'plan' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'working' | 'staged' | 'turn';
 export type RightSidebarTab = 'git' | 'files' | 'context';
-export type ContextPanelMode = 'diff' | 'file' | 'context' | 'plan' | 'chat' | 'preview' | 'browser';
+export type ContextPanelMode = 'diff' | 'file' | 'context' | 'plan' | 'chat' | 'preview' | 'browser' | 'git' | 'notes';
 export type MermaidRenderingMode = 'svg' | 'ascii';
 export type UserMessageRenderingMode = 'markdown' | 'plain';
 export type ChatRenderMode = 'sorted' | 'live';
@@ -286,7 +286,7 @@ const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       touchedAt?: unknown;
     };
 
-    if (candidate.mode !== 'diff' && candidate.mode !== 'file' && candidate.mode !== 'context' && candidate.mode !== 'plan' && candidate.mode !== 'chat' && candidate.mode !== 'preview' && candidate.mode !== 'browser') {
+    if (candidate.mode !== 'diff' && candidate.mode !== 'file' && candidate.mode !== 'context' && candidate.mode !== 'plan' && candidate.mode !== 'chat' && candidate.mode !== 'preview' && candidate.mode !== 'browser' && candidate.mode !== 'git' && candidate.mode !== 'notes') {
       continue;
     }
 
@@ -540,6 +540,7 @@ interface UIStore {
   rightSidebarTab: RightSidebarTab;
   contextPanelByDirectory: Record<string, ContextPanelDirectoryState>;
   contextRailOrder: string[];
+  contextEditorTreeVisible: boolean;
   isBottomTerminalOpen: boolean;
   isBottomTerminalExpanded: boolean;
   bottomTerminalHeight: number;
@@ -686,6 +687,7 @@ interface UIStore {
   setRightSidebarWidth: (width: number) => void;
   setRightSidebarTab: (tab: RightSidebarTab) => void;
   setContextRailOrder: (order: string[]) => void;
+  toggleContextEditorTree: () => void;
   openContextSurface: (directory: string, mode: ContextPanelMode) => void;
   openContextPanelTab: (directory: string, tab: ContextPanelTabDescriptor) => void;
   openContextDiff: (directory: string, filePath: string, staged?: boolean, scope?: PendingDiffScope | null) => void;
@@ -867,6 +869,7 @@ export const useUIStore = create<UIStore>()(
         rightSidebarTab: 'git',
         contextPanelByDirectory: {},
         contextRailOrder: [],
+        contextEditorTreeVisible: true,
         isBottomTerminalOpen: false,
         isBottomTerminalExpanded: false,
         bottomTerminalHeight: 300,
@@ -1089,6 +1092,10 @@ export const useUIStore = create<UIStore>()(
             ? order.filter((id, index) => typeof id === 'string' && id.trim() !== '' && order.indexOf(id) === index)
             : [];
           set({ contextRailOrder: sanitized });
+        },
+
+        toggleContextEditorTree: () => {
+          set((state) => ({ contextEditorTreeVisible: !state.contextEditorTreeVisible }));
         },
 
         // Rail entry point: activates the most recent tab of the requested
@@ -2400,6 +2407,7 @@ export const useUIStore = create<UIStore>()(
           rightSidebarTab: state.rightSidebarTab,
           contextPanelByDirectory: state.contextPanelByDirectory,
           contextRailOrder: state.contextRailOrder,
+          contextEditorTreeVisible: state.contextEditorTreeVisible,
           isBottomTerminalOpen: state.isBottomTerminalOpen,
           isBottomTerminalExpanded: state.isBottomTerminalExpanded,
           bottomTerminalHeight: state.bottomTerminalHeight,

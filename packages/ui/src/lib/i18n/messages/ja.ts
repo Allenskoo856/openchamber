@@ -1043,6 +1043,8 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.preview': 'プレビュー',
   'contextPanel.mode.browser': 'ブラウザ',
   'contextRail.aria.rail': 'パネルサーフェス',
+  'contextRail.surface.notes': 'プロジェクトノート',
+  'contextRail.editorTree.toggle': 'ファイルツリーの表示切替',
   'contextRail.hint.editorUnavailable': 'エディタを使うにはファイルを開いてください',
   'contextRail.hint.previewUnavailable': 'プレビューを開くには開発サーバーを起動してください',
   'contextRail.hint.chatUnavailable': 'ここでチャットを使うにはセッションを分割表示で開いてください',
