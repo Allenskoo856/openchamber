@@ -144,7 +144,14 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
         const propsRef = React.useRef(props);
         propsRef.current = props;
 
-        React.useEffect(() => {
+        // A layout effect, not a passive one: the mobile composer expands with
+        // `flushSync` and focuses the editor on the next line, still inside the
+        // tap's call stack, because that is the only way a mobile browser
+        // raises the keyboard. flushSync commits layout effects but makes no
+        // promise about passive ones, so creating the view there would leave
+        // nothing to focus — the keyboard would rise later, from some other
+        // path, and the composer would appear to transform only once it moved.
+        React.useLayoutEffect(() => {
             const host = hostRef.current;
             if (!host) return;
 
