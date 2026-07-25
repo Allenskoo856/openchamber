@@ -1139,6 +1139,7 @@ export const settingsDict = {
   'settings.usage.page.state.refreshFailedTitle': '刷新用量数据失败',
   'settings.usage.page.state.providerNotConfiguredTitle': '提供商未配置',
   'settings.usage.page.state.providerNotConfiguredDescription': '请在“提供商”标签页添加凭据以启用用量跟踪。',
+  'settings.usage.page.state.claudeNotConfiguredDescription': '在此主机上使用 Claude Code 登录（`claude auth login`）后刷新。此处显示的是 Claude 订阅用量窗口，而非 Anthropic API 额度。',
   'settings.usage.page.section.modelQuotas': '模型配额',
   'settings.usage.page.section.otherModels': '其他模型',
   'settings.usage.page.state.noQuotaWindowsTitle': '未报告配额窗口',

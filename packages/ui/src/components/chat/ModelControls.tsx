@@ -2969,6 +2969,34 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         const isDefault = claudePermissionMode === 'default';
         const colorClass = isDefault ? 'text-muted-foreground' : 'text-[color:var(--status-info)]';
 
+        if (isCompact) {
+            return (
+                <button
+                    type="button"
+                    onClick={() => setActiveMobilePanel('permission')}
+                    className={cn(
+                        'model-controls__permission-trigger flex items-center gap-1.5 transition-opacity min-w-0 focus:outline-none',
+                        buttonHeight,
+                        'cursor-pointer hover:bg-transparent hover:opacity-70',
+                    )}
+                    aria-label={t('chat.engines.permissionMode.aria', { mode: displayMode })}
+                >
+                    <Icon name="shield" className={cn(controlIconSize, 'flex-shrink-0', colorClass)} />
+                    <span
+                        className={cn(
+                            'model-controls__permission-label',
+                            controlTextSize,
+                            'font-medium min-w-0 truncate',
+                            isMobile && 'max-w-[72px]',
+                            colorClass,
+                        )}
+                    >
+                        {displayMode}
+                    </span>
+                </button>
+            );
+        }
+
         return (
             <Tooltip delayDuration={600}>
                 <DropdownMenu>
@@ -2989,7 +3017,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                         'model-controls__permission-label',
                                         controlTextSize,
                                         'font-medium min-w-0 truncate',
-                                        isMobile && 'max-w-[72px]',
                                         isDesktop ? 'max-w-[140px]' : undefined,
                                         colorClass,
                                     )}
@@ -3026,6 +3053,44 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                     <p className="typography-meta">{t('chat.engines.permissionMode.tooltip', { mode: displayMode })}</p>
                 </TooltipContent>
             </Tooltip>
+        );
+    };
+
+    const renderMobilePermissionPanel = () => {
+        if (!isCompact || pickerHarnessId !== 'claude-code') return null;
+
+        return (
+            <MobileOverlayPanel
+                open={activeMobilePanel === 'permission'}
+                onClose={closeMobilePanel}
+                title={t('chat.engines.permissionMode.label')}
+            >
+                <div className="flex flex-col gap-1.5">
+                    {CLAUDE_PERMISSION_MODE_OPTIONS.map((mode) => {
+                        const selected = claudePermissionMode === mode;
+                        return (
+                            <button
+                                key={mode}
+                                type="button"
+                                className={cn(
+                                    'flex w-full items-center justify-between gap-2 rounded-xl border px-2 py-1.5 text-left',
+                                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary',
+                                    selected ? 'border-primary/30 bg-primary/10' : 'border-border/40',
+                                )}
+                                onClick={() => {
+                                    handleClaudePermissionModeChange(mode);
+                                    closeMobilePanel();
+                                }}
+                            >
+                                <span className="typography-meta font-medium text-foreground">
+                                    {t(CLAUDE_PERMISSION_MODE_LABEL_KEYS[mode])}
+                                </span>
+                                {selected ? <Icon name="check" className="size-4 text-primary flex-shrink-0" /> : null}
+                            </button>
+                        );
+                    })}
+                </div>
+            </MobileOverlayPanel>
         );
     };
 
@@ -3335,6 +3400,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
             {renderMobileModelPanel()}
             {renderMobileVariantPanel()}
+            {renderMobilePermissionPanel()}
             {renderMobileAgentPanel()}
             {renderMobileModelTooltip()}
             {renderMobileAgentTooltip()}

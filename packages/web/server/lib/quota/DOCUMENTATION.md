@@ -16,7 +16,7 @@ These provider IDs are currently dispatchable via `fetchQuotaForProvider(provide
 
 | Provider ID | Display name | Module | Auth aliases/keys |
 | --- | --- | --- | --- |
-| `claude` | Claude | `providers/claude.js` | `anthropic`, `claude` |
+| `claude` | Claude subscription | `providers/claude.js` (+ `claude-cli-auth.js`) | Claude Code CLI `~/.claude/.credentials.json` OAuth first; fallback OpenCode `auth.json` aliases `anthropic`, `claude` |
 | `codex` | Codex | `providers/codex.js` | `openai`, `codex`, `chatgpt` |
 | `cursor` | Cursor | `providers/cursor.js` | Environment/token files, OpenChamber-managed credentials, or explicit one-time Cursor import |
 | `google` | Google | `providers/google/index.js` | `google`, `google.oauth`, Antigravity accounts file |

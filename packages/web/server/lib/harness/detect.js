@@ -4,7 +4,6 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
@@ -15,6 +14,7 @@ import {
 } from './registry.js';
 import { probeClaudeAgentSdk } from './translators/claude-code/query.js';
 import { buildClaudeCodeChildEnv } from './translators/claude-code/auth-env.js';
+import { hasClaudeCliOAuthCredentials } from '../quota/providers/claude-cli-auth.js';
 
 /**
  * @param {string} binaryName
@@ -56,30 +56,134 @@ export function findBinaryOnPath(binaryName, searchPath = process.env.PATH || ''
 }
 
 /**
+ * Interpret `claude auth status --json` without treating API-key-only as ready.
+ *
+ * @param {unknown} payload
+ * @returns {{ loggedIn: boolean, detail?: string, authMethod?: string }}
+ */
+export function interpretClaudeAuthStatus(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return { loggedIn: false, detail: 'invalid-auth-status' };
+  }
+
+  const root = /** @type {Record<string, unknown>} */ (payload);
+  const loggedIn = Boolean(root.loggedIn);
+  const authMethod = typeof root.authMethod === 'string' ? root.authMethod : 'none';
+  const normalized = authMethod.trim().toLowerCase();
+
+  if (!loggedIn) {
+    return { loggedIn: false, detail: 'auth-status-logged-out', authMethod };
+  }
+
+  // API-key / console auth is not Claude subscription login for the engine.
+  if (
+    normalized === 'none'
+    || normalized.includes('api')
+    || normalized.includes('console')
+    || normalized === 'api_key'
+    || normalized === 'apikey'
+  ) {
+    return { loggedIn: false, detail: 'api-key-only', authMethod };
+  }
+
+  if (
+    normalized.includes('oauth')
+    || normalized.includes('claude')
+    || normalized.includes('subscription')
+  ) {
+    return { loggedIn: true, detail: 'auth-status-oauth', authMethod };
+  }
+
+  // loggedIn + unknown method: accept (CLI may omit subscriptionType).
+  return { loggedIn: true, detail: 'auth-status-logged-in', authMethod };
+}
+
+/**
+ * Run `claude auth status --json` with subscription-only child env.
+ *
+ * @param {{
+ *   binaryPath: string,
+ *   env?: NodeJS.ProcessEnv,
+ *   spawnSyncFn?: typeof spawnSync,
+ * }} options
+ * @returns {{ loggedIn: boolean, detail?: string, authMethod?: string } | null}
+ */
+export function probeClaudeAuthStatusCli(options) {
+  const binaryPath = typeof options.binaryPath === 'string' ? options.binaryPath.trim() : '';
+  if (!binaryPath) return null;
+
+  const spawnSyncFn = options.spawnSyncFn || spawnSync;
+  try {
+    const result = spawnSyncFn(binaryPath, ['auth', 'status', '--json'], {
+      encoding: 'utf8',
+      timeout: 6000,
+      env: buildClaudeCodeChildEnv(options.env || process.env),
+      windowsHide: true,
+    });
+
+    const output = `${result.stdout || ''}`.trim();
+    if (!output) {
+      return { loggedIn: false, detail: 'auth-status-empty' };
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(output);
+    } catch {
+      // Some builds may wrap JSON; try first `{...}` slice.
+      const start = output.indexOf('{');
+      const end = output.lastIndexOf('}');
+      if (start < 0 || end <= start) {
+        return { loggedIn: false, detail: 'auth-status-parse-error' };
+      }
+      try {
+        payload = JSON.parse(output.slice(start, end + 1));
+      } catch {
+        return { loggedIn: false, detail: 'auth-status-parse-error' };
+      }
+    }
+
+    return interpretClaudeAuthStatus(payload);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Best-effort Claude subscription login probe (no secrets returned).
- * @param {{ homeDir?: string, env?: NodeJS.ProcessEnv }} [options]
- * @returns {{ loggedIn: boolean, detail?: string }}
+ * Prefers `claude auth status --json` (API keys stripped from child env),
+ * then structured CLI credentials-file OAuth presence.
+ *
+ * @param {{
+ *   homeDir?: string,
+ *   env?: NodeJS.ProcessEnv,
+ *   binaryPath?: string | null,
+ *   probeAuthStatus?: () => ({ loggedIn: boolean, detail?: string, authMethod?: string } | null),
+ *   hasCredentials?: () => boolean,
+ * }} [options]
+ * @returns {{ loggedIn: boolean, detail?: string, authMethod?: string }}
  */
 export function probeClaudeLogin(options = {}) {
-  const homeDir = options.homeDir || os.homedir();
-  const candidates = [
-    path.join(homeDir, '.claude', '.credentials.json'),
-    path.join(homeDir, '.claude', 'credentials.json'),
-    path.join(homeDir, '.config', 'claude', '.credentials.json'),
-    path.join(homeDir, '.claude.json'),
-  ];
+  const probeAuthStatus = options.probeAuthStatus || (() => {
+    const binaryPath = options.binaryPath
+      || findBinaryOnPath('claude');
+    if (!binaryPath) return null;
+    return probeClaudeAuthStatusCli({
+      binaryPath,
+      env: options.env,
+    });
+  });
 
-  for (const candidate of candidates) {
-    try {
-      if (!fs.existsSync(candidate)) continue;
-      const stat = fs.statSync(candidate);
-      if (!stat.isFile() || stat.size <= 0) continue;
-      // Presence of a non-empty credentials file is a best-effort signal.
-      // Do not read or return contents.
-      return { loggedIn: true, detail: 'credentials-file-present' };
-    } catch {
-      // continue
-    }
+  const status = probeAuthStatus();
+  if (status) {
+    return status;
+  }
+
+  const hasCredentials = options.hasCredentials
+    || (() => hasClaudeCliOAuthCredentials({ homeDir: options.homeDir }));
+
+  if (hasCredentials()) {
+    return { loggedIn: true, detail: 'credentials-oauth-present' };
   }
 
   return { loggedIn: false, detail: 'no-credentials-file' };
@@ -109,7 +213,7 @@ function probeClaudeVersion(binaryPath) {
 /**
  * @param {object} [options]
  * @param {() => string | null} [options.findClaudeBinary]
- * @param {() => { loggedIn: boolean, detail?: string }} [options.probeLogin]
+ * @param {(args?: { binaryPath?: string | null }) => { loggedIn: boolean, detail?: string }} [options.probeLogin]
  * @param {() => Promise<{ available: boolean, error?: string }>} [options.probeSdk]
  * @param {boolean} [options.openCodeReady]
  * @returns {Promise<object>}
@@ -117,7 +221,6 @@ function probeClaudeVersion(binaryPath) {
 export async function detectClaudeCode(options = {}) {
   const findClaudeBinary = options.findClaudeBinary
     || (() => findBinaryOnPath('claude'));
-  const probeLogin = options.probeLogin || (() => probeClaudeLogin());
   const probeSdk = options.probeSdk || (() => probeClaudeAgentSdk());
   const descriptor = getHarnessDescriptor('claude-code');
 
@@ -143,14 +246,19 @@ export async function detectClaudeCode(options = {}) {
       };
     }
 
-    const login = probeLogin();
+    const probeLogin = options.probeLogin
+      || ((args = {}) => probeClaudeLogin({ binaryPath: args.binaryPath ?? binaryPath }));
+    const login = probeLogin({ binaryPath });
     const version = probeClaudeVersion(binaryPath);
 
     if (!login.loggedIn) {
+      const apiKeyOnly = login.detail === 'api-key-only';
       return {
         engine: descriptor,
         status: 'needs-login',
-        statusDetail: 'Claude Code subscription login was not detected. Run `claude` and sign in, then re-detect.',
+        statusDetail: apiKeyOnly
+          ? 'Claude Code API-key auth was detected, but this engine requires a Claude subscription login. Run `claude auth login`, then re-detect.'
+          : 'Claude Code subscription login was not detected. Run `claude auth login`, then re-detect.',
         version,
         sections: [{
           id: 'models',

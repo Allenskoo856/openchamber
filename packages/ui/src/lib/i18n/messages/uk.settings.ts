@@ -1139,6 +1139,7 @@ export const settingsDict = {
   "settings.usage.page.state.refreshFailedTitle": "Не вдалося оновити дані про використання",
   "settings.usage.page.state.providerNotConfiguredTitle": "Провайдер не налаштований",
   "settings.usage.page.state.providerNotConfiguredDescription": "Додайте облікові дані на вкладці «Провайдери», щоб увімкнути відстеження використання.",
+  "settings.usage.page.state.claudeNotConfiguredDescription": "Увійдіть через Claude Code на цьому хості (`claude auth login`), потім оновіть. Тут показуються вікна використання підписки Claude, а не кредити Anthropic API.",
   "settings.usage.page.section.modelQuotas": "Модельні квоти",
   "settings.usage.page.section.otherModels": "Інші моделі",
   "settings.usage.page.state.noQuotaWindowsTitle": "Вікна квот не надходять",

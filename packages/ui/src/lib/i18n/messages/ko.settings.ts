@@ -1139,6 +1139,7 @@ export const settingsDict = {
   'settings.usage.page.state.refreshFailedTitle': '사용량 데이터를 새로고침하지 못했습니다',
   'settings.usage.page.state.providerNotConfiguredTitle': '프로바이더가 설정되지 않았습니다',
   'settings.usage.page.state.providerNotConfiguredDescription': '사용량 추적을 활성화하려면 프로바이더 탭에서 인증 정보를 추가하세요.',
+  'settings.usage.page.state.claudeNotConfiguredDescription': '이 호스트에서 Claude Code로 로그인한 다음(`claude auth login`) 새로고침하세요. Anthropic API 크레딧이 아니라 Claude 구독 사용량 구간을 표시합니다.',
   'settings.usage.page.section.modelQuotas': '모델 할당량',
   'settings.usage.page.section.otherModels': '기타 모델',
   'settings.usage.page.state.noQuotaWindowsTitle': '보고된 할당량 창이 없습니다',

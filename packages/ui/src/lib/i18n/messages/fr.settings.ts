@@ -1060,6 +1060,7 @@ export const settingsDict = {
   'settings.usage.page.state.refreshFailedTitle': 'Échec de l\'actualisation des données d\'utilisation',
   'settings.usage.page.state.providerNotConfiguredTitle': 'Fournisseur non configuré',
   'settings.usage.page.state.providerNotConfiguredDescription': 'Ajoutez des informations d\'identification dans l\'onglet Fournisseurs pour activer le suivi de l\'utilisation.',
+  'settings.usage.page.state.claudeNotConfiguredDescription': 'Connectez-vous avec Claude Code sur cet hôte (`claude auth login`), puis actualisez. Cela suit les fenêtres d’usage de l’abonnement Claude, pas les crédits API Anthropic.',
   'settings.usage.page.section.modelQuotas': 'Quotas de modèles',
   'settings.usage.page.section.otherModels': 'Autres modèles',
   'settings.usage.page.state.noQuotaWindowsTitle': 'Aucune fenêtre de quota signalée',

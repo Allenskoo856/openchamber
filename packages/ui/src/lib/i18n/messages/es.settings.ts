@@ -1139,6 +1139,7 @@ export const settingsDict = {
   "settings.usage.page.state.refreshFailedTitle": "No se pudo actualizar los datos de uso",
   "settings.usage.page.state.providerNotConfiguredTitle": "Proveedor no configurado",
   "settings.usage.page.state.providerNotConfiguredDescription": "Añade credenciales en la pestaña de Proveedores para habilitar el seguimiento de uso.",
+  "settings.usage.page.state.claudeNotConfiguredDescription": "Inicia sesión con Claude Code en este host (`claude auth login`) y actualiza. Esto muestra las ventanas de uso de la suscripción de Claude, no los créditos de la API de Anthropic.",
   "settings.usage.page.section.modelQuotas": "Cuotas de modelo",
   "settings.usage.page.section.otherModels": "Otros modelos",
   "settings.usage.page.state.noQuotaWindowsTitle": "No se reportaron ventanas de cuota",

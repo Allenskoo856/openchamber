@@ -1172,6 +1172,7 @@ export const settingsDict = {
   'settings.usage.page.state.refreshFailedTitle': '使用量データの更新に失敗しました',
   'settings.usage.page.state.providerNotConfiguredTitle': 'Provider が設定されていません',
   'settings.usage.page.state.providerNotConfiguredDescription': 'Providers タブで認証情報を追加して使用量追跡を有効にしてください。',
+  'settings.usage.page.state.claudeNotConfiguredDescription': 'このホストで Claude Code にサインイン（`claude auth login`）してから更新してください。これは Anthropic API クレジットではなく、Claude サブスクリプションの使用量ウィンドウを表示します。',
   'settings.usage.page.section.modelQuotas': 'モデル割り当て',
   'settings.usage.page.section.otherModels': 'その他のモデル',
   'settings.usage.page.state.noQuotaWindowsTitle': '報告された割り当てウィンドウはありません',

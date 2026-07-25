@@ -1878,6 +1878,7 @@ export const settingsDict = {
   'settings.usage.page.state.noQuotaWindowsDescription': 'Ten dostawca obecnie nie raportuje żadnych limitów prędkości ani kwot użycia.',
   'settings.usage.page.state.noQuotaWindowsTitle': 'Brak raportowanych okien kwot',
   'settings.usage.page.state.providerNotConfiguredDescription': 'Dodaj dane uwierzytelniające w zakładce Dostawcy, aby włączyć śledzenie użycia.',
+  'settings.usage.page.state.claudeNotConfiguredDescription': 'Zaloguj się przez Claude Code na tym hoście (`claude auth login`), a następnie odśwież. Pokazuje okna użycia subskrypcji Claude, a nie kredyty API Anthropic.',
   'settings.usage.page.state.providerNotConfiguredTitle': 'Dostawca nie jest skonfigurowany',
   'settings.usage.page.state.refreshFailedTitle': 'Nie udało się odświeżyć danych o użyciu',
   'settings.usage.sidebar.actions.refreshAria': 'Odśwież użycie',

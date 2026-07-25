@@ -135,10 +135,16 @@ Streaming continues asynchronously via the event broadcaster.
 | Status | Meaning |
 | --- | --- |
 | `ready` | Binary found, SDK importable, subscription login probe positive |
-| `needs-login` | Binary + SDK OK; no credentials probe hit |
+| `needs-login` | Binary + SDK OK; no subscription login (includes API-key-only hosts) |
 | `missing-cli` | `claude` not on PATH |
 | `unsupported-host` | Reserved (mobile-only / no exec host) — not emitted by v1 local detect |
 | `error` | SDK import failure or unexpected detect exception |
+
+**Login probe (B6):** `claude auth status --json` with API-priority env stripped
+(`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`). OAuth-like `authMethod` → ready;
+API-key / logged-out → `needs-login`. If the CLI status probe fails, fall back to
+structured presence of `claudeAiOauth.accessToken` in the Claude credentials file
+(no secret values returned).
 
 **Invariant:** detect failure never returns `status: "ready"` with an empty
 success catalog. Error / missing-cli responses use `sections: []`.
@@ -236,9 +242,9 @@ client-provided `messageId` / `assistantMessageId` for optimistic reconcile.
 
 ## Out of scope (later slices)
 
-- Permission mode chip UI polish / unsupported-mode hiding
-- Hardened login probe beyond credentials-file presence (B6)
-- Abort UI wiring for Claude turns (client helper exists; OpenCode abort path unchanged)
+- Codex CLI / Gemini CLI engines
+- Reverse handoff billing notice (Claude → OpenCode)
+- Goal / MultiRun / OpenChamber injected tool on Claude
 
 ## Testing
 
