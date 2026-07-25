@@ -35,6 +35,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { ComposerLanguageContext } from '../language/tokenize';
 import { composerLanguage, setLanguageContext } from './composerLanguage';
+import type { ComposerEditorViewStore } from './viewStore';
 import { composerEditorTheme } from './theme';
 
 export interface ComposerSelection {
@@ -96,6 +97,12 @@ export interface ComposerEditorProps {
     maxLines?: number;
     className?: string;
     contentClassName?: string;
+    /**
+     * Keeps the underlying view alive across unmounts. Supply one from a parent
+     * that outlives the swap; without it the view is built and destroyed with
+     * the component, which is correct but expensive on an interaction path.
+     */
+    viewStore?: ComposerEditorViewStore;
     'aria-label'?: string;
     'data-testid'?: string;
 }
@@ -113,6 +120,15 @@ function insertedTextOf(transaction: { changes: { iterChanges: (fn: (fromA: numb
     });
     return inserted;
 }
+
+/**
+ * Compartments are configuration keys, not per-view state, so one set can serve
+ * every editor. They live at module scope because a kept-alive view outlives
+ * the component that created it: per-instance compartments would be unknown to
+ * the reused view's configuration, and reconfiguring it would throw.
+ */
+const editableCompartment = new Compartment();
+const placeholderCompartment = new Compartment();
 
 export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEditorProps>(
     function ComposerEditor(props, ref) {
@@ -132,17 +148,17 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
 
         const hostRef = React.useRef<HTMLDivElement | null>(null);
         const viewRef = React.useRef<EditorView | null>(null);
-        // `editable` toggles through a compartment rather than rebuilding the
-        // view, so briefly having no session does not drop focus or undo
-        // history.
-        const editableCompartment = React.useRef(new Compartment()).current;
-        const placeholderCompartment = React.useRef(new Compartment()).current;
 
-        // Callbacks reach the CodeMirror extensions through refs: the view is
-        // created once and must not be torn down when a handler identity
-        // changes, which would drop focus mid-typing.
-        const propsRef = React.useRef(props);
-        propsRef.current = props;
+        // Callbacks reach the CodeMirror extensions through a ref: the view is
+        // built once and must not be torn down when a handler identity changes,
+        // which would drop focus mid-typing. When a view store is supplied the
+        // ref lives there, so a kept-alive view keeps calling into whichever
+        // component instance is currently mounted rather than a dead one.
+        const localHandlersRef = React.useRef(props);
+        const store = props.viewStore ?? null;
+        if (store && !store.handlers) store.handlers = { current: props };
+        const handlersRef = store?.handlers ?? localHandlersRef;
+        handlersRef.current = props;
 
         // A layout effect, not a passive one: the mobile composer expands with
         // `flushSync` and focuses the editor on the next line, still inside the
@@ -155,13 +171,30 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             const host = hostRef.current;
             if (!host) return;
 
+            // A kept view is re-attached rather than rebuilt. Its extensions
+            // already read through the shared handlers ref, so it needs nothing
+            // from this instance beyond a parent to live in; the effects below
+            // re-apply editable, placeholder, value and language context.
+            const keptView = store?.view;
+            if (keptView) {
+                host.appendChild(keptView.dom);
+                // Measurements taken while detached are meaningless; the view
+                // re-reads its geometry now that it is back in the document.
+                keptView.requestMeasure();
+                viewRef.current = keptView;
+                return () => {
+                    keptView.dom.remove();
+                    viewRef.current = null;
+                };
+            }
+
             const interceptKeys: KeyBinding[] = [{
-                any: (_view, event) => propsRef.current.onKeyDown?.(event) ?? false,
+                any: (_view, event) => handlersRef.current.onKeyDown?.(event) ?? false,
             }];
 
             const view = new EditorView({
                 state: EditorState.create({
-                    doc: propsRef.current.value,
+                    doc: handlersRef.current.value,
                     extensions: [
                         history(),
                         drawSelection(),
@@ -171,16 +204,16 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                         // walks history, Escape closes a picker).
                         Prec.highest(keymap.of(interceptKeys)),
                         keymap.of([...standardKeymap, ...historyKeymap]),
-                        composerLanguage(propsRef.current.languageContext),
+                        composerLanguage(handlersRef.current.languageContext),
                         editableCompartment.of(
-                            EditorView.editable.of(propsRef.current.editable ?? true),
+                            EditorView.editable.of(handlersRef.current.editable ?? true),
                         ),
                         placeholderCompartment.of(
-                            placeholderExtension(propsRef.current.placeholder ?? ''),
+                            placeholderExtension(handlersRef.current.placeholder ?? ''),
                         ),
                         composerEditorTheme,
                         EditorView.updateListener.of((update) => {
-                            const handlers = propsRef.current;
+                            const handlers = handlersRef.current;
                             const selection = readSelection(update.state);
 
                             if (update.docChanged) {
@@ -205,16 +238,16 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                             }
                         }),
                         EditorView.domEventHandlers({
-                            focus: () => { propsRef.current.onFocus?.(); return false; },
-                            blur: () => { propsRef.current.onBlur?.(); return false; },
-                            paste: (event) => { propsRef.current.onPaste?.(event); return false; },
+                            focus: () => { handlersRef.current.onFocus?.(); return false; },
+                            blur: () => { handlersRef.current.onBlur?.(); return false; },
+                            paste: (event) => { handlersRef.current.onPaste?.(event); return false; },
                         }),
                         EditorView.contentAttributes.of({
-                            spellcheck: String(propsRef.current.spellCheck ?? false),
-                            autocorrect: propsRef.current.autoCorrect ? 'on' : 'off',
-                            autocapitalize: propsRef.current.autoCapitalize ?? 'none',
-                            ...(propsRef.current['aria-label']
-                                ? { 'aria-label': propsRef.current['aria-label'] }
+                            spellcheck: String(handlersRef.current.spellCheck ?? false),
+                            autocorrect: handlersRef.current.autoCorrect ? 'on' : 'off',
+                            autocapitalize: handlersRef.current.autoCapitalize ?? 'none',
+                            ...(handlersRef.current['aria-label']
+                                ? { 'aria-label': handlersRef.current['aria-label'] }
                                 : {}),
                         }),
                     ] satisfies Extension[],
@@ -223,9 +256,17 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             });
 
             viewRef.current = view;
+            if (store) store.view = view;
+
             return () => {
-                view.destroy();
                 viewRef.current = null;
+                // A stored view is detached, not destroyed: the store owns its
+                // lifetime now, and whoever owns the store ends it.
+                if (store) {
+                    view.dom.remove();
+                    return;
+                }
+                view.destroy();
             };
             // Created once: every changing input is applied through a
             // dispatch below rather than by rebuilding the view.
@@ -256,13 +297,13 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             viewRef.current?.dispatch({
                 effects: editableCompartment.reconfigure(EditorView.editable.of(editable)),
             });
-        }, [editable, editableCompartment]);
+        }, [editable]);
 
         React.useEffect(() => {
             viewRef.current?.dispatch({
                 effects: placeholderCompartment.reconfigure(placeholderExtension(placeholder ?? '')),
             });
-        }, [placeholder, placeholderCompartment]);
+        }, [placeholder]);
 
         // Grow with the content up to `maxLines`, then scroll. The limit is
         // measured from the rendered line height rather than assumed, so it
@@ -314,7 +355,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
          */
         const handleHostMouseDown = React.useCallback((event: React.MouseEvent) => {
             const view = viewRef.current;
-            if (!view || !propsRef.current.editable) return;
+            if (!view || view.state.readOnly || !view.contentDOM.isContentEditable) return;
             // A click that already landed in the text needs no help, and
             // forwarding it would break drag-selection.
             if (view.contentDOM.contains(event.target as Node)) return;

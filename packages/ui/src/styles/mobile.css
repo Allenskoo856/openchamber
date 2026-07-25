@@ -684,8 +684,18 @@
    the final one. Hide it during the transition (+ UIKit's reposition lag,
    see oc-kb-caret-hold timing in useNativeMobileChrome) and pop it back in. */
 :root.oc-capacitor-app.oc-kb-caret-hold textarea,
-:root.oc-capacitor-app.oc-kb-caret-hold input {
+:root.oc-capacitor-app.oc-kb-caret-hold input,
+:root.oc-capacitor-app.oc-kb-caret-hold [contenteditable] {
   caret-color: transparent;
+}
+
+/* The composer is a CodeMirror editor, so it is neither a textarea nor an
+   input, and its caret is not the native one either: drawSelection() hides
+   that and paints a .cm-cursor element instead. Hiding caret-color alone
+   would leave that element riding across the screen. */
+:root.oc-capacitor-app.oc-kb-caret-hold .cm-cursor,
+:root.oc-capacitor-app.oc-kb-caret-hold .cm-dropCursor {
+  opacity: 0;
 }
 
 /* The composer keeps its 1rem bottom padding while the keyboard is down (breathing
