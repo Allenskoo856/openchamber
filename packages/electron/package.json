@@ -84,6 +84,12 @@
     },
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "npmRebuild": false,
+    "asarUnpack": [
+      "**/node_modules/@anthropic-ai/claude-agent-sdk-*/**",
+      "**/node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**",
+      "**/node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/**",
+      "**/node_modules/@anthropic-ai/claude-agent-sdk-win32-*/**"
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "resources/icons/icon.icns",

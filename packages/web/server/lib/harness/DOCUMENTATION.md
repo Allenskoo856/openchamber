@@ -199,6 +199,10 @@ Dependency: `@anthropic-ai/claude-agent-sdk` in `packages/web/package.json`.
 
 - Lazy-imports the SDK; caches load failures.
 - `startClaudeQuery({ prompt, cwd, model, resume, permissionMode, canUseTool, env })`
+- Resolves `pathToClaudeCodeExecutable` via `executable-path.js` (PATH / env /
+  `app.asar.unpacked` native package) so Electron does not spawn a path inside
+  `app.asar` (that fails with `ENOTDIR`).
+- Validates `cwd` is a real directory before starting the query.
 - `includePartialMessages: true` for streaming deltas
 - `interrupt()` when available, plus `killProcessTree(pid)` on abort/close
 
@@ -206,6 +210,9 @@ If the SDK import fails:
 
 - Detect → `error` (not ready)
 - Prompt → HTTP `503` with `CLAUDE_SDK_UNAVAILABLE`
+
+Packaged Desktop also sets electron-builder `asarUnpack` for
+`@anthropic-ai/claude-agent-sdk-*` native packages.
 
 ## Attachments (foundation)
 

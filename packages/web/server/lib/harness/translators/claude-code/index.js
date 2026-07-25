@@ -208,8 +208,18 @@ export function createClaudeCodeTranslator(deps = {}) {
         }
         updateSessionBinding(sessionId, { lastError: undefined });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Claude Code turn failed';
-        setBindingError(sessionId, { code: 'CLAUDE_TURN_ERROR', message });
+        const rawMessage = error instanceof Error ? error.message : 'Claude Code turn failed';
+        const rawCode = error && typeof error === 'object' && 'code' in error
+          ? String(error.code)
+          : '';
+        const isEnotdir = rawCode === 'ENOTDIR' || /spawn.*ENOTDIR/i.test(rawMessage);
+        const message = isEnotdir
+          ? 'Claude Code executable path is not spawnable (ENOTDIR). Reinstall/update Desktop or ensure `claude` is on PATH.'
+          : rawMessage;
+        setBindingError(sessionId, {
+          code: isEnotdir ? 'CLAUDE_SPAWN_ENOTDIR' : 'CLAUDE_TURN_ERROR',
+          message,
+        });
         emitHarnessEvents(getBroadcast(), directory, [
           {
             type: 'session.status',

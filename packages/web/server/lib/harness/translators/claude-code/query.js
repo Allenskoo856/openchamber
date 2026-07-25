@@ -5,6 +5,10 @@
 
 import { spawnSync } from 'node:child_process';
 import { buildClaudeCodeChildEnv } from './auth-env.js';
+import {
+  assertClaudeWorkingDirectory,
+  resolveClaudeCodeExecutable,
+} from './executable-path.js';
 
 let sdkModulePromise = null;
 /** @type {Error | null} */
@@ -154,11 +158,21 @@ export async function startClaudeQuery(params) {
   }
 
   const env = buildClaudeCodeChildEnv(params.env || process.env);
+  const cwd = assertClaudeWorkingDirectory(params.cwd);
+  const pathToClaudeCodeExecutable = typeof params.pathToClaudeCodeExecutable === 'string'
+    && params.pathToClaudeCodeExecutable.trim()
+    ? params.pathToClaudeCodeExecutable.trim()
+    : resolveClaudeCodeExecutable({ env });
+
   const options = {
-    cwd: params.cwd,
+    cwd,
     env,
     includePartialMessages: params.includePartialMessages !== false,
   };
+  if (pathToClaudeCodeExecutable) {
+    // Avoid Electron asar ENOTDIR when the SDK resolves a path inside app.asar.
+    options.pathToClaudeCodeExecutable = pathToClaudeCodeExecutable;
+  }
   if (typeof params.model === 'string' && params.model.trim()) {
     options.model = params.model.trim();
   }
@@ -172,10 +186,29 @@ export async function startClaudeQuery(params) {
     options.canUseTool = params.canUseTool;
   }
 
-  const result = queryFn({
-    prompt: params.prompt,
-    options,
-  });
+  let result;
+  try {
+    result = queryFn({
+      prompt: params.prompt,
+      options,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const code = error && typeof error === 'object' && 'code' in error
+      ? error.code
+      : undefined;
+    if (code === 'ENOTDIR' || /spawn.*ENOTDIR/i.test(message)) {
+      const wrapped = new Error(
+        'Claude Code executable path is not spawnable (ENOTDIR). '
+        + 'Packaged Desktop must use PATH/`app.asar.unpacked` Claude CLI, not an `app.asar` path.',
+      );
+      wrapped.code = 'CLAUDE_SPAWN_ENOTDIR';
+      wrapped.statusCode = 503;
+      wrapped.cause = error;
+      throw wrapped;
+    }
+    throw error;
+  }
 
   let closed = false;
   const getPid = () => {
