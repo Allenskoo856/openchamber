@@ -48,7 +48,7 @@ import { PendingChangesBar } from './PendingChangesBar';
 import { useChatSurfaceMode } from './useChatSurfaceMode';
 import { MobileAgentButton } from './MobileAgentButton';
 import { MobileModelButton } from './MobileModelButton';
-import { MobileSessionStatusBar, MobileSessionPanelTrigger } from './MobileSessionStatusBar';
+import { MobileSessionStatusBar } from './MobileSessionStatusBar';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { toast } from '@/components/ui';
 // useMessageStore removed — messages now come from sync system
@@ -130,17 +130,13 @@ import {
     MobileDraftTargetSheets,
     MobileDraftTargetTriggers,
 } from './composer/ui/DraftTargetSelectors';
+import { ComposerFooter } from './composer/ui/ComposerFooter';
 import { MobilePillComposer } from './composer/ui/MobilePillComposer';
 import { ComposerContextChips } from './composer/ui/ComposerContextChips';
 import { LinkedReferenceRow } from './composer/ui/LinkedReferenceRow';
-import { ComposerActionButtons } from './composer/ui/ComposerActionButtons';
-import { ComposerAttachmentControls } from './composer/ui/ComposerAttachmentControls';
-import { FocusModeButton } from './composer/ui/FocusModeButton';
-import { PermissionAutoAcceptButton } from './composer/ui/PermissionAutoAcceptButton';
 import { RevertedMessageDock } from './composer/ui/RevertedMessageDock';
 import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
-import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
 
 const MAX_VISIBLE_COMPOSER_LINES = 8;
 const EMPTY_QUEUE: QueuedMessage[] = [];
@@ -2859,159 +2855,42 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             />
                         </div>
                     </div>
-                    <div
-                        className={cn(
-                            'bg-transparent flex-shrink-0',
-                            footerPaddingClass,
-                            isMobile ? 'flex items-center gap-x-1.5' : cn('flex items-center justify-between', footerGapClass)
-                        )}
-                        style={{
-                            borderBottomLeftRadius: chatInputRadius,
-                            borderBottomRightRadius: chatInputRadius,
-                        }}
-                        data-chat-input-footer="true"
-                    >
-                        {isMobile ? (
-                            <>
-                                <div className="flex w-full items-center justify-between gap-x-1.5">
-                                    <div className="composer-mobile-actions flex items-center gap-x-2 pl-1">
-                                        <MobileSessionPanelTrigger
-                                            footerIconButtonClass={footerIconButtonClass}
-                                            iconSizeClass={iconSizeClass}
-                                        />
-                                        <ComposerAttachmentControls
-                                            isVSCode={isVSCode}
-                                            footerIconButtonClass={footerIconButtonClass}
-                                            iconSizeClass={iconSizeClass}
-                                            handlePickLocalFiles={handlePickLocalFiles}
-                                            openIssuePicker={openIssuePicker}
-                                            openPrPicker={openPrPicker}
-                                            onOpenSettings={onOpenSettings}
-                                            onOpenMobileSheet={openMobileAttachSheet}
-                                        />
-                                        <PermissionAutoAcceptButton
-                                            footerIconButtonClass={footerIconButtonClass}
-                                            iconSizeClass={iconSizeClass}
-                                            isInteractive={isPermissionAutoAcceptInteractive}
-                                            permissionAutoAcceptEnabled={permissionAutoAcceptEnabled}
-                                            handlePermissionAutoAcceptToggle={handlePermissionAutoAcceptToggle}
-                                        />
-                                        <SessionGoalButton
-                                            sessionId={currentSessionId}
-                                            directory={currentSessionDirectoryForSync ?? currentDirectory}
-                                            draftOpen={newSessionDraftOpen}
-                                            footerIconButtonClass={footerIconButtonClass}
-                                            iconSizeClass={iconSizeClass}
-                                        />
-                                        <SessionGoalObjectiveCounter length={message.length} />
-                                    </div>
-                                    <div className="flex items-center min-w-0 gap-x-1 justify-end">
-                                        <div className="flex items-center gap-x-1 flex-shrink-0">
-                                            <button
-                                                type="button"
-                                                className={footerIconButtonClass}
-                                                // Keep the soft keyboard open (same guard as
-                                                // PermissionAutoAcceptButton); the recording
-                                                // engine lives in the wrapper-level
-                                                // ComposerDictation instance.
-                                                onMouseDown={(event) => event.preventDefault()}
-                                                onPointerDownCapture={(event) => {
-                                                    if (event.pointerType === 'touch') {
-                                                        event.preventDefault();
-                                                    }
-                                                }}
-                                                onClick={toggleDictation}
-                                                disabled={mobileShell.dictationActive}
-                                                title={t('chat.dictation.start')}
-                                                aria-label={t('chat.dictation.start')}
-                                            >
-                                                <Icon name="mic" className={cn(iconSizeClass, 'text-current')} />
-                                            </button>
-                                            <ComposerActionButtons
-                                                isMobile={isMobile}
-                                                footerIconButtonClass={footerIconButtonClass}
-                                                sendIconSizeClass={sendIconSizeClass}
-                                                stopIconSizeClass={stopIconSizeClass}
-                                                canSend={canSend}
-                                                canAbort={canAbort}
-                                                hasContent={!!hasContent}
-                                                currentSessionId={currentSessionId}
-                                                newSessionDraftOpen={newSessionDraftOpen}
-                                                onPrimaryAction={handlePrimaryAction}
-                                                onQueueMessage={handleQueueMessage}
-                                                onAbort={handleAbort}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            </>
-                        ) : (
-                            <>
-                                <div className={cn("flex items-center flex-shrink-0", footerGapClass)}>
-                                    <ComposerAttachmentControls
-                                        isVSCode={isVSCode}
-                                        footerIconButtonClass={footerIconButtonClass}
-                                        iconSizeClass={iconSizeClass}
-                                        handlePickLocalFiles={handlePickLocalFiles}
-                                        openIssuePicker={openIssuePicker}
-                                        openPrPicker={openPrPicker}
-                                        onOpenSettings={onOpenSettings}
-                                    />
-                                    <FocusModeButton
-                                        footerIconButtonClass={footerIconButtonClass}
-                                        iconSizeClass={iconSizeClass}
-                                        isExpandedInput={isExpandedInput}
-                                        onToggle={handleToggleExpandedInput}
-                                    />
-                                    <PermissionAutoAcceptButton
-                                        footerIconButtonClass={footerIconButtonClass}
-                                        iconSizeClass={iconSizeClass}
-                                        isInteractive={isPermissionAutoAcceptInteractive}
-                                        permissionAutoAcceptEnabled={permissionAutoAcceptEnabled}
-                                        handlePermissionAutoAcceptToggle={handlePermissionAutoAcceptToggle}
-                                        withTooltip
-                                    />
-                                    <SessionGoalButton
-                                        sessionId={currentSessionId}
-                                        directory={currentSessionDirectoryForSync ?? currentDirectory}
-                                        draftOpen={newSessionDraftOpen}
-                                        footerIconButtonClass={footerIconButtonClass}
-                                        iconSizeClass={iconSizeClass}
-                                        withTooltip
-                                    />
-                                    <SessionGoalObjectiveCounter length={message.length} />
-                                </div>
-                                <div className={cn('flex items-center flex-1 justify-end', footerGapClass, 'md:gap-x-3')}>
-                                    <MemoModelControls className={cn('flex-1 min-w-0 justify-end')} />
-                                    <MemoComposerDictation
-                                        radius={chatInputRadius}
-                                        isMobile={isMobile}
-                                        footerIconButtonClass={footerIconButtonClass}
-                                        footerPaddingClass={footerPaddingClass}
-                                        iconSizeClass={iconSizeClass}
-                                        sendIconSizeClass={sendIconSizeClass}
-                                        onInsert={handleDictationInsert}
-                                        onInsertAndSend={handleDictationInsertAndSend}
-                                        onContentHeightChange={handleDictationContentHeightChange}
-                                    />
-                                    <ComposerActionButtons
-                                        isMobile={isMobile}
-                                        footerIconButtonClass={footerIconButtonClass}
-                                        sendIconSizeClass={sendIconSizeClass}
-                                        stopIconSizeClass={stopIconSizeClass}
-                                        canSend={canSend}
-                                        canAbort={canAbort}
-                                        hasContent={!!hasContent}
-                                        currentSessionId={currentSessionId}
-                                        newSessionDraftOpen={newSessionDraftOpen}
-                                        onPrimaryAction={handlePrimaryAction}
-                                        onQueueMessage={handleQueueMessage}
-                                        onAbort={handleAbort}
-                                    />
-                                </div>
-                            </>
-                        )}
-                    </div>
+                    <ComposerFooter
+                        isMobile={isMobile}
+                        isVSCode={isVSCode}
+                        sessionId={currentSessionId}
+                        directory={currentSessionDirectoryForSync ?? currentDirectory}
+                        newSessionDraftOpen={newSessionDraftOpen}
+                        messageLength={message.length}
+                        radius={chatInputRadius}
+                        footerPaddingClass={footerPaddingClass}
+                        footerGapClass={footerGapClass}
+                        footerIconButtonClass={footerIconButtonClass}
+                        iconSizeClass={iconSizeClass}
+                        sendIconSizeClass={sendIconSizeClass}
+                        stopIconSizeClass={stopIconSizeClass}
+                        canSend={canSend}
+                        canAbort={canAbort}
+                        hasContent={Boolean(hasContent)}
+                        isExpandedInput={isExpandedInput}
+                        permissionAutoAcceptEnabled={permissionAutoAcceptEnabled}
+                        isPermissionAutoAcceptInteractive={isPermissionAutoAcceptInteractive}
+                        dictationActive={mobileShell.dictationActive}
+                        onOpenSettings={onOpenSettings}
+                        onPickLocalFiles={handlePickLocalFiles}
+                        onOpenIssuePicker={openIssuePicker}
+                        onOpenPrPicker={openPrPicker}
+                        onOpenAttachSheet={openMobileAttachSheet}
+                        onToggleExpandedInput={handleToggleExpandedInput}
+                        onTogglePermissionAutoAccept={handlePermissionAutoAcceptToggle}
+                        onPrimaryAction={handlePrimaryAction}
+                        onQueueMessage={handleQueueMessage}
+                        onAbort={handleAbort}
+                        onStartDictation={toggleDictation}
+                        onDictationInsert={handleDictationInsert}
+                        onDictationInsertAndSend={handleDictationInsertAndSend}
+                        onDictationContentHeightChange={handleDictationContentHeightChange}
+                    />
                     </div>
 
                 </div>
