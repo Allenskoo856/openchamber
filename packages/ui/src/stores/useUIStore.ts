@@ -12,7 +12,6 @@ import type { TerminalShell } from '@/lib/api/types';
 
 export type MainTab = 'chat' | 'plan' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'working' | 'staged' | 'turn';
-export type RightSidebarTab = 'git' | 'files' | 'context';
 export type ContextPanelMode = 'diff' | 'file' | 'context' | 'plan' | 'chat' | 'preview' | 'browser' | 'git' | 'notes';
 export type MermaidRenderingMode = 'svg' | 'ascii';
 export type UserMessageRenderingMode = 'markdown' | 'plain';
@@ -120,8 +119,6 @@ const CONTEXT_PANEL_MAX_WIDTH = 1400;
 const CONTEXT_PANEL_MAX_TABS = 12;
 const CONTEXT_PANEL_MAX_LABEL_LENGTH = 120;
 const LEFT_SIDEBAR_MIN_WIDTH = 280;
-export const RIGHT_SIDEBAR_MIN_WIDTH = 360;
-export const RIGHT_SIDEBAR_MAX_WIDTH = 860;
 const activeMainTabByRuntime = new Map<string, MainTab>();
 
 const runtimeMemoryKey = (value?: string | null): string => {
@@ -556,10 +553,6 @@ interface UIStore {
   isSidebarOpen: boolean;
   sidebarWidth: number;
   hasManuallyResizedLeftSidebar: boolean;
-  isRightSidebarOpen: boolean;
-  rightSidebarWidth: number;
-  hasManuallyResizedRightSidebar: boolean;
-  rightSidebarTab: RightSidebarTab;
   contextPanelByDirectory: Record<string, ContextPanelDirectoryState>;
   contextRailOrder: string[];
   contextEditorTreeVisible: boolean;
@@ -704,10 +697,6 @@ interface UIStore {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarWidth: (width: number) => void;
-  toggleRightSidebar: () => void;
-  setRightSidebarOpen: (open: boolean) => void;
-  setRightSidebarWidth: (width: number) => void;
-  setRightSidebarTab: (tab: RightSidebarTab) => void;
   setContextRailOrder: (order: string[]) => void;
   toggleContextEditorTree: () => void;
   openContextSurface: (directory: string, mode: ContextPanelMode) => void;
@@ -885,10 +874,6 @@ export const useUIStore = create<UIStore>()(
         isSidebarOpen: true,
         sidebarWidth: LEFT_SIDEBAR_MIN_WIDTH,
         hasManuallyResizedLeftSidebar: false,
-        isRightSidebarOpen: false,
-        rightSidebarWidth: RIGHT_SIDEBAR_MIN_WIDTH,
-        hasManuallyResizedRightSidebar: false,
-        rightSidebarTab: 'git',
         contextPanelByDirectory: {},
         contextRailOrder: [],
         contextEditorTreeVisible: true,
@@ -1066,47 +1051,6 @@ export const useUIStore = create<UIStore>()(
 
         setSidebarWidth: (width) => {
           set({ sidebarWidth: width, hasManuallyResizedLeftSidebar: true });
-        },
-
-        toggleRightSidebar: () => {
-          set((state) => {
-            const newOpen = !state.isRightSidebarOpen;
-
-            if (newOpen && !state.hasManuallyResizedRightSidebar) {
-              return {
-                isRightSidebarOpen: newOpen,
-                rightSidebarWidth: RIGHT_SIDEBAR_MIN_WIDTH,
-              };
-            }
-            return { isRightSidebarOpen: newOpen };
-          });
-        },
-
-        setRightSidebarOpen: (open) => {
-          set((state) => {
-            if (state.isRightSidebarOpen === open) {
-              return state;
-            }
-            const shouldResetWidth = open
-              && !state.hasManuallyResizedRightSidebar
-              && state.rightSidebarWidth !== RIGHT_SIDEBAR_MIN_WIDTH;
-            return {
-              isRightSidebarOpen: open,
-              rightSidebarWidth: shouldResetWidth ? RIGHT_SIDEBAR_MIN_WIDTH : state.rightSidebarWidth,
-            };
-          });
-        },
-
-        setRightSidebarWidth: (width) => {
-          const clamped = Math.min(
-            RIGHT_SIDEBAR_MAX_WIDTH,
-            Math.max(RIGHT_SIDEBAR_MIN_WIDTH, width)
-          );
-          set({ rightSidebarWidth: clamped, hasManuallyResizedRightSidebar: true });
-        },
-
-        setRightSidebarTab: (tab) => {
-          set({ rightSidebarTab: tab });
         },
 
         setContextRailOrder: (order) => {
@@ -2273,13 +2217,7 @@ export const useUIStore = create<UIStore>()(
         viewPagerPage: 'center',
         setViewPagerPage: (page: 'left' | 'center' | 'right') => {
           set({ viewPagerPage: page });
-          if (page === 'left') {
-            set({ isSessionSwitcherOpen: true, isRightSidebarOpen: false });
-          } else if (page === 'right') {
-            set({ isRightSidebarOpen: true, isSessionSwitcherOpen: false });
-          } else {
-            set({ isSessionSwitcherOpen: false, isRightSidebarOpen: false });
-          }
+          set({ isSessionSwitcherOpen: page === 'left' });
         },
 
         setShortcutOverride: (actionId, combo) => {
@@ -2378,12 +2316,11 @@ export const useUIStore = create<UIStore>()(
             delete state.memoryLimitActiveSession;
           }
 
-          if (
-            typeof state.rightSidebarTab !== 'string'
-            || (state.rightSidebarTab !== 'git' && state.rightSidebarTab !== 'files' && state.rightSidebarTab !== 'context')
-          ) {
-            state.rightSidebarTab = 'git';
-          }
+          // Right-sidebar state was removed with the sidebar itself; drop
+          // stale persisted fields.
+          delete state.isRightSidebarOpen;
+          delete state.rightSidebarWidth;
+          delete state.rightSidebarTab;
 
           state.contextPanelByDirectory = sanitizeContextPanelByDirectory(state.contextPanelByDirectory);
 
@@ -2428,9 +2365,6 @@ export const useUIStore = create<UIStore>()(
           theme: state.theme,
           isSidebarOpen: state.isSidebarOpen,
           sidebarWidth: state.sidebarWidth,
-          isRightSidebarOpen: state.isRightSidebarOpen,
-          rightSidebarWidth: state.rightSidebarWidth,
-          rightSidebarTab: state.rightSidebarTab,
           contextPanelByDirectory: state.contextPanelByDirectory,
           contextRailOrder: state.contextRailOrder,
           contextEditorTreeVisible: state.contextEditorTreeVisible,

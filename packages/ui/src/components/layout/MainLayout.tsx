@@ -44,9 +44,7 @@ export const MainLayout: React.FC = () => {
     const BOTTOM_TERMINAL_AUTO_CLOSE_HEIGHT = 640;
     const BOTTOM_TERMINAL_AUTO_OPEN_HEIGHT = 700;
     const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
-    const isRightSidebarOpen = useUIStore((state) => state.isRightSidebarOpen);
     const isBottomTerminalOpen = useUIStore((state) => state.isBottomTerminalOpen);
-    const setRightSidebarOpen = useUIStore((state) => state.setRightSidebarOpen);
     const setBottomTerminalOpen = useUIStore((state) => state.setBottomTerminalOpen);
     const activeMainTab = useUIStore((state) => state.activeMainTab);
     const setIsMobile = useUIStore((state) => state.setIsMobile);
@@ -159,10 +157,7 @@ export const MainLayout: React.FC = () => {
         mobilePanelsResetRef.current = true;
         setMobileSessionPanelOpen(false);
         setMobileRightSidebarOpen(false);
-        if (useUIStore.getState().isRightSidebarOpen) {
-            setRightSidebarOpen(false);
-        }
-    }, [isMobile, setMobileSessionPanelOpen, setRightSidebarOpen]);
+    }, [isMobile, setMobileSessionPanelOpen]);
 
     useEffect(() => {
         if (!isMobile || activeMainTab !== 'chat' || mobileLeftDrawerOpen || mobileRightSidebarOpen || isSettingsDialogOpen) {
@@ -211,10 +206,7 @@ export const MainLayout: React.FC = () => {
 
         setMobileSessionPanelOpen(false);
         setMobileRightSidebarOpen(false);
-        if (isRightSidebarOpen) {
-            setRightSidebarOpen(false);
-        }
-    }, [isMobile, isSettingsDialogOpen, isRightSidebarOpen, setMobileSessionPanelOpen, setRightSidebarOpen]);
+    }, [isMobile, isSettingsDialogOpen, setMobileSessionPanelOpen]);
 
     useUpdatePolling();
 
@@ -303,7 +295,7 @@ export const MainLayout: React.FC = () => {
                 window.cancelAnimationFrame(frameId);
             }
         };
-    }, [isMobile, isTablet, setBottomTerminalOpen, setRightSidebarOpen]);
+    }, [isMobile, isTablet, setBottomTerminalOpen]);
 
     React.useEffect(() => {
         if (typeof window === 'undefined') {
@@ -324,7 +316,7 @@ export const MainLayout: React.FC = () => {
         return () => {
             unsubscribe();
         };
-    }, [isMobile, isTablet, setBottomTerminalOpen, setRightSidebarOpen]);
+    }, [isMobile, isTablet, setBottomTerminalOpen]);
 
     const handleToggleMobileRightDrawer = React.useCallback(() => {
         if (mobileLeftDrawerOpen) {
@@ -334,6 +326,12 @@ export const MainLayout: React.FC = () => {
     }, [mobileLeftDrawerOpen, mobileRightSidebarOpen, setMobileSessionPanelOpen]);
 
     const secondaryView = React.useMemo(() => {
+        // Desktop surfaces live in the context panel; the only full-view
+        // overlays left there are the terminal (promoted by project actions)
+        // and the diagram viewer. Mobile keeps the full tab set.
+        if (!isMobile && activeMainTab !== 'terminal' && activeMainTab !== 'diagram') {
+            return null;
+        }
         switch (activeMainTab) {
             case 'plan':
                 return <React.Suspense fallback={null}><PlanView /></React.Suspense>;
@@ -352,7 +350,7 @@ export const MainLayout: React.FC = () => {
             default:
                 return null;
         }
-    }, [activeMainTab, mobileRightSidebarOpen]);
+    }, [activeMainTab, isMobile, mobileRightSidebarOpen]);
 
     const isChatActive = activeMainTab === 'chat';
 

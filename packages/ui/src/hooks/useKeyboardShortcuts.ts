@@ -345,14 +345,13 @@ export const useKeyboardShortcuts = () => {
         return;
       }
 
-      if (eventMatchesShortcut(e, combo('cycle_right_sidebar_tab'))) {
-        const { isMobile } = useUIStore.getState();
-        if (isMobile) {
+      if (eventMatchesShortcut(e, combo('open_diff_panel'))) {
+        const state = useUIStore.getState();
+        if (state.isMobile || !currentDirectory) {
           return;
         }
-        // The right sidebar's tab cycle has no surface equivalent; the rail
-        // replaces it. Swallow the combo so it does not type into inputs.
         e.preventDefault();
+        state.openContextSurface(normalizeContextPanelDirectoryKey(currentDirectory), 'diff');
         return;
       }
 
