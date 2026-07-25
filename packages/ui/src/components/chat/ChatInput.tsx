@@ -1,7 +1,6 @@
 import React from 'react';
 import { flushSync } from 'react-dom';
 import { isCapacitorApp } from '@/lib/platform';
-import { Textarea } from '@/components/ui/textarea';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -100,7 +99,6 @@ import { getSyncMessages } from '@/sync/sync-refs';
 import { EMPTY_REVERTED_MESSAGE_DOCK_STATE, buildRevertedMessageDockState, type RevertedMessageDockState } from './revertedMessageDockState';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
 import { isSyntheticPart } from '@/lib/messages/synthetic';
-import { buildHighlightParts } from './composerHighlight';
 import {
     assignImageAttachmentFilenames,
     buildAttachmentCitationText,
@@ -113,13 +111,18 @@ import {
 } from './composer/language/mentions';
 import { collectKnownTokenNames } from './composer/language/prefixTokens';
 import { resolveAutocompleteTrigger } from './composer/language/triggers';
-import { tokenizeComposer, type ComposerLanguageContext } from './composer/language/tokenize';
+import { type ComposerLanguageContext } from './composer/language/tokenize';
+import {
+    ComposerEditor,
+    type ComposerChange,
+    type ComposerEditorHandle,
+} from './composer/editor/ComposerEditor';
 import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
 import type { Part } from '@opencode-ai/sdk/v2/client';
 
-const MAX_VISIBLE_TEXTAREA_LINES = 8;
+const MAX_VISIBLE_COMPOSER_LINES = 8;
 const EMPTY_QUEUE: QueuedMessage[] = [];
 // Single-line URL pasted over a selection becomes a markdown link.
 const PASTE_LINK_URL_PATTERN = /^(https?:\/\/|mailto:)\S+$/i;
@@ -154,34 +157,6 @@ const buildImagePasteInsertion = (pastedText: string, citationText: string): str
         return citationText;
     }
     return `${text}${/\s$/.test(text) ? '' : ' '}${citationText}`;
-};
-
-const getInsertedTextFromChange = (previousValue: string, nextValue: string): string => {
-    if (previousValue === nextValue) {
-        return '';
-    }
-
-    let prefixLength = 0;
-    while (
-        prefixLength < previousValue.length
-        && prefixLength < nextValue.length
-        && previousValue[prefixLength] === nextValue[prefixLength]
-    ) {
-        prefixLength += 1;
-    }
-
-    let previousSuffix = previousValue.length;
-    let nextSuffix = nextValue.length;
-    while (
-        previousSuffix > prefixLength
-        && nextSuffix > prefixLength
-        && previousValue[previousSuffix - 1] === nextValue[nextSuffix - 1]
-    ) {
-        previousSuffix -= 1;
-        nextSuffix -= 1;
-    }
-
-    return nextValue.slice(prefixLength, nextSuffix);
 };
 
 const getFileMentionInputSourceForInsertedText = (insertedText: string): FileMentionAutocompleteInputSource => (
@@ -967,7 +942,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const [skillQuery, setSkillQuery] = React.useState('');
     const [showSnippetAutocomplete, setShowSnippetAutocomplete] = React.useState(false);
     const [snippetQuery, setSnippetQuery] = React.useState('');
-    const [textareaSize, setTextareaSize] = React.useState<{ height: number; maxHeight: number } | null>(null);
     const [mobileControlsPanel, setMobileControlsPanel] = React.useState<MobileControlsPanel>(null);
     // Mobile pill composer: when the keyboard is closed the composer collapses
     // into a narrow pill (+ / placeholder / mic) with a round new-session button
@@ -1010,9 +984,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     // Message history navigation state (up/down arrow to recall previous messages)
     const [historyIndex, setHistoryIndex] = React.useState(-1); // -1 = not browsing, 0+ = index from most recent
     const [draftMessage, setDraftMessage] = React.useState(''); // Preserves input when entering history mode
-    const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+    const composerRef = React.useRef<ComposerEditorHandle>(null);
     const cursorPosRef = React.useRef(0);
-    const previousMessageLengthRef = React.useRef(message.length);
     const dropZoneRef = React.useRef<HTMLDivElement>(null);
     const dragEnterCountRef = React.useRef(0);
     const suppressNextFileDropTextInsertRef = React.useRef(false);
@@ -1122,7 +1095,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const fetchGitStatus = useGitStore((state) => state.fetchStatus);
     const [showAbortStatus, setShowAbortStatus] = React.useState(false);
     const setSessionAutoAccept = usePermissionStore((state) => state.setSessionAutoAccept);
-    const composerHighlightRef = React.useRef<HTMLDivElement | null>(null);
     const [isNarrowComposer, setIsNarrowComposer] = React.useState(false);
     const [attachmentPreview, setAttachmentPreview] = React.useState<ToolPopupContent>({
         open: false,
@@ -1311,14 +1283,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         knownSnippetTriggers,
         attachmentFilenames,
     }), [attachmentFilenames, inputMode, knownAgentNames, knownSlashNames, knownSnippetTriggers]);
-
-    // Source-mode highlight: markdown syntax plus every reference construct,
-    // in one pass. Null when there is nothing to paint, so the overlay stays
-    // off for plain prose.
-    const highlightedComposerContent = React.useMemo(
-        () => buildHighlightParts(message, tokenizeComposer(message, languageContext)),
-        [languageContext, message],
-    );
 
     const sanitizeAttachmentsForSend = React.useCallback(
         (files: AttachedFile[] | undefined): AttachedFile[] => (files ?? [])
@@ -1558,7 +1522,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         } else {
             // Setting enabled - select all text
             requestAnimationFrame(() => {
-                textareaRef.current?.select();
+                composerRef.current?.selectAll();
             });
         }
     }, [persistChatDraft]);
@@ -1582,7 +1546,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 confirmedMentionsRef.current = nextSnapshot.confirmedMentions;
                 if (nextSnapshot.text) {
                     requestAnimationFrame(() => {
-                        textareaRef.current?.select();
+                        composerRef.current?.selectAll();
                     });
                 }
             } else {
@@ -1613,9 +1577,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             requestAnimationFrame(() => {
                 if (isMobile) {
                     // On mobile, use preventScroll to avoid viewport jumping
-                    textareaRef.current?.focus({ preventScroll: true });
+                    composerRef.current?.focus({ preventScroll: true });
                 } else {
-                    textareaRef.current?.focus();
+                    composerRef.current?.focus();
                 }
             });
         }
@@ -1687,7 +1651,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // keyboard-close lands, otherwise the composer folds into the pill
         // under the sheet.
         setMobileControlsPanel(panel);
-        textareaRef.current?.blur();
+        composerRef.current?.blur();
     }, [isMobile]);
 
     // Consume pending input text (e.g., from revert action)
@@ -1708,7 +1672,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 }
                 // Focus textarea after setting message
                 setTimeout(() => {
-                    textareaRef.current?.focus();
+                    composerRef.current?.focus();
                 }, 0);
             }
         }
@@ -1721,7 +1685,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const canAbort = sessionPhase !== 'idle';
 
     const getCurrentInputSnapshot = React.useCallback(() => {
-        const currentMessage = textareaRef.current?.value ?? message;
+        const currentMessage = composerRef.current?.getValue() ?? message;
         return {
             message: currentMessage,
             hasContent: currentMessage.trim().length > 0 || attachedFiles.length > 0 || hasDrafts,
@@ -1774,14 +1738,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
 
         if (!isMobile) {
-            textareaRef.current?.focus();
+            composerRef.current?.focus();
         }
     }, [getCurrentInputSnapshot, currentSessionId, messageQueueTarget, inlineDraftTarget, attachedFiles, sanitizeAttachmentsForSend, addToQueue, clearAttachedFiles, isMobile, consumeDrafts, currentProviderId, currentModelId, currentAgentName, currentVariant]);
 
     const handleQueuedMessageEdit = React.useCallback((content: string) => {
         setMessage(content);
         setTimeout(() => {
-            textareaRef.current?.focus();
+            composerRef.current?.focus();
         }, 0);
     }, []);
 
@@ -2014,7 +1978,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
 
         if (isMobile) {
-            textareaRef.current?.blur();
+            composerRef.current?.blur();
         }
 
         // Handle local slash commands only in normal mode
@@ -2352,7 +2316,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             console.error('Message send failed:', rawMessage || error);
             restoreConsumedDrafts();
 
-            const currentInput = textareaRef.current?.value ?? messageRef.current;
+            const currentInput = composerRef.current?.getValue() ?? messageRef.current;
             if (newSessionDraftOpen && inputSnapshot.message && (!currentInput || currentInput === inputSnapshot.message)) {
                 setMessage(inputSnapshot.message);
                 writeChatDraft(chatDraftIdentity, inputSnapshot.message, confirmedMentionsRef.current);
@@ -2392,7 +2356,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         });
 
         if (!isMobile) {
-            textareaRef.current?.focus();
+            composerRef.current?.focus();
         }
     };
 
@@ -2417,25 +2381,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // The text goes straight into the submit (see SubmitOptions.presetText)
         // instead of through the composer input — the collapsed mobile pill has
         // no mounted textarea to stage it in.
-        const draft = (textareaRef.current?.value ?? messageRef.current).trim();
+        const draft = (composerRef.current?.getValue() ?? messageRef.current).trim();
         const presetText = draft ? `${text}\n${draft}` : text;
         void handleSubmitRef.current({ presetText });
     }, []);
 
     // Dictation: insert the transcript inline; optionally submit immediately.
-    // getCurrentInputSnapshot reads textareaRef.current.value first, so setting
+    // getCurrentInputSnapshot reads composerRef.current.getValue() first, so setting
     // it synchronously lets handleSubmit pick up the text in the same tick.
     const handleDictationInsert = React.useCallback((text: string) => {
         setMessage((prev) => {
-            const next = appendInlineText(prev, text);
-            const textarea = textareaRef.current;
-            if (textarea) {
-                textarea.value = next;
-            }
-            return next;
+            // The editor is controlled by this state; getCurrentInputSnapshot
+            // reads it back, so no imperative write is needed.
+            return appendInlineText(prev, text);
         });
         setTimeout(() => {
-            textareaRef.current?.focus();
+            composerRef.current?.focus();
         }, 0);
     }, []);
 
@@ -2443,7 +2404,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // Same as preset chips: the composed text goes into the submit as an
         // explicit override instead of being staged in the textarea, which may
         // not be mounted (collapsed mobile pill).
-        const next = appendInlineText(textareaRef.current?.value ?? messageRef.current, text);
+        const next = appendInlineText(composerRef.current?.getValue() ?? messageRef.current, text);
         void handleSubmitRef.current({ presetText: next });
     }, []);
 
@@ -2456,7 +2417,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (text) submitPresetPrompt(text);
     }, [pendingPresetSubmit, submitPresetPrompt]);
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
         // Early return during IME composition to prevent interference with autocomplete.
         // Uses keyCode === 229 fallback for WebKit where compositionend fires before keydown.
         if (isIMECompositionEvent(e)) return;
@@ -2474,9 +2435,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
 
         if ((e.key === 'Backspace' || e.key === 'Delete') && !e.metaKey && !e.ctrlKey && !e.altKey) {
-            const textarea = textareaRef.current;
-            const selectionStart = textarea?.selectionStart ?? message.length;
-            const selectionEnd = textarea?.selectionEnd ?? message.length;
+            const textarea = composerRef.current;
+            const selectionStart = textarea?.getSelection().start ?? message.length;
+            const selectionEnd = textarea?.getSelection().end ?? message.length;
             const hasCollapsedSelection = selectionStart === selectionEnd;
 
             if (hasCollapsedSelection) {
@@ -2501,11 +2462,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         e.preventDefault();
                         setMessage(nextMessage);
                         requestAnimationFrame(() => {
-                            if (textareaRef.current) {
-                                textareaRef.current.selectionStart = tokenStart;
-                                textareaRef.current.selectionEnd = tokenStart;
+                            if (composerRef.current) {
+                                composerRef.current.setSelection(tokenStart);
                             }
-                            adjustTextareaHeight();
                         });
                         updateAutocompleteState(nextMessage, tokenStart);
                         return;
@@ -2576,29 +2535,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // ArrowUp: only when cursor at start (position 0) or input is empty
         // ArrowDown: also works when cursor at end (to cycle forward through history)
         const isAnyAutocompleteOpen = showCommandAutocomplete || showSkillAutocomplete || showSnippetAutocomplete || showFileMention;
-        const cursorAtStart = textareaRef.current?.selectionStart === 0 && textareaRef.current?.selectionEnd === 0;
-        const cursorAtEnd = textareaRef.current?.selectionStart === message.length && textareaRef.current?.selectionEnd === message.length;
+        const cursorAtStart = composerRef.current?.getSelection().start === 0 && composerRef.current?.getSelection().end === 0;
+        const cursorAtEnd = composerRef.current?.getSelection().start === message.length && composerRef.current?.getSelection().end === message.length;
         const canNavigateHistoryUp = !isAnyAutocompleteOpen && (message.length === 0 || cursorAtStart);
         const canNavigateHistoryDown = !isAnyAutocompleteOpen && (message.length === 0 || cursorAtEnd);
 
         // Markdown-aware auto-pairing (source mode), normal input only.
         if (inputMode === 'normal' && !isAnyAutocompleteOpen && !e.metaKey && !e.ctrlKey && !e.altKey) {
-            const ta = textareaRef.current;
-            const selStart = ta?.selectionStart ?? -1;
-            const selEnd = ta?.selectionEnd ?? -1;
+            const ta = composerRef.current;
+            const selStart = ta?.getSelection().start ?? -1;
+            const selEnd = ta?.getSelection().end ?? -1;
 
             if (ta && selStart >= 0) {
                 const applyEdit = (next: string, caretStart: number, caretEnd: number) => {
                     e.preventDefault();
                     setMessage(next);
-                    requestAnimationFrame(() => {
-                        const current = textareaRef.current;
-                        if (current) {
-                            current.selectionStart = caretStart;
-                            current.selectionEnd = caretEnd;
-                        }
-                        adjustTextareaHeight();
-                    });
+                    composerRef.current?.setSelection(caretStart, caretEnd);
                     updateAutocompleteState(next, caretEnd);
                 };
 
@@ -2646,7 +2598,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
             // Move cursor to start after history navigation
             requestAnimationFrame(() => {
-                textareaRef.current?.setSelectionRange(0, 0);
+                composerRef.current?.setSelection(0, 0);
             });
             // If at oldest message, do nothing
             return;
@@ -2695,53 +2647,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
     };
 
-    const measureCaretInTextarea = React.useCallback((textarea: HTMLTextAreaElement, cursorPosition: number) => {
-        const doc = textarea.ownerDocument;
-        const win = doc.defaultView;
-        if (!win) return null;
-
-        const style = win.getComputedStyle(textarea);
-        const mirror = doc.createElement('div');
-        const mirrorStyle = mirror.style;
-
-        mirrorStyle.position = 'absolute';
-        mirrorStyle.visibility = 'hidden';
-        mirrorStyle.pointerEvents = 'none';
-        mirrorStyle.whiteSpace = 'pre-wrap';
-        mirrorStyle.wordWrap = 'break-word';
-        mirrorStyle.overflow = 'hidden';
-        mirrorStyle.left = '-9999px';
-        mirrorStyle.top = '0';
-
-        mirrorStyle.width = `${textarea.clientWidth}px`;
-        mirrorStyle.font = style.font;
-        mirrorStyle.fontSize = style.fontSize;
-        mirrorStyle.fontFamily = style.fontFamily;
-        mirrorStyle.fontWeight = style.fontWeight;
-        mirrorStyle.fontStyle = style.fontStyle;
-        mirrorStyle.fontVariant = style.fontVariant;
-        mirrorStyle.letterSpacing = style.letterSpacing;
-        mirrorStyle.textTransform = style.textTransform;
-        mirrorStyle.textIndent = style.textIndent;
-        mirrorStyle.padding = style.padding;
-        mirrorStyle.border = style.border;
-        mirrorStyle.boxSizing = style.boxSizing;
-        mirrorStyle.lineHeight = style.lineHeight;
-        mirrorStyle.tabSize = style.tabSize;
-
-        mirror.textContent = textarea.value.slice(0, cursorPosition);
-        const marker = doc.createElement('span');
-        marker.textContent = textarea.value.slice(cursorPosition, cursorPosition + 1) || ' ';
-        mirror.appendChild(marker);
-
-        doc.body.appendChild(mirror);
-        const top = marker.offsetTop;
-        const left = marker.offsetLeft;
-        doc.body.removeChild(mirror);
-
-        return { top, left };
-    }, []);
-
     const updateAutocompleteOverlayPosition = React.useCallback(() => {
         if (!isDesktopExpanded) {
             setAutocompleteOverlayPosition(null);
@@ -2753,19 +2658,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             return;
         }
 
-        const textarea = textareaRef.current;
+        const editor = composerRef.current;
         const container = dropZoneRef.current;
-        if (!textarea || !container) return;
+        if (!editor || !container) return;
 
-        const cursor = textarea.selectionStart ?? message.length;
-        const caret = measureCaretInTextarea(textarea, cursor);
+        // The editor reports the caret's viewport position directly, so the
+        // popup no longer has to be placed from a hand-measured text mirror.
+        const caret = editor.caretCoords();
         if (!caret) return;
 
-        const textareaRect = textarea.getBoundingClientRect();
         const containerRect = container.getBoundingClientRect();
-
-        const caretY = textareaRect.top - containerRect.top + (caret.top - textarea.scrollTop);
-        const caretX = textareaRect.left - containerRect.left + (caret.left - textarea.scrollLeft);
+        const caretY = caret.top - containerRect.top;
+        const caretX = caret.left - containerRect.left;
 
         const popupMargin = 8;
         const estimatedPopupHeight = 260;
@@ -2789,8 +2693,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         });
     }, [
         isDesktopExpanded,
-        measureCaretInTextarea,
-        message.length,
         showCommandAutocomplete,
         showFileMention,
         showSnippetAutocomplete,
@@ -2850,79 +2752,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }
     }, [agents, currentAgentName, currentSessionId, setAgent, saveSessionAgentSelection]);
 
-    // Height the dictation transcript needs (null when idle): the overlay sits
-    // absolutely over the composer, so the underlying textarea must grow for
-    // the composer to grow — feed this into the autosize below.
-    const dictationContentHeightRef = React.useRef<number | null>(null);
+    // Height the dictation transcript needs (null when idle). Its overlay sits
+    // absolutely over the composer, so the composer must be able to grow for
+    // it. The editor sizes itself to its own content; this is the one external
+    // constraint, applied as a floor on the editor's container.
     const [dictationContentHeight, setDictationContentHeight] = React.useState<number | null>(null);
     const handleDictationContentHeightChange = React.useCallback((height: number | null) => {
         setDictationContentHeight((prev) => (prev === height ? prev : height));
     }, []);
-
-    const adjustTextareaHeight = React.useCallback((options?: { allowShrink?: boolean }) => {
-        const textarea = textareaRef.current;
-        if (!textarea) {
-            return;
-        }
-
-        const previousScrollTop = textarea.scrollTop;
-
-        if (isComposerExpanded) {
-            textarea.style.height = '100%';
-            textarea.style.maxHeight = 'none';
-            setTextareaSize(null);
-            if (textarea.scrollTop !== previousScrollTop) {
-                textarea.scrollTop = previousScrollTop;
-            }
-            return;
-        }
-
-        if (options?.allowShrink ?? true) {
-            textarea.style.height = 'auto';
-        }
-
-        const view = textarea.ownerDocument?.defaultView;
-        const computedStyle = view ? view.getComputedStyle(textarea) : null;
-        const lineHeight = computedStyle ? parseFloat(computedStyle.lineHeight) : NaN;
-        const paddingTop = computedStyle ? parseFloat(computedStyle.paddingTop) : NaN;
-        const paddingBottom = computedStyle ? parseFloat(computedStyle.paddingBottom) : NaN;
-        const fallbackLineHeight = 22;
-        const fallbackPadding = 16;
-        const paddingTotal = Number.isNaN(paddingTop) || Number.isNaN(paddingBottom)
-            ? fallbackPadding
-            : paddingTop + paddingBottom;
-        const targetLineHeight = Number.isNaN(lineHeight) ? fallbackLineHeight : lineHeight;
-        const maxHeight = targetLineHeight * MAX_VISIBLE_TEXTAREA_LINES + paddingTotal;
-        const scrollHeight = textarea.scrollHeight || textarea.offsetHeight;
-        const dictationHeight = dictationContentHeightRef.current ?? 0;
-        const nextHeight = Math.min(Math.max(scrollHeight, dictationHeight), maxHeight);
-
-        textarea.style.height = `${nextHeight}px`;
-        textarea.style.maxHeight = `${maxHeight}px`;
-        if (textarea.scrollTop !== previousScrollTop) {
-            textarea.scrollTop = previousScrollTop;
-        }
-
-        setTextareaSize((prev) => {
-            if (prev && prev.height === nextHeight && prev.maxHeight === maxHeight) {
-                return prev;
-            }
-            return { height: nextHeight, maxHeight };
-        });
-    }, [isComposerExpanded]);
-
-    React.useLayoutEffect(() => {
-        const allowShrink = message.length < previousMessageLengthRef.current;
-        previousMessageLengthRef.current = message.length;
-        adjustTextareaHeight({ allowShrink });
-    }, [adjustTextareaHeight, message, isMobile]);
-
-    React.useLayoutEffect(() => {
-        dictationContentHeightRef.current = dictationContentHeight;
-        // Growing transcript never shrinks mid-recording (matches typing);
-        // dictation ending (null) releases the height back to the message.
-        adjustTextareaHeight({ allowShrink: dictationContentHeight === null });
-    }, [adjustTextareaHeight, dictationContentHeight]);
 
     const updateAutocompleteState = React.useCallback((
         value: string,
@@ -2978,32 +2815,25 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             return;
         }
 
-        const textarea = textareaRef.current;
-        if (!textarea) {
+        const editor = composerRef.current;
+        if (!editor) {
+            // No mounted editor (collapsed mobile pill): append to the state
+            // the editor will be seeded from.
             const nextValue = message + text;
             setMessage(nextValue);
             updateAutocompleteState(nextValue, nextValue.length, inputSource, text);
-            requestAnimationFrame(() => adjustTextareaHeight());
             return;
         }
 
-        const start = textarea.selectionStart ?? message.length;
-        const end = textarea.selectionEnd ?? message.length;
+        const { start, end } = editor.getSelection();
         const nextValue = `${message.substring(0, start)}${text}${message.substring(end)}`;
-        setMessage(nextValue);
         const cursorPosition = start + text.length;
 
-        requestAnimationFrame(() => {
-            const currentTextarea = textareaRef.current;
-            if (currentTextarea) {
-                currentTextarea.selectionStart = cursorPosition;
-                currentTextarea.selectionEnd = cursorPosition;
-            }
-            adjustTextareaHeight();
-        });
-
+        // One dispatch places both the text and the caret, so there is no
+        // frame where the caret sits at a stale offset.
+        editor.insertText(text);
         updateAutocompleteState(nextValue, cursorPosition, inputSource, text);
-    }, [adjustTextareaHeight, message, updateAutocompleteState]);
+    }, [message, updateAutocompleteState]);
 
     const clearDropTextSuppression = React.useCallback(() => {
         suppressNextFileDropTextInsertRef.current = false;
@@ -3042,65 +2872,39 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         }, 700);
     }, []);
 
-    const handleBeforeInput = React.useCallback((e: React.FormEvent<HTMLTextAreaElement>) => {
-        if (!isVSCodeRuntime() || !suppressNextFileDropTextInsertRef.current) {
-            return;
-        }
-
-        const nativeInputEvent = e.nativeEvent as InputEvent | undefined;
-        if (nativeInputEvent?.inputType === 'insertFromDrop') {
-            e.preventDefault();
-            clearDropTextSuppression();
-        }
-    }, [clearDropTextSuppression]);
-
-    const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const nativeInputEvent = e.nativeEvent as InputEvent | undefined;
+    const handleComposerChange = ({ value, selection, fromPaste, insertedText }: ComposerChange) => {
+        // VS Code drops the dragged path as text as well as firing the drop
+        // handler; swallow that duplicate insertion.
         if (isVSCodeRuntime() && suppressNextFileDropTextInsertRef.current) {
             const candidateAbsolutePaths = pendingDroppedAbsolutePathsRef.current;
-            const isLikelyDropTextInsertion = nativeInputEvent?.inputType === 'insertFromDrop'
-                || candidateAbsolutePaths.some((path) => path.length > 0 && e.target.value.includes(path));
-
-            if (isLikelyDropTextInsertion) {
+            if (candidateAbsolutePaths.some((path) => path.length > 0 && value.includes(path))) {
                 clearDropTextSuppression();
                 return;
             }
         }
 
-        const value = e.target.value;
-        const cursorPosition = e.target.selectionStart ?? value.length;
-        const pastedInsertedText = nativeInputEvent?.inputType?.startsWith('insertFromPaste')
-            ? getInsertedTextFromChange(messageRef.current, value)
-            : '';
+        const pastedInsertedText = fromPaste ? insertedText : '';
         const isPasteInput = pastedInsertedText.includes('@') || suppressNextFileMentionPasteRef.current;
         if (suppressNextFileMentionPasteRef.current) {
             clearFileMentionPasteSuppression();
         }
-        const inputSource: FileMentionAutocompleteInputSource = isPasteInput
-            ? 'paste'
-            : 'manual';
+        const inputSource: FileMentionAutocompleteInputSource = isPasteInput ? 'paste' : 'manual';
 
+        // A leading `!` switches the composer into shell mode and is consumed.
         if (inputMode === 'normal' && value.startsWith('!')) {
             const shellCommand = value.slice(1);
-            const nextCursor = Math.max(0, cursorPosition - 1);
+            const nextCursor = Math.max(0, selection.start - 1);
             setInputMode('shell');
             setMessage(shellCommand);
-            adjustTextareaHeight();
             setShowCommandAutocomplete(false);
             setShowSkillAutocomplete(false);
             setShowFileMention(false);
-            requestAnimationFrame(() => {
-                if (textareaRef.current) {
-                    textareaRef.current.selectionStart = nextCursor;
-                    textareaRef.current.selectionEnd = nextCursor;
-                }
-            });
+            requestAnimationFrame(() => composerRef.current?.setSelection(nextCursor));
             return;
         }
 
         setMessage(value);
-        adjustTextareaHeight();
-        updateAutocompleteState(value, cursorPosition, inputSource, pastedInsertedText);
+        updateAutocompleteState(value, selection.start, inputSource, pastedInsertedText);
     };
 
     React.useEffect(() => {
@@ -3110,13 +2914,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         };
     }, [clearDropTextSuppression, clearFileMentionPasteSuppression]);
 
-    const handlePaste = React.useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const handlePaste = React.useCallback(async (event: ClipboardEvent) => {
+        const clipboardData = event.clipboardData;
+        if (!clipboardData) return;
+        // Narrowed alias so the rest of the handler reads as it did when this
+        // was a React synthetic event, whose clipboardData is never null.
+        const e = { ...event, clipboardData, preventDefault: () => event.preventDefault() };
+
         // Pasting a URL over a selection wraps it as a markdown link:
         // [selected text](pasted url).
         if (inputMode === 'normal' && (currentSessionId || newSessionDraftOpen)) {
-            const ta = textareaRef.current;
-            const selStart = ta?.selectionStart ?? -1;
-            const selEnd = ta?.selectionEnd ?? -1;
+            const ta = composerRef.current;
+            const selStart = ta?.getSelection().start ?? -1;
+            const selEnd = ta?.getSelection().end ?? -1;
             if (ta && selEnd > selStart) {
                 const clipboardText = e.clipboardData.getData('text');
                 const url = clipboardText.trim();
@@ -3131,14 +2941,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     const next = `${message.slice(0, selStart)}[${selected}](${url})${message.slice(selEnd)}`;
                     const caret = selStart + 1 + selected.length + 2 + url.length + 1;
                     setMessage(next);
-                    requestAnimationFrame(() => {
-                        const current = textareaRef.current;
-                        if (current) {
-                            current.selectionStart = caret;
-                            current.selectionEnd = caret;
-                        }
-                        adjustTextareaHeight();
-                    });
+                    composerRef.current?.setSelection(caret, caret);
                     updateAutocompleteState(next, caret, getFileMentionInputSourceForInsertedText(url), url);
                     return;
                 }
@@ -3188,9 +2991,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             ],
         );
         const citationText = buildAttachmentCitationText(assignedFilenames);
-        const textarea = textareaRef.current;
-        const selectionStart = textarea?.selectionStart ?? message.length;
-        const selectionEnd = textarea?.selectionEnd ?? message.length;
+        const textarea = composerRef.current;
+        const selectionStart = textarea?.getSelection().start ?? message.length;
+        const selectionEnd = textarea?.getSelection().end ?? message.length;
         const insertionText = withInlineInsertionBoundaries(
             buildImagePasteInsertion(pastedText, citationText),
             message.slice(0, selectionStart),
@@ -3212,11 +3015,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 pendingPastedAttachmentFilenamesRef.current.delete(filename);
             }
         }
-    }, [addAttachedFile, attachedFiles, adjustTextareaHeight, currentSessionId, inputMode, markFileMentionPasteSuppression, message, newSessionDraftOpen, insertTextAtSelection, setMessage, t, updateAutocompleteState]);
+    }, [addAttachedFile, attachedFiles, currentSessionId, inputMode, markFileMentionPasteSuppression, message, newSessionDraftOpen, insertTextAtSelection, setMessage, t, updateAutocompleteState]);
 
     const handleFileSelect = (file: { name: string; path: string; relativePath?: string }) => {
 
-        const cursorPosition = textareaRef.current?.selectionStart || 0;
+        const cursorPosition = composerRef.current?.getSelection().start || 0;
         const textBeforeCursor = message.substring(0, cursorPosition);
         const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
 
@@ -3234,14 +3037,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             setMessage(newMessage);
             const nextCursor = lastAtSymbol + mentionPath.length + 2;
             requestAnimationFrame(() => {
-                if (textareaRef.current) {
-                    textareaRef.current.selectionStart = nextCursor;
-                    textareaRef.current.selectionEnd = nextCursor;
+                if (composerRef.current) {
+                    composerRef.current.setSelection(nextCursor);
                 }
-                adjustTextareaHeight();
                 updateAutocompleteState(newMessage, nextCursor);
             });
-        } else if (textareaRef.current) {
+        } else if (composerRef.current) {
             const newMessage =
                 message.substring(0, cursorPosition) +
                 `@${mentionPath} ` +
@@ -3249,11 +3050,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             setMessage(newMessage);
             const nextCursor = cursorPosition + mentionPath.length + 2;
             requestAnimationFrame(() => {
-                if (textareaRef.current) {
-                    textareaRef.current.selectionStart = nextCursor;
-                    textareaRef.current.selectionEnd = nextCursor;
+                if (composerRef.current) {
+                    composerRef.current.setSelection(nextCursor);
                 }
-                adjustTextareaHeight();
                 updateAutocompleteState(newMessage, nextCursor);
             });
         }
@@ -3261,12 +3060,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         setShowFileMention(false);
         setMentionQuery('');
 
-        textareaRef.current?.focus();
+        composerRef.current?.focus();
     };
 
     const handleAgentSelect = (agentName: string) => {
-        const textarea = textareaRef.current;
-        const cursorPosition = textarea?.selectionStart ?? message.length;
+        const textarea = composerRef.current;
+        const cursorPosition = textarea?.getSelection().start ?? message.length;
         const textBeforeCursor = message.substring(0, cursorPosition);
         const lastAtSymbol = textBeforeCursor.lastIndexOf('@');
 
@@ -3279,14 +3078,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
             const nextCursor = lastAtSymbol + agentName.length + 2;
             requestAnimationFrame(() => {
-                if (textareaRef.current) {
-                    textareaRef.current.selectionStart = nextCursor;
-                    textareaRef.current.selectionEnd = nextCursor;
+                if (composerRef.current) {
+                    composerRef.current.setSelection(nextCursor);
                 }
-                adjustTextareaHeight();
                 updateAutocompleteState(newMessage, nextCursor);
             });
-        } else if (textareaRef.current) {
+        } else if (composerRef.current) {
             const newMessage =
                 message.substring(0, cursorPosition) +
                 `@${agentName} ` +
@@ -3295,11 +3092,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
             const nextCursor = cursorPosition + agentName.length + 2;
             requestAnimationFrame(() => {
-                if (textareaRef.current) {
-                    textareaRef.current.selectionStart = nextCursor;
-                    textareaRef.current.selectionEnd = nextCursor;
+                if (composerRef.current) {
+                    composerRef.current.setSelection(nextCursor);
                 }
-                adjustTextareaHeight();
                 updateAutocompleteState(newMessage, nextCursor);
             });
         }
@@ -3307,12 +3102,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         setShowFileMention(false);
         setMentionQuery('');
 
-        textareaRef.current?.focus();
+        composerRef.current?.focus();
     };
 
     const handleSkillSelect = (skillName: string) => {
-        const textarea = textareaRef.current;
-        const cursorPosition = textarea?.selectionStart ?? message.length;
+        const textarea = composerRef.current;
+        const cursorPosition = textarea?.getSelection().start ?? message.length;
         const textBeforeCursor = message.substring(0, cursorPosition);
         const lastSlashSymbol = textBeforeCursor.lastIndexOf('/');
 
@@ -3325,11 +3120,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
             const nextCursor = lastSlashSymbol + skillName.length + 2;
             requestAnimationFrame(() => {
-                if (textareaRef.current) {
-                    textareaRef.current.selectionStart = nextCursor;
-                    textareaRef.current.selectionEnd = nextCursor;
+                if (composerRef.current) {
+                    composerRef.current.setSelection(nextCursor);
                 }
-                adjustTextareaHeight();
                 updateAutocompleteState(newMessage, nextCursor);
             });
         }
@@ -3337,12 +3130,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         setShowSkillAutocomplete(false);
         setSkillQuery('');
 
-        textareaRef.current?.focus();
+        composerRef.current?.focus();
     };
 
     const handleSnippetSelect = (_snippet: unknown, trigger: string) => {
-        const textarea = textareaRef.current;
-        const cursorPosition = textarea?.selectionStart ?? message.length;
+        const textarea = composerRef.current;
+        const cursorPosition = textarea?.getSelection().start ?? message.length;
         const textBeforeCursor = message.substring(0, cursorPosition);
         const lastHashSymbol = textBeforeCursor.lastIndexOf('#');
         const startIndex = lastHashSymbol !== -1 ? lastHashSymbol : cursorPosition;
@@ -3350,38 +3143,31 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         setMessage(newMessage);
         const nextCursor = startIndex + trigger.length + 2;
         requestAnimationFrame(() => {
-            if (textareaRef.current) {
-                textareaRef.current.selectionStart = nextCursor;
-                textareaRef.current.selectionEnd = nextCursor;
+            if (composerRef.current) {
+                composerRef.current.setSelection(nextCursor);
             }
-            adjustTextareaHeight();
             updateAutocompleteState(newMessage, nextCursor);
         });
         setShowSnippetAutocomplete(false);
         setSnippetQuery('');
-        textareaRef.current?.focus();
+        composerRef.current?.focus();
     };
 
     const handleCommandSelect = (command: CommandInfo) => {
 
         setMessage(`/${command.name} `);
 
-        const textareaElement = textareaRef.current as HTMLTextAreaElement & { _commandMetadata?: typeof command };
-        if (textareaElement) {
-            textareaElement._commandMetadata = command;
-        }
-
         setShowCommandAutocomplete(false);
         setCommandQuery('');
 
         const refocus = () => {
-            if (textareaRef.current) {
+            if (composerRef.current) {
                 try {
-                    textareaRef.current.focus({ preventScroll: true });
+                    composerRef.current.focus({ preventScroll: true });
                 } catch {
-                    textareaRef.current.focus();
+                    composerRef.current.focus();
                 }
-                textareaRef.current.setSelectionRange(textareaRef.current.value.length, textareaRef.current.value.length);
+                composerRef.current.setSelection(composerRef.current.getValue().length, composerRef.current.getValue().length);
             }
         };
 
@@ -3394,8 +3180,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
     React.useEffect(() => {
 
-        if (currentSessionId && textareaRef.current && !isMobile) {
-            textareaRef.current.focus();
+        if (currentSessionId && composerRef.current && !isMobile) {
+            composerRef.current.focus();
         }
     }, [currentSessionId, isMobile]);
 
@@ -3609,11 +3395,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (internalPath && internalPath !== '.') {
             confirmedMentionsRef.current.add(internalPath);
             const mention = `@${internalPath}`;
-            const textarea = textareaRef.current;
+            const textarea = composerRef.current;
             const currentMessage = messageRef.current;
             if (textarea) {
-                const pos = textarea.selectionStart ?? cursorPosRef.current;
-                const end = textarea.selectionEnd ?? pos;
+                const pos = textarea.getSelection().start ?? cursorPosRef.current;
+                const end = textarea.getSelection().end ?? pos;
                 const before = currentMessage.slice(0, pos);
                 const after = currentMessage.slice(end);
                 const needSpaceBefore = before.length > 0 && !/\s$/.test(before);
@@ -3623,8 +3409,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 setMessage(nextMessage);
                 requestAnimationFrame(() => {
                     const cursorPos = pos + insert.length;
-                    textarea.selectionStart = cursorPos;
-                    textarea.selectionEnd = cursorPos;
+                    textarea.getSelection().start = cursorPos;
+                    textarea.getSelection().end = cursorPos;
                     cursorPosRef.current = cursorPos;
                     textarea.focus();
                 });
@@ -4073,7 +3859,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // browser's own scroll-into-view must stay off. Mobile BROWSERS have no
         // choreography — the native reveal (viewport pan that lifts the focused
         // field above the keyboard) is the only thing that moves the composer.
-        textareaRef.current?.focus({ preventScroll: isCapacitorApp() });
+        composerRef.current?.focus({ preventScroll: isCapacitorApp() });
     }, []);
 
     const applyAssistSuggestion = React.useCallback((text: string) => {
@@ -4081,7 +3867,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (isMobile && !mobileComposerExpanded) {
             expandMobileComposer('focus');
         } else {
-            requestAnimationFrame(() => textareaRef.current?.focus());
+            requestAnimationFrame(() => composerRef.current?.focus());
         }
     }, [expandMobileComposer, isMobile, mobileComposerExpanded]);
 
@@ -4097,7 +3883,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // lands. The trigger button blocks the tap's own focus transfer, so
         // the keyboard must be dismissed explicitly here.
         setMobileAttachMenuOpen(true);
-        textareaRef.current?.blur();
+        composerRef.current?.blur();
     }, []);
 
     const mobileComposerExpandedRef = React.useRef(mobileComposerExpanded);
@@ -4122,7 +3908,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         // parking on the normal composer for the usual grace period.
         window.setTimeout(() => {
             if (!mobileComposerExpandedRef.current) return;
-            if (document.activeElement === textareaRef.current) return;
+            if (composerRef.current?.isFocused()) return;
             setMobileComposerExpanded(false);
             setExpandedInput(false);
         }, 30);
@@ -4194,13 +3980,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             // that closed the overlay finishes over non-input content — hold
             // focus through that window (see the onBlur guard).
             holdComposerFocusUntilRef.current = Date.now() + 600;
-            textareaRef.current?.focus();
+            composerRef.current?.focus();
             // The native focus lands mid-commit; React's delegated onFocus may
             // not make it into this flush, leaving mobileComposerBusy false for
             // a beat — enough for the pill-collapse timer to unmount the
             // focused textarea and kill the rising keyboard. Set the state
             // explicitly instead of relying on the synthetic event.
-            if (document.activeElement === textareaRef.current) {
+            if (composerRef.current?.isFocused()) {
                 setMobileTextareaFocused(true);
             }
             // iOS reveals a field above the keyboard only for user-initiated
@@ -4209,12 +3995,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             // screen's pinned form ignores these no-op scrolls). Reveal once
             // the keyboard has mostly risen, and again after it settles.
             const reveal = () => {
-                const ta = textareaRef.current;
-                if (!ta || document.activeElement !== ta) return;
+                const editor = composerRef.current;
+                if (!editor || !editor.isFocused()) return;
                 // Align the BOTTOM of the whole composer form with the visible
                 // bottom: 'nearest' on the textarea alone leaves the footer
                 // icon row parked behind the keyboard accessory bar.
-                (composerFormRef.current ?? ta).scrollIntoView({ block: 'end' });
+                (composerFormRef.current ?? editor.getScrollDOM())?.scrollIntoView({ block: 'end' });
             };
             window.setTimeout(reveal, 300);
             window.setTimeout(reveal, 650);
@@ -4243,7 +4029,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         const timer = window.setTimeout(() => {
             restoreKeyboardAfterOverlayRef.current = false;
             // Browsers need their native scroll-into-view (see expandMobileComposer).
-            textareaRef.current?.focus({ preventScroll: isCapacitorApp() });
+            composerRef.current?.focus({ preventScroll: isCapacitorApp() });
         }, 180);
         return () => window.clearTimeout(timer);
     }, [isMobile, mobileOverlayOpen, mobileTextareaFocused]);
@@ -4266,7 +4052,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             // Authoritative DOM check: the React focus state can lag a
             // programmatic refocus (overlay-close keyboard restore). Collapsing
             // would unmount the focused textarea and kill the keyboard.
-            if (document.activeElement === textareaRef.current) return;
+            if (composerRef.current?.isFocused()) return;
             mobileExpandIntentRef.current = null;
             setMobileComposerExpanded(false);
             setExpandedInput(false);
@@ -4357,7 +4143,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             if (isExpandedInput) {
                 setExpandedInput(false);
             } else {
-                textareaRef.current?.blur();
+                composerRef.current?.blur();
             }
         }
     }, [isExpandedInput, setExpandedInput]);
@@ -4377,7 +4163,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (!isMobile || !isMobileExpanded || isCapacitorApp()) return;
         const vv = window.visualViewport;
         const form = composerFormRef.current;
-        const textarea = textareaRef.current;
+        const editor = composerRef.current;
         if (!vv || !form) return;
         // The form is trapped inside lower stacking contexts (the composer
         // wrapper's z-10), so it cannot out-stack the app header with z-index
@@ -4419,8 +4205,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             // session and won't re-reveal the (still focused) field on its own,
             // which left the composer parked behind the keyboard.
             requestAnimationFrame(() => {
-                if (textarea && document.activeElement === textarea) {
-                    textarea.scrollIntoView({ block: 'nearest' });
+                if (editor?.isFocused()) {
+                    editor.getScrollDOM()?.scrollIntoView({ block: 'nearest' });
                 }
             });
         };
@@ -5145,61 +4931,33 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             <AttachedVSCodeFileChips onShowPopup={handleShowAttachmentPreview} />
                             <ActiveEditorFileSuggestion />
                         </div>
-                        <div className={cn("relative overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
-                            {/* No highlight mirror on mobile: over wrapped text its
-                                layout drifts from the real textarea, which visually
-                                misplaces the caret. Plain textarea text keeps caret
-                                and text in the same layout. */}
-                            {highlightedComposerContent && !isMobile && (
-                                <div
-                                    aria-hidden
-                                    className={cn(
-                                        'pointer-events-none absolute inset-0 z-0 whitespace-pre-wrap break-words px-3 rounded-b-none',
-                                        isComposerExpanded
-                                            ? cn('h-full min-h-0', isMobile ? 'py-2.5' : 'py-4')
-                                            : isMobile
-                                                ? 'py-2.5'
-                                                : 'pt-4 pb-2',
-                                        inputMode === 'shell' ? 'font-mono' : 'typography-markdown md:typography-ui-label',
-                                    )}
-                                    ref={composerHighlightRef}
-                                >
-                                    {highlightedComposerContent.map((part, index) => (
-                                        <span
-                                            key={`${index}-${part.text.length}`}
-                                            className={part.className}
-                                        >
-                                            {part.text}
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
-                            <Textarea
-                                simple
-                                ref={textareaRef}
-                                data-chat-input="true"
+                        <div
+                            className={cn("relative overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}
+                            onDragEnter={handleDragEnter}
+                            onDragOver={handleDragOver}
+                            onDropCapture={handleDropCapture}
+                            onDrop={handleDrop}
+                            onDragEnd={handleDragEnd}
+                            style={dictationContentHeight !== null
+                                ? { minHeight: `${dictationContentHeight}px` }
+                                : undefined}
+                        >
+                            <ComposerEditor
+                                ref={composerRef}
+                                data-testid="chat-input"
                                 value={message}
-                                onChange={handleTextChange}
-                                onBeforeInput={handleBeforeInput}
-                                onKeyDown={handleKeyDown}
-                                onPaste={handlePaste}
-                                onDragEnter={handleDragEnter}
-                                onDragOver={handleDragOver}
-                                onDropCapture={handleDropCapture}
-                                onDrop={handleDrop}
-                                onDragEnd={handleDragEnd}
-                                onKeyUp={updateAutocompleteOverlayPosition}
-                                onClick={updateAutocompleteOverlayPosition}
-                                onScroll={(event) => {
-                                    updateAutocompleteOverlayPosition();
-                                    const scrollTop = event.currentTarget.scrollTop;
-                                    if (composerHighlightRef.current) {
-                                        composerHighlightRef.current.style.transform = `translateY(-${scrollTop}px)`;
-                                    }
+                                languageContext={languageContext}
+                                onChange={handleComposerChange}
+                                onKeyDown={(event) => {
+                                    // Every interception branch calls
+                                    // preventDefault, so the event itself
+                                    // reports whether the composer consumed it.
+                                    handleKeyDown(event);
+                                    return event.defaultPrevented;
                                 }}
-                                onSelect={(e) => {
-                                    const ta = e.currentTarget;
-                                    cursorPosRef.current = ta.selectionStart ?? 0;
+                                onPaste={handlePaste}
+                                onSelectionChange={(selection) => {
+                                    cursorPosRef.current = selection.start;
                                     updateAutocompleteOverlayPosition();
                                 }}
                                 onFocus={() => {
@@ -5218,12 +4976,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                     // closing tap settles — take the focus right
                                     // back instead of accepting the blur.
                                     if (Date.now() < holdComposerFocusUntilRef.current) {
-                                        const ta = textareaRef.current;
+                                        const ta = composerRef.current;
                                         if (ta) {
                                             ta.focus();
                                             window.setTimeout(() => {
                                                 if (Date.now() < holdComposerFocusUntilRef.current
-                                                    && document.activeElement !== ta) {
+                                                    && !ta.isFocused()) {
                                                     ta.focus();
                                                 }
                                             }, 50);
@@ -5261,30 +5019,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                         ? t('chat.chatInput.placeholder.shell')
                                         : t(useCompactChatPlaceholder ? 'chat.chatInput.placeholder.chatCompact' : 'chat.chatInput.placeholder.chat')
                                     : t('chat.chatInput.placeholder.selectSession')}
-                                disabled={!currentSessionId && !newSessionDraftOpen}
-                                autoCorrect={isMobile ? "on" : "off"}
-                                autoCapitalize={isMobile ? "sentences" : "off"}
+                                editable={Boolean(currentSessionId || newSessionDraftOpen)}
+                                autoCorrect={isMobile}
+                                autoCapitalize={isMobile ? 'sentences' : 'none'}
                                 spellCheck={isMobile || inputSpellcheckEnabled}
                                 fillContainer={isComposerExpanded}
-                                outerClassName={cn('ring-0 bg-transparent shadow-none hover:bg-transparent focus-within:ring-0', isComposerExpanded && 'flex-1 min-h-0')}
+                                maxLines={MAX_VISIBLE_COMPOSER_LINES}
                                 className={cn(
-                                    'min-h-[52px] resize-none border-0 px-3 rounded-b-none appearance-none hover:border-transparent bg-transparent relative z-10',
+                                    'min-h-[52px] px-3 relative z-10',
                                     isComposerExpanded
                                         ? cn('h-full min-h-0', isMobile ? 'py-2.5' : 'py-4')
                                         : isMobile
                                             ? 'py-2.5'
                                             : 'pt-4 pb-2',
-                                    inputMode === 'shell' && 'font-mono',
-                                    highlightedComposerContent && !isMobile && 'text-transparent caret-[var(--surface-foreground)]',
+                                    inputMode === 'shell' ? 'font-mono' : 'typography-markdown md:typography-ui-label',
                                 )}
-                                style={{
-                                    flex: isComposerExpanded ? '1 1 auto' : 'none',
-                                    height: !isComposerExpanded && textareaSize ? `${textareaSize.height}px` : undefined,
-                                    maxHeight: !isComposerExpanded && textareaSize ? `${textareaSize.maxHeight}px` : undefined,
-                                    borderTopLeftRadius: chatInputRadius,
-                                    borderTopRightRadius: chatInputRadius,
-                                }}
-                                rows={1}
                             />
                         </div>
                     </div>
