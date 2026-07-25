@@ -117,6 +117,21 @@ import {
     type ComposerChange,
     type ComposerEditorHandle,
 } from './composer/editor/ComposerEditor';
+import {
+    appendInlineText,
+    appendWithLineBreaks,
+    buildImagePasteInsertion,
+    shouldWrapSelectionAsLink,
+    withInlineInsertionBoundaries,
+} from './composer/text';
+import {
+    normalizeDroppedPath,
+    normalizePath,
+    parseDroppedFileReferences,
+    toProjectRelativeMentionPath,
+    toServerFileUrl,
+    VS_CODE_DROP_DATA_TYPES,
+} from './composer/attachments/filePaths';
 import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 import { SessionGoalButton, SessionGoalObjectiveCounter } from '@/components/chat/SessionGoalButton';
@@ -124,22 +139,11 @@ import type { Part } from '@opencode-ai/sdk/v2/client';
 
 const MAX_VISIBLE_COMPOSER_LINES = 8;
 const EMPTY_QUEUE: QueuedMessage[] = [];
-// Single-line URL pasted over a selection becomes a markdown link.
-const PASTE_LINK_URL_PATTERN = /^(https?:\/\/|mailto:)\S+$/i;
 const CHAT_DRAFT_PERSIST_DEBOUNCE_MS = 500;
 const getChatDraftSnapshotSignature = (text: string, confirmedMentions: Iterable<string>): string => (
     `${text}\u0000${[...confirmedMentions].sort().join('\u0000')}`
 );
 const COMPACT_CHAT_PLACEHOLDER_MAX_WIDTH = 560;
-const VS_CODE_DROP_DATA_TYPES = [
-    'CodeFiles',
-    'codefiles',
-    'application/vnd.code.tree',
-    'application/vnd.code.tree.explorer',
-    'text/uri-list',
-    'text/plain',
-];
-
 const renameFileForAttachmentCitation = (file: File, filename: string): File => {
     if (file.name === filename) {
         return file;
@@ -151,34 +155,9 @@ const renameFileForAttachmentCitation = (file: File, filename: string): File => 
     });
 };
 
-const buildImagePasteInsertion = (pastedText: string, citationText: string): string => {
-    const text = pastedText;
-    if (!text) {
-        return citationText;
-    }
-    return `${text}${/\s$/.test(text) ? '' : ' '}${citationText}`;
-};
-
 const getFileMentionInputSourceForInsertedText = (insertedText: string): FileMentionAutocompleteInputSource => (
     insertedText.includes('@') ? 'paste' : 'manual'
 );
-
-const withInlineInsertionBoundaries = (content: string, before: string, after: string): string => {
-    if (!content) {
-        return content;
-    }
-
-    const needsLeadingSpace = before.length > 0
-        && !/\s$/.test(before)
-        && !/^\s/.test(content)
-        && !/[([{]$/.test(before);
-    const needsTrailingSpace = after.length > 0
-        && !/\s$/.test(content)
-        && !/^\s/.test(after)
-        && !/^[\])}.,;:!?]/.test(after);
-
-    return `${needsLeadingSpace ? ' ' : ''}${content}${needsTrailingSpace ? ' ' : ''}`;
-};
 
 /**
  * Skills the user named inline with `/name`. Matched against the registry's
@@ -215,132 +194,6 @@ const getRevertedPreview = (parts: Part[], fallback: string): string => {
     if (text) return text;
     const filePart = parts.find((part) => part.type === 'file') as (Part & { filename?: string }) | undefined;
     return filePart?.filename ? `[${filePart.filename}]` : fallback;
-};
-
-const FILE_URI_PREFIX = 'file://';
-
-const encodeFilePath = (filepath: string): string => {
-    let normalized = filepath.replace(/\\/g, '/');
-    if (/^[A-Za-z]:/.test(normalized)) {
-        normalized = `/${normalized}`;
-    }
-    return normalized
-        .split('/')
-        .map((segment, index) => {
-            if (index === 1 && /^[A-Za-z]:$/.test(segment)) return segment;
-            return encodeURIComponent(segment);
-        })
-        .join('/');
-};
-
-const toServerFileUrl = (filepath: string): string => {
-    const normalized = filepath.replace(/\\/g, '/').trim();
-    if (normalized.toLowerCase().startsWith(FILE_URI_PREFIX)) {
-        return normalized;
-    }
-    return `file://${encodeFilePath(normalized)}`;
-};
-
-const isLikelyAbsolutePath = (value: string): boolean => (
-    value.startsWith('/')
-    || value.startsWith('\\\\')
-    || /^[A-Za-z]:[\\/]/.test(value)
-);
-
-const toLikelyFileDropReference = (value: string): string | null => {
-    const trimmed = value.trim().replace(/^['"]+|['"]+$/g, '');
-    if (!trimmed) {
-        return null;
-    }
-
-    if (/[\r\n]/.test(trimmed)) {
-        return null;
-    }
-
-    if (trimmed.toLowerCase().startsWith(FILE_URI_PREFIX)) {
-        return trimmed;
-    }
-
-    if (isLikelyAbsolutePath(trimmed)) {
-        return trimmed;
-    }
-
-    return null;
-};
-
-const collectStringLeaves = (input: unknown, output: Set<string>, depth = 0): void => {
-    if (depth > 6 || input == null) {
-        return;
-    }
-
-    if (typeof input === 'string') {
-        output.add(input);
-        return;
-    }
-
-    if (Array.isArray(input)) {
-        for (const item of input) {
-            collectStringLeaves(item, output, depth + 1);
-        }
-        return;
-    }
-
-    if (typeof input !== 'object') {
-        return;
-    }
-
-    for (const value of Object.values(input)) {
-        collectStringLeaves(value, output, depth + 1);
-    }
-};
-
-const parseDroppedFileReferences = (rawPayload: string): string[] => {
-    const extracted = new Set<string>();
-
-    const addCandidatesFromText = (value: string): void => {
-        const direct = toLikelyFileDropReference(value);
-        if (direct) {
-            extracted.add(direct);
-            return;
-        }
-
-        for (const line of value.split(/\r?\n/)) {
-            const candidate = toLikelyFileDropReference(line);
-            if (candidate) {
-                extracted.add(candidate);
-            }
-        }
-    };
-
-    addCandidatesFromText(rawPayload);
-
-    try {
-        const parsed = JSON.parse(rawPayload) as unknown;
-        const leaves = new Set<string>();
-        collectStringLeaves(parsed, leaves);
-        for (const leaf of leaves) {
-            addCandidatesFromText(leaf);
-        }
-    } catch {
-        // Ignore non-JSON payloads.
-    }
-
-    return Array.from(extracted);
-};
-
-const normalizePath = (value?: string | null): string | null => {
-    if (typeof value !== 'string') {
-        return null;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-        return null;
-    }
-    const normalized = trimmed.replace(/\\/g, '/');
-    if (normalized === '/') {
-        return '/';
-    }
-    return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
 };
 
 const getProjectDisplayLabel = (project: { label?: string; path: string }): string => {
@@ -859,36 +712,6 @@ const ComposerActionButtons = React.memo(function ComposerActionButtons(props: C
     && prev.onQueueMessage === next.onQueueMessage
     && prev.onAbort === next.onAbort
 ));
-
-const appendWithLineBreaks = (base: string, next: string): string => {
-    const separator = !base
-        ? ''
-        : base.endsWith('\n\n')
-            ? ''
-            : base.endsWith('\n')
-                ? '\n'
-                : '\n\n';
-
-    const nextWithTrailingBreaks = next.endsWith('\n\n')
-        ? next
-        : next.endsWith('\n')
-            ? `${next}\n`
-            : `${next}\n\n`;
-
-    return `${base}${separator}${nextWithTrailingBreaks}`;
-};
-
-const appendInlineText = (base: string, next: string): string => {
-    const nextTrimmed = next.trim();
-    if (!nextTrimmed) {
-        return base;
-    }
-    if (!base) {
-        return `${nextTrimmed} `;
-    }
-    const separator = /[\s\n]$/.test(base) ? '' : ' ';
-    return `${base}${separator}${nextTrimmed} `;
-};
 
 interface ChatInputProps {
     onOpenSettings?: () => void;
@@ -2931,12 +2754,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 const clipboardText = e.clipboardData.getData('text');
                 const url = clipboardText.trim();
                 const selected = message.slice(selStart, selEnd);
-                if (
-                    PASTE_LINK_URL_PATTERN.test(url)
-                    && !/\s/.test(url)
-                    && selected.trim().length > 0
-                    && !selected.includes('](')
-                ) {
+                if (shouldWrapSelectionAsLink(url, selected)) {
                     e.preventDefault();
                     const next = `${message.slice(0, selStart)}[${selected}](${url})${message.slice(selEnd)}`;
                     const caret = selStart + 1 + selected.length + 2 + url.length + 1;
@@ -3025,7 +2843,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         const mentionPath = (file.relativePath && file.relativePath.trim().length > 0)
             ? file.relativePath.trim()
-            : (toProjectRelativeMentionPath(file.path) || file.name);
+            : (toMentionPath(file.path) || file.name);
 
         confirmedMentionsRef.current.add(mentionPath);
 
@@ -3269,50 +3087,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         return Array.from(extracted);
     }, []);
 
-    const normalizeDroppedPath = React.useCallback((rawPath: string): string => {
-        const input = rawPath.trim();
-        if (!input.toLowerCase().startsWith('file://')) {
-            return input;
-        }
-
-        try {
-            let pathname = decodeURIComponent(new URL(input).pathname || '');
-            if (/^\/[A-Za-z]:\//.test(pathname)) {
-                pathname = pathname.slice(1);
-            }
-            return pathname || input;
-        } catch {
-            const stripped = input.replace(/^file:\/\//i, '');
-            try {
-                return decodeURIComponent(stripped);
-            } catch {
-                return stripped;
-            }
-        }
-    }, []);
-
-    const toProjectRelativeMentionPath = React.useCallback((absolutePath: string): string => {
-        const normalizedAbsolutePath = absolutePath.replace(/\\/g, '/').trim();
-        const normalizedRoot = (chatSearchDirectory || '').replace(/\\/g, '/').replace(/\/+$/, '');
-        if (!normalizedRoot) {
-            return normalizedAbsolutePath;
-        }
-        if (normalizedAbsolutePath === normalizedRoot) {
-            return normalizedAbsolutePath;
-        }
-        const rootWithSlash = `${normalizedRoot}/`;
-        if (normalizedAbsolutePath.startsWith(rootWithSlash)) {
-            return normalizedAbsolutePath.slice(rootWithSlash.length);
-        }
-        return normalizedAbsolutePath;
-    }, [chatSearchDirectory]);
+    // Mention paths are shown relative to the project the chat searches.
+    const toMentionPath = React.useCallback(
+        (absolutePath: string) => toProjectRelativeMentionPath(absolutePath, chatSearchDirectory || ""),
+        [chatSearchDirectory],
+    );
 
     const addVSCodeDroppedUrisAsMentions = React.useCallback((uris: string[]) => {
         if (uris.length === 0) return;
 
         const paths = uris
             .map((entry) => normalizeDroppedPath(entry))
-            .map((entry) => toProjectRelativeMentionPath(entry))
+            .map((entry) => toMentionPath(entry))
             .map((entry) => entry.trim().replace(/^\.\//, ''))
             .filter((entry) => entry.length > 0);
 
@@ -3328,7 +3114,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 
         setPendingInputText(mentions.join(' '), 'append-inline');
         toast.success(t('chat.chatInput.toast.addedFileMentions', { count: mentions.length }));
-    }, [normalizeDroppedPath, setPendingInputText, t, toProjectRelativeMentionPath]);
+    }, [setPendingInputText, t, toMentionPath]);
 
     const handleDragEnter = (e: React.DragEvent) => {
         if (!hasDraggedFiles(e.dataTransfer)) {
