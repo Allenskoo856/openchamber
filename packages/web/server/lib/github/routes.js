@@ -507,7 +507,13 @@ export function registerGitHubRoutes(app) {
       const originalJson = res.json.bind(res);
       res.json = (data) => {
         if (data && data.connected === true) {
-          setPrStatusCache(cacheKey, data, Date.now());
+          // Freshness stamp travels with the payload (and survives cache
+          // serves) so clients can refuse to overwrite newer data with a
+          // stale cached response.
+          if (typeof data.fetchedAt !== 'number') {
+            data.fetchedAt = Date.now();
+          }
+          setPrStatusCache(cacheKey, data, data.fetchedAt);
         }
         return originalJson(data);
       };
@@ -1544,8 +1550,11 @@ export function registerGitHubRoutes(app) {
       const originalJson = res.json.bind(res);
       res.json = (data) => {
         if (data && data.pr) {
+          if (typeof data.fetchedAt !== 'number') {
+            data.fetchedAt = Date.now();
+          }
           prContextCache.delete(contextCacheKey);
-          prContextCache.set(contextCacheKey, { data, includeCheckDetails, fetchedAt: Date.now() });
+          prContextCache.set(contextCacheKey, { data, includeCheckDetails, fetchedAt: data.fetchedAt });
           if (prContextCache.size > PR_CONTEXT_CACHE_MAX_ENTRIES) {
             const oldest = prContextCache.keys().next().value;
             if (oldest !== undefined) {

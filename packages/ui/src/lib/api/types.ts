@@ -929,6 +929,8 @@ export type GitHubPullRequestsListResult = {
 
 export type GitHubPullRequestContextResult = {
   connected: boolean;
+  /** Server-side stamp of when the data was fetched from GitHub (ms epoch); survives server cache serves. */
+  fetchedAt?: number;
   repo?: GitHubRepoRef | null;
   pr?: GitHubPullRequestSummary | null;
   issueComments?: GitHubIssueComment[];
@@ -941,6 +943,8 @@ export type GitHubPullRequestContextResult = {
 
 export type GitHubPullRequestStatus = {
   connected: boolean;
+  /** Server-side stamp of when the data was fetched from GitHub (ms epoch); survives server cache serves. */
+  fetchedAt?: number;
   repo?: GitHubRepoRef | null;
   branch?: string;
   pr?: GitHubPullRequest | null;

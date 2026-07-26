@@ -535,6 +535,7 @@ export const PullRequestSection: React.FC<{
   // it and push it into the status store so every consumer (header, badges,
   // git-view chip) shows the same numbers as the visible runs.
   const contextCheckRuns = prContext?.checkRuns ?? null;
+  const contextFetchedAt = prContext?.fetchedAt;
   React.useEffect(() => {
     if (!contextCheckRuns || contextCheckRuns.length === 0) {
       return;
@@ -542,6 +543,12 @@ export const PullRequestSection: React.FC<{
     const derived = summarizeCheckRuns(contextCheckRuns);
     updatePrStatus(prStatusKey, (previous) => {
       if (!previous?.pr) {
+        return previous;
+      }
+      // Never let older context data regress a fresher status snapshot.
+      if (typeof contextFetchedAt === 'number'
+        && typeof previous.fetchedAt === 'number'
+        && contextFetchedAt < previous.fetchedAt) {
         return previous;
       }
       const current = previous.checks;
@@ -557,9 +564,15 @@ export const PullRequestSection: React.FC<{
       if (unchanged) {
         return previous;
       }
-      return { ...previous, checks: derived };
+      return {
+        ...previous,
+        checks: derived,
+        // Adopt the context's freshness so a later stale status response
+        // (older server stamp) is rejected by the store's freshness guard.
+        ...(typeof contextFetchedAt === 'number' ? { fetchedAt: contextFetchedAt } : {}),
+      };
     });
-  }, [contextCheckRuns, prStatusKey, updatePrStatus]);
+  }, [contextCheckRuns, contextFetchedAt, prStatusKey, updatePrStatus]);
 
   // While checks run and the checks segment is visible, keep the detailed
   // run list fresh; the shared context store dedupes against other callers.

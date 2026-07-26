@@ -708,6 +708,25 @@ export const useGitHubPrStatusStore = create<GitHubPrStatusStore>()(
                 return;
               }
 
+              // Freshness guard: the server may serve this response from its
+              // cache. If we already hold newer data (e.g. checks derived
+              // from a fresher pulls/context fetch), keep it and only clear
+              // the loading flag — never regress to an older snapshot.
+              const currentFetchedAt = current.status?.fetchedAt;
+              const nextFetchedAt = next.fetchedAt;
+              if (typeof currentFetchedAt === 'number'
+                && typeof nextFetchedAt === 'number'
+                && nextFetchedAt < currentFetchedAt) {
+                nextEntries[signatureKey] = {
+                  ...current,
+                  error: null,
+                  isLoading: options?.silent ? current.isLoading : false,
+                  isInitialStatusResolved: options?.markInitialResolved === false ? current.isInitialStatusResolved : true,
+                  lastRefreshAt: Date.now(),
+                };
+                return;
+              }
+
               const prevPr = current.status?.pr;
               const nextPr = next.pr;
               const shouldCarryBody = Boolean(
