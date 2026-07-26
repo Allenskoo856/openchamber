@@ -4,8 +4,8 @@
  *
  * Before this module the same rule was re-implemented four times inside
  * ChatInput.tsx with subtly different cleanup (highlighting, send-time
- * extraction, backspace-deletes-the-whole-mention, and the autocomplete
- * trigger). Each new reference type had to be taught to all four. Everything
+ * extraction, deletion, and the autocomplete trigger). Each new reference
+ * type had to be taught to all four. Everything
  * that needs to know where mentions are now scans with `scanMentions` and
  * decides what they are with `classifyMention`.
  *
@@ -43,12 +43,6 @@ export interface MentionToken {
      * punctuation of the sentence, not part of the file being referenced.
      */
     end: number;
-    /**
-     * Offset just past the whole whitespace-delimited token, including any
-     * punctuation brushing against it. This is the span to delete: removing a
-     * mention should not leave its wrapping bracket behind.
-     */
-    rawEnd: number;
     /** The raw token including `@` and any brushing punctuation. */
     raw: string;
     /** The token with `@` and wrapping punctuation removed. */
@@ -95,7 +89,6 @@ export function scanMentions(text: string): MentionToken[] {
         tokens.push({
             start,
             end: nameStart + name.length,
-            rawEnd: start + match[0].length,
             raw: match[0],
             name,
         });
@@ -136,18 +129,4 @@ export function looksLikeFilePath(
         || name.includes('\\')
         || name.includes('.')
         || confirmedMentions.has(name);
-}
-
-/**
- * The mention whose reference span contains `index`, used by the backspace
- * handler so deleting one character removes the whole reference. `index` may
- * point at any character from the `@` through the end of the name; brushing
- * punctuation is excluded, so deleting the comma in `@a.ts,` deletes only the
- * comma.
- */
-export function findMentionAt(text: string, index: number): MentionToken | null {
-    for (const token of scanMentions(text)) {
-        if (index >= token.start && index < token.end) return token;
-    }
-    return null;
 }

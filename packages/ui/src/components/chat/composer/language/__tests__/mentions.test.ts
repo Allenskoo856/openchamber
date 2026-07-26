@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test';
 import {
     classifyMention,
     cleanMentionName,
-    findMentionAt,
     isMentionBoundary,
     looksLikeFilePath,
     scanMentions,
@@ -79,18 +78,16 @@ describe('scanMentions — name cleanup', () => {
         expect(raws('see @a/b.ts, ok')).toEqual(['@a/b.ts,']);
     });
 
-    test('the reference span excludes brushing punctuation, rawEnd includes it', () => {
+    test('the reference span excludes brushing punctuation', () => {
         const text = 'see @a/b.ts, ok';
         const [token] = scanMentions(text);
         expect(text.slice(token.start, token.end)).toBe('@a/b.ts');
-        expect(text.slice(token.start, token.rawEnd)).toBe('@a/b.ts,');
     });
 
     test('leading noise shifts the reference span past it', () => {
         const text = '`@a/b.ts`';
         const [token] = scanMentions(text);
         expect(text.slice(token.start, token.end)).toBe('@a/b.ts');
-        expect(token.rawEnd).toBe(text.length);
     });
 
     test('a trailing slash is kept — directories are mentionable', () => {
@@ -109,7 +106,6 @@ describe('scanMentions — offsets', () => {
         expect(text.slice(token.start, token.end)).toBe(token.raw);
         expect(token.start).toBe(4);
         expect(token.end).toBe(10);
-        expect(token.rawEnd).toBe(10);
     });
 });
 
@@ -157,24 +153,3 @@ describe('classifyMention', () => {
     });
 });
 
-describe('findMentionAt', () => {
-    const text = 'ask @src/app.ts please';
-
-    test('finds the mention from any character inside it', () => {
-        expect(findMentionAt(text, 4)?.name).toBe('src/app.ts');
-        expect(findMentionAt(text, 9)?.name).toBe('src/app.ts');
-        expect(findMentionAt(text, 14)?.name).toBe('src/app.ts');
-    });
-
-    test('returns null outside the mention', () => {
-        expect(findMentionAt(text, 3)).toBeNull();
-        expect(findMentionAt(text, 15)).toBeNull();
-        expect(findMentionAt('no mentions', 2)).toBeNull();
-    });
-
-    test('brushing punctuation is not part of the mention', () => {
-        // Deleting the comma should delete the comma, not the reference.
-        expect(findMentionAt('@a.ts, ok', 5)).toBeNull();
-        expect(findMentionAt('@a.ts, ok', 4)?.name).toBe('a.ts');
-    });
-});

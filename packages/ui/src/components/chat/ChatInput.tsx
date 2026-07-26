@@ -85,7 +85,6 @@ import {
 import type { FileMentionAutocompleteInputSource } from './fileMentionAutocompleteState';
 import {
     classifyMention,
-    findMentionAt,
     scanMentions,
 } from './composer/language/mentions';
 import { collectKnownTokenNames } from './composer/language/prefixTokens';
@@ -1311,45 +1310,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             e.preventDefault();
             setInputMode('normal');
             return;
-        }
-
-        if ((e.key === 'Backspace' || e.key === 'Delete') && !e.metaKey && !e.ctrlKey && !e.altKey) {
-            const textarea = composerRef.current;
-            const selectionStart = textarea?.getSelection().start ?? message.length;
-            const selectionEnd = textarea?.getSelection().end ?? message.length;
-            const hasCollapsedSelection = selectionStart === selectionEnd;
-
-            if (hasCollapsedSelection) {
-                const probeIndex = e.key === 'Backspace' ? selectionStart - 1 : selectionStart;
-                if (probeIndex >= 0 && probeIndex < message.length) {
-                    // Deleting inside a file mention removes the whole
-                    // reference — a half-eaten path resolves to nothing.
-                    const mention = findMentionAt(message, probeIndex);
-                    const isFileMention = mention !== null && classifyMention(mention.name, {
-                        knownAgentNames: knownAgentNamesRef.current,
-                        confirmedMentions: confirmedMentionsRef.current,
-                    }) === 'file';
-
-                    if (mention && isFileMention) {
-                        const tokenStart = mention.start;
-                        // Delete the whole token, not just the reference, so a
-                        // wrapping bracket is not left orphaned behind.
-                        const tokenEnd = mention.rawEnd;
-                        confirmedMentionsRef.current.delete(mention.name);
-                        const removeUntil = message[tokenEnd] === ' ' ? tokenEnd + 1 : tokenEnd;
-                        const nextMessage = `${message.slice(0, tokenStart)}${message.slice(removeUntil)}`;
-                        e.preventDefault();
-                        setMessage(nextMessage);
-                        requestAnimationFrame(() => {
-                            if (composerRef.current) {
-                                composerRef.current.setSelection(tokenStart);
-                            }
-                        });
-                        updateAutocompleteState(nextMessage, tokenStart);
-                        return;
-                    }
-                }
-            }
         }
 
         if (openAutocomplete === 'command' && commandRef.current) {
