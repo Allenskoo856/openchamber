@@ -352,6 +352,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const setScheduledTasksDialogOpen = useUIStore((state) => state.setScheduledTasksDialogOpen);
   const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
+  const setWorktreesPageProjectId = useUIStore((state) => state.setWorktreesPageProjectId);
   const openMultiRunLauncher = useUIStore((state) => state.openMultiRunLauncher);
   const notifyOnSubtasks = useUIStore((state) => state.notifyOnSubtasks);
   const showDeletionDialog = useUIStore((state) => state.showDeletionDialog);
@@ -1682,6 +1683,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         setSessionSwitcherOpen={setSessionSwitcherOpen}
         openNewSessionDraft={openNewSessionDraftFromTree}
         openNewWorktreeDialog={openNewWorktreeDialog}
+        openWorktreesPage={(projectId) => {
+          if (mobileVariant) setSessionSwitcherOpen(false);
+          setWorktreesPageProjectId(projectId);
+        }}
         openProjectEditDialog={setEditingProjectDialogId}
         removeProject={removeProject}
         projectHeaderSentinelRefs={projectHeaderSentinelRefs}

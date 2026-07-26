@@ -35,6 +35,7 @@ export interface SortableProjectItemProps {
   onToggle: () => void;
   onNewSession: () => void;
   onNewWorktreeSession?: () => void;
+  onManageWorktrees?: () => void;
   onRenameStart: () => void;
   onClose: () => void;
   sentinelRef: (el: HTMLDivElement | null) => void;
@@ -66,6 +67,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   onToggle,
   onNewSession,
   onNewWorktreeSession,
+  onManageWorktrees,
   onRenameStart,
   onClose,
   sentinelRef,
@@ -106,6 +108,12 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
         <Item onClick={onNewSession}>
           <Icon name="add" className="mr-1.5 h-4 w-4" />
           {t('sessions.sidebar.project.actions.newSession')}
+        </Item>
+      )}
+      {isRepo && !hideDirectoryControls && onManageWorktrees && (
+        <Item onClick={onManageWorktrees}>
+          <Icon name="node-tree" className="mr-1.5 h-4 w-4" />
+          {t('sessions.sidebar.project.actions.manageWorktrees')}
         </Item>
       )}
       <Item onClick={onRenameStart}>

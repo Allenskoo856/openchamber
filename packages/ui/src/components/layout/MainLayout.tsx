@@ -16,6 +16,7 @@ import { SessionSidebar } from '@/components/session/SessionSidebar';
 import { SessionDialogs } from '@/components/session/SessionDialogs';
 import { ScheduledTasksDialog } from '@/components/session/ScheduledTasksDialog';
 import { ArchiveView } from '@/components/views/ArchiveView';
+import { WorktreesView } from '@/components/views/WorktreesView';
 import { DiffWorkerProvider } from '@/contexts/DiffWorkerProvider';
 import { MultiRunLauncher } from '@/components/multirun';
 import { TerminalView } from '@/components/views/TerminalView';
@@ -461,6 +462,7 @@ export const MainLayout: React.FC = () => {
                             )}
                             <ErrorBoundary><ScheduledTasksDialog /></ErrorBoundary>
                             <ErrorBoundary><ArchiveView /></ErrorBoundary>
+                            <ErrorBoundary><WorktreesView /></ErrorBoundary>
                             {/* Always mount SessionSidebar on mobile to match desktop behavior.
                                 Conditional mount (mobileLeftDrawerVisible && ...) caused a
                                 data-loading cascade on every drawer open: paginated sessions
@@ -541,6 +543,7 @@ export const MainLayout: React.FC = () => {
                                                 )}
                                                 <ErrorBoundary><ScheduledTasksDialog /></ErrorBoundary>
                                                 <ErrorBoundary><ArchiveView /></ErrorBoundary>
+                                                <ErrorBoundary><WorktreesView /></ErrorBoundary>
                                             </main>
                                             <ContextPanel />
                                         </div>

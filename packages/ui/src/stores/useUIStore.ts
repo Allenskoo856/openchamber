@@ -562,6 +562,7 @@ interface UIStore {
   isSessionCreateDialogOpen: boolean;
   isScheduledTasksDialogOpen: boolean;
   isArchivePageOpen: boolean;
+  worktreesPageProjectId: string | null;
   isSettingsDialogOpen: boolean;
   isNewWorktreeDialogOpen: boolean;
   isModelSelectorOpen: boolean;
@@ -728,6 +729,7 @@ interface UIStore {
   setSessionCreateDialogOpen: (open: boolean) => void;
   setScheduledTasksDialogOpen: (open: boolean) => void;
   setArchivePageOpen: (open: boolean) => void;
+  setWorktreesPageProjectId: (projectId: string | null) => void;
   setSettingsDialogOpen: (open: boolean) => void;
   setNewWorktreeDialogOpen: (open: boolean) => void;
   setModelSelectorOpen: (open: boolean) => void;
@@ -888,6 +890,7 @@ export const useUIStore = create<UIStore>()(
         isSessionCreateDialogOpen: false,
         isScheduledTasksDialogOpen: false,
         isArchivePageOpen: false,
+        worktreesPageProjectId: null,
         isSettingsDialogOpen: false,
         isNewWorktreeDialogOpen: false,
         isModelSelectorOpen: false,
@@ -1562,11 +1565,21 @@ export const useUIStore = create<UIStore>()(
         },
 
         setScheduledTasksDialogOpen: (open) => {
-          set(open ? { isScheduledTasksDialogOpen: true, isArchivePageOpen: false } : { isScheduledTasksDialogOpen: false });
+          set(open
+            ? { isScheduledTasksDialogOpen: true, isArchivePageOpen: false, worktreesPageProjectId: null }
+            : { isScheduledTasksDialogOpen: false });
         },
 
         setArchivePageOpen: (open) => {
-          set(open ? { isArchivePageOpen: true, isScheduledTasksDialogOpen: false } : { isArchivePageOpen: false });
+          set(open
+            ? { isArchivePageOpen: true, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null }
+            : { isArchivePageOpen: false });
+        },
+
+        setWorktreesPageProjectId: (projectId) => {
+          set(projectId
+            ? { worktreesPageProjectId: projectId, isScheduledTasksDialogOpen: false, isArchivePageOpen: false }
+            : { worktreesPageProjectId: null });
         },
 
         setSettingsDialogOpen: (open) => {
