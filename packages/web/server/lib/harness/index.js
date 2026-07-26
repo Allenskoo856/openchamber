@@ -54,8 +54,12 @@ export {
   getHarnessTurnSnapshot,
   getHarnessRecentMessages,
   isHarnessSessionWorking,
+  listHarnessBusyStatuses,
   resetHarnessTurnSnapshots,
 } from './turn-snapshot.js';
+
+export { mergeHarnessBusyIntoSessionStatuses } from './session-status.js';
+export { mergeHarnessMessagesIntoSessionMessages } from './session-messages.js';
 
 export { createHarnessRouter } from './router.js';
 export { registerHarnessRoutes } from './routes.js';
