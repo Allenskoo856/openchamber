@@ -49,6 +49,7 @@ import {
 const CONTEXT_PANEL_MIN_WIDTH = 380;
 const CONTEXT_PANEL_MAX_WIDTH = 1400;
 const CONTEXT_PANEL_DEFAULT_WIDTH = 600;
+const RESIZE_FOLLOW_INTERVAL_MS = 100;
 const CONTEXT_TAB_LABEL_MAX_CHARS = 24;
 type TranslateFn = ReturnType<typeof useI18n>['t'];
 const EMPTY_SESSION_TITLE_MAP = new Map<string, string>();
@@ -128,16 +129,6 @@ const getAvailablePanelWidth = (panel: HTMLElement | null): number | null => {
   }
 
   return parentWidth;
-};
-
-const clampWidthToAvailableSpace = (width: number, panel: HTMLElement | null): number => {
-  const clampedWidth = clampWidth(width);
-  const availableWidth = getAvailablePanelWidth(panel);
-  if (availableWidth === null) {
-    return clampedWidth;
-  }
-
-  return Math.min(clampedWidth, Math.max(1, availableWidth));
 };
 
 const getRelativePathLabel = (filePath: string | null, directory: string): string => {
@@ -2263,7 +2254,6 @@ export const ContextPanel: React.FC = () => {
   const sessionTitleById = useSessionTitleMap(directoryKey || undefined, chatSessionIDs);
 
   const [isResizing, setIsResizing] = React.useState(false);
-  const [suppressWidthTransition, setSuppressWidthTransition] = React.useState(false);
   const startXRef = React.useRef(0);
   const startWidthRef = React.useRef(width);
   const resizingWidthRef = React.useRef<number | null>(null);
@@ -2272,30 +2262,6 @@ export const ContextPanel: React.FC = () => {
   const chatFrameRefs = React.useRef<Map<string, HTMLIFrameElement>>(new Map());
   const chatFrameSrcByTabIDRef = React.useRef<Map<string, EmbeddedSessionChatURLCacheEntry>>(new Map());
   const wasOpenRef = React.useRef(false);
-  const suppressWidthTransitionFrameRef = React.useRef<number | null>(null);
-
-  const suppressWidthTransitionForFrame = React.useCallback(() => {
-    setSuppressWidthTransition(true);
-    if (suppressWidthTransitionFrameRef.current !== null) {
-      window.cancelAnimationFrame(suppressWidthTransitionFrameRef.current);
-    }
-    suppressWidthTransitionFrameRef.current = window.requestAnimationFrame(() => {
-      suppressWidthTransitionFrameRef.current = null;
-      setSuppressWidthTransition(false);
-    });
-  }, []);
-
-  React.useEffect(() => () => {
-    if (suppressWidthTransitionFrameRef.current !== null) {
-      window.cancelAnimationFrame(suppressWidthTransitionFrameRef.current);
-    }
-  }, []);
-
-  React.useLayoutEffect(() => {
-    if (!isOpen) {
-      setSuppressWidthTransition(false);
-    }
-  }, [isOpen]);
 
   // Tracks the panel area width so fraction-based surface defaults stay
   // proportional as the window resizes; manual widths remain fixed px.
@@ -2328,13 +2294,36 @@ export const ContextPanel: React.FC = () => {
     return () => window.cancelAnimationFrame(frame);
   }, [isOpen]);
 
-  const applyLiveWidth = React.useCallback((nextWidth: number) => {
+  // Deferred resize: reflowing the chat column and the active surface (xterm,
+  // editor, embedded chat iframes) on every drag frame is unavoidably janky,
+  // so during the drag only a ghost guide line follows the pointer and the
+  // real width is applied once on release (riding the width transition).
+  const resizeAvailableWidthRef = React.useRef<number | null>(null);
+  // The panel content follows the guide line lazily: the real width is
+  // re-applied at most every RESIZE_FOLLOW_INTERVAL_MS and the standing
+  // 200ms width transition smooths each step, VS Code-style.
+  const resizeFollowTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applyFollowWidth = React.useCallback(() => {
+    resizeFollowTimerRef.current = null;
     const panel = panelRef.current;
-    if (!panel) {
+    const next = resizingWidthRef.current;
+    if (!panel || next === null) {
       return;
     }
+    panel.style.setProperty('--oc-context-panel-width', `${next}px`);
+  }, []);
 
-    panel.style.setProperty('--oc-context-panel-width', `${clampWidthToAvailableSpace(nextWidth, panel)}px`);
+  React.useEffect(() => () => {
+    if (resizeFollowTimerRef.current !== null) {
+      clearTimeout(resizeFollowTimerRef.current);
+    }
+  }, []);
+
+  const clampWidthForDrag = React.useCallback((nextWidth: number) => {
+    const clamped = clampWidth(nextWidth);
+    const available = resizeAvailableWidthRef.current;
+    return available === null ? clamped : Math.min(clamped, Math.max(1, available));
   }, []);
 
   const handleResizeStart = React.useCallback((event: React.PointerEvent) => {
@@ -2342,61 +2331,86 @@ export const ContextPanel: React.FC = () => {
       return;
     }
 
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // ignore; fallback listeners still handle drag
-    }
-
     activeResizePointerIDRef.current = event.pointerId;
     setIsResizing(true);
     startXRef.current = event.clientX;
     startWidthRef.current = width;
     resizingWidthRef.current = width;
-    applyLiveWidth(width);
+    // Measure once per drag; no layout reads happen during pointermove.
+    resizeAvailableWidthRef.current = getAvailablePanelWidth(panelRef.current);
+    document.documentElement.style.cursor = 'col-resize';
     event.preventDefault();
-  }, [applyLiveWidth, directoryKey, isExpanded, isOpen, width]);
+  }, [directoryKey, isExpanded, isOpen, width]);
 
-  const handleResizeMove = React.useCallback((event: React.PointerEvent) => {
-    if (!isResizing || activeResizePointerIDRef.current !== event.pointerId) {
-      return;
+  const finishResize = React.useCallback(() => {
+    // Apply the final width once, letting the regular 200ms width transition
+    // carry the panel to the release position.
+    const finalWidth = clampWidthForDrag(resizingWidthRef.current ?? width);
+    resizingWidthRef.current = null;
+    resizeAvailableWidthRef.current = null;
+    if (resizeFollowTimerRef.current !== null) {
+      clearTimeout(resizeFollowTimerRef.current);
+      resizeFollowTimerRef.current = null;
     }
-
-    const delta = startXRef.current - event.clientX;
-    const nextWidth = clampWidthToAvailableSpace(startWidthRef.current + delta, panelRef.current);
-    if (resizingWidthRef.current === nextWidth) {
-      return;
-    }
-
-    resizingWidthRef.current = nextWidth;
-    applyLiveWidth(nextWidth);
-  }, [applyLiveWidth, isResizing]);
-
-  const handleResizeEnd = React.useCallback((event: React.PointerEvent) => {
-    if (activeResizePointerIDRef.current !== event.pointerId || !directoryKey) {
-      return;
-    }
-
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      // ignore
-    }
-
-    const finalWidth = clampWidthToAvailableSpace(resizingWidthRef.current ?? width, panelRef.current);
-    suppressWidthTransitionForFrame();
-    applyLiveWidth(finalWidth);
-    resizingWidthRef.current = finalWidth;
-    if (activeModeForWidth) {
+    document.documentElement.style.cursor = '';
+    if (directoryKey && activeModeForWidth) {
       setContextPanelWidth(directoryKey, activeModeForWidth, finalWidth);
     }
     setIsResizing(false);
     activeResizePointerIDRef.current = null;
-  }, [activeModeForWidth, applyLiveWidth, directoryKey, setContextPanelWidth, suppressWidthTransitionForFrame, width]);
+  }, [activeModeForWidth, clampWidthForDrag, directoryKey, setContextPanelWidth, width]);
+
+  // Window-level drag listeners: tracking the pointer via the 3px handle and
+  // pointer capture is unreliable (capture can fail over iframes and a missed
+  // pointerup leaves the drag stuck), so while resizing the whole window
+  // tracks the pointer and any release/cancel/blur ends the drag.
+  React.useEffect(() => {
+    if (!isResizing) {
+      return;
+    }
+
+    const handleMove = (event: PointerEvent) => {
+      if (activeResizePointerIDRef.current !== event.pointerId) {
+        return;
+      }
+      const delta = startXRef.current - event.clientX;
+      const nextWidth = clampWidthForDrag(startWidthRef.current + delta);
+      if (resizingWidthRef.current === nextWidth) {
+        return;
+      }
+      resizingWidthRef.current = nextWidth;
+      if (resizeFollowTimerRef.current === null) {
+        resizeFollowTimerRef.current = setTimeout(applyFollowWidth, RESIZE_FOLLOW_INTERVAL_MS);
+      }
+    };
+
+    const handleUp = (event: PointerEvent) => {
+      if (activeResizePointerIDRef.current !== event.pointerId) {
+        return;
+      }
+      finishResize();
+    };
+
+    const handleWindowBlur = () => {
+      finishResize();
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [applyFollowWidth, clampWidthForDrag, finishResize, isResizing]);
 
   React.useEffect(() => {
     if (!isResizing) {
       resizingWidthRef.current = null;
+      document.documentElement.style.cursor = '';
     }
   }, [isResizing]);
 
@@ -2794,7 +2808,7 @@ export const ContextPanel: React.FC = () => {
   // jumps) so the 200ms width transition matches the sidebars.
   const panelStyle: React.CSSProperties = !isOpen
     ? {
-        ['--oc-context-panel-width' as string]: `${isResizing ? (resizingWidthRef.current ?? width) : width}px`,
+        ['--oc-context-panel-width' as string]: `${width}px`,
         width: 0,
         maxWidth: '100%',
         overflowX: 'clip',
@@ -2811,7 +2825,7 @@ export const ContextPanel: React.FC = () => {
           width: 'min(var(--oc-context-panel-width), 100%)',
           maxWidth: '100%',
           overflowX: 'clip',
-          ['--oc-context-panel-width' as string]: `${isResizing ? (resizingWidthRef.current ?? width) : width}px`,
+          ['--oc-context-panel-width' as string]: `${width}px`,
         };
 
   return (
@@ -2830,9 +2844,7 @@ export const ContextPanel: React.FC = () => {
           : 'relative h-full flex-shrink-0',
         !isOpen && 'pointer-events-none',
         'will-change-[width] motion-reduce:transition-none',
-        isResizing || suppressWidthTransition
-          ? 'transition-none'
-          : 'transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]'
+        'transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]'
       )}
       onKeyDownCapture={handlePanelKeyDownCapture}
       style={panelStyle}
@@ -2850,9 +2862,6 @@ export const ContextPanel: React.FC = () => {
             isResizing && 'bg-[var(--interactive-border)]'
           )}
           onPointerDown={handleResizeStart}
-          onPointerMove={handleResizeMove}
-          onPointerUp={handleResizeEnd}
-          onPointerCancel={handleResizeEnd}
           role="separator"
           aria-orientation="vertical"
           aria-label={t('contextPanel.actions.resizePanelAria')}
@@ -2861,12 +2870,10 @@ export const ContextPanel: React.FC = () => {
       <div
         className={cn(
           'relative z-10 flex h-full min-h-0 shrink-0 flex-col duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-          // Width must animate in sync with the panel when switching between
-          // surfaces with different widths; during manual resize it must track
-          // the live width instantly instead.
-          isResizing || suppressWidthTransition
-            ? 'transition-opacity'
-            : 'transition-[width,opacity]',
+          // Width animates in sync with the panel (surface switches, resize
+          // release); during the drag itself nothing resizes — only the ghost
+          // guide line moves.
+          'transition-[width,opacity]',
           !isOpen && 'pointer-events-none select-none opacity-0'
         )}
         // px in the expanded state too: px↔% width changes cannot interpolate,
