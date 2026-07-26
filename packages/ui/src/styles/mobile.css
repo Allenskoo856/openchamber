@@ -707,11 +707,15 @@
   padding-bottom: 12px;
 }
 
-/* Draft starter chips leave the moment the keyboard starts rising
-   (oc-keyboard-open lands at keyboardWillShow) and return when it's gone —
-   with the keyboard up there is only room for the draft title. Instant
-   show/hide (no squish animation); the title's own keyboard compensation
-   (.oc-draft-center below) carries the smooth motion. */
+/* Draft starter chips leave when the full composer takes over — with the
+   composer expanded (and hence the keyboard up) there is only room for the
+   draft title. oc-composer-expanded is set in the SAME frame as the pill swap
+   (see useMobileComposerShell), so the chips leave together with the morph;
+   the keyboard classes remain as fallbacks for keyboard-up states that do not
+   go through the pill (and for mobile browsers). Instant show/hide (no squish
+   animation); the title's own keyboard compensation (.oc-draft-center below)
+   carries the smooth motion. */
+:root.oc-composer-expanded .oc-draft-starters,
 :root.oc-capacitor-app.oc-keyboard-open .oc-draft-starters,
 :root.oc-browser-keyboard-open .oc-draft-starters {
   display: none;

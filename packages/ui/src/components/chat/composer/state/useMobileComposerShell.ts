@@ -98,6 +98,20 @@ export function useMobileComposerShell(
         expandedRef.current = expanded;
     });
 
+    // The draft screen restructures itself around the composer: its starter
+    // chips leave once the full composer is up, and its centered title
+    // re-centers over whatever room remains. Announced as a root class from a
+    // layout effect so the restructure lands in the SAME frame as the pill
+    // swap — keyed on the keyboard instead (oc-keyboard-open arrives with the
+    // keyboardWillShow bridge event, ~100ms later), the chips vanished
+    // mid-rise as a second visible jump.
+    React.useLayoutEffect(() => {
+        if (!isMobile || typeof document === 'undefined') return;
+        const root = document.documentElement;
+        root.classList.toggle('oc-composer-expanded', expanded);
+        return () => root.classList.remove('oc-composer-expanded');
+    }, [expanded, isMobile]);
+
     // TEMPORARY diagnostic (see kbTimeline.ts).
     React.useEffect(() => {
         if (isMobile) wireKbTimeline();
