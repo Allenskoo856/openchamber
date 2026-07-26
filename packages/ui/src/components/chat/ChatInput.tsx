@@ -1642,13 +1642,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 let previewAnnotation = 0;
                 let review = 0;
                 let terminal = 0;
+                let prComment = 0;
+                let prCheck = 0;
                 for (const draft of drafts) {
                     if (draft.source === 'preview-console') previewConsole += 1;
                     else if (draft.source === 'preview-annotation') previewAnnotation += 1;
                     else if (draft.source === 'terminal') terminal += 1;
+                    else if (draft.source === 'pr-comment') prComment += 1;
+                    else if (draft.source === 'pr-check') prCheck += 1;
                     else review += 1;
                 }
-                return `${previewConsole}:${previewAnnotation}:${review}:${terminal}`;
+                return `${previewConsole}:${previewAnnotation}:${review}:${terminal}:${prComment}:${prCheck}`;
             },
             [inlineDraftKey]
         )
@@ -1656,11 +1660,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const consumeDrafts = useInlineCommentDraftStore((state) => state.consumeDrafts);
     const removeInlineCommentDraft = useInlineCommentDraftStore((state) => state.removeDraft);
     const hasDrafts = draftCount > 0;
-    const [previewConsoleCount, previewAnnotationCount, reviewCount, terminalContextCount] = draftSourceKey.split(':').map((entry) => Number(entry) || 0);
+    const [previewConsoleCount, previewAnnotationCount, reviewCount, terminalContextCount, prCommentCount, prCheckCount] = draftSourceKey.split(':').map((entry) => Number(entry) || 0);
     const terminalContextDrafts = terminalContextCount > 0
         ? (inlineDraftKey ? useInlineCommentDraftStore.getState().drafts[inlineDraftKey] ?? [] : []).filter((draft) => draft.source === 'terminal')
         : [];
-    const removePreviewDrafts = React.useCallback((source: 'preview-console' | 'preview-annotation') => {
+    const removePreviewDrafts = React.useCallback((source: 'preview-console' | 'preview-annotation' | 'pr-comment' | 'pr-check') => {
         if (!inlineDraftTarget) return;
         const drafts = useInlineCommentDraftStore.getState().getDrafts(inlineDraftTarget);
         for (const draft of drafts) {
@@ -1674,7 +1678,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         if (!inlineDraftTarget) return;
         const drafts = useInlineCommentDraftStore.getState().getDrafts(inlineDraftTarget);
         for (const draft of drafts) {
-            if (draft.source !== 'preview-console' && draft.source !== 'preview-annotation' && draft.source !== 'terminal') {
+            if (draft.source !== 'preview-console' && draft.source !== 'preview-annotation' && draft.source !== 'terminal' && draft.source !== 'pr-comment' && draft.source !== 'pr-check') {
                 removeInlineCommentDraft(inlineDraftTarget, draft.id);
             }
         }
@@ -4958,6 +4962,52 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                     onClick={removeReviewDrafts}
                                     aria-label={t('chat.chatInput.reviewCommentsRemove')}
                                     title={t('chat.chatInput.reviewCommentsRemove')}
+                                >
+                                    <Icon name="close" className="h-3 w-3" />
+                                </button>
+                            </div>
+                        ) : null}
+                        {prCommentCount > 0 ? (
+                            <div
+                                className="inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
+                                style={{
+                                    backgroundColor: currentTheme?.colors?.surface?.elevated,
+                                    borderColor: currentTheme?.colors?.interactive?.border,
+                                }}
+                            >
+                                <Icon name="git-pull-request" className="h-3.5 w-3.5 text-muted-foreground" />
+                                <span className="text-xs font-medium text-muted-foreground">{t('chat.chatInput.prCommentContext')}</span>
+                                <span className="text-xs font-semibold" style={{ color: currentTheme?.colors?.status?.info }}>{prCommentCount}</span>
+                                <button
+                                    type="button"
+                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
+                                    style={{ minHeight: 0, minWidth: 0 }}
+                                    onClick={() => removePreviewDrafts('pr-comment')}
+                                    aria-label={t('chat.chatInput.prCommentContextRemove')}
+                                    title={t('chat.chatInput.prCommentContextRemove')}
+                                >
+                                    <Icon name="close" className="h-3 w-3" />
+                                </button>
+                            </div>
+                        ) : null}
+                        {prCheckCount > 0 ? (
+                            <div
+                                className="inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
+                                style={{
+                                    backgroundColor: currentTheme?.colors?.surface?.elevated,
+                                    borderColor: currentTheme?.colors?.interactive?.border,
+                                }}
+                            >
+                                <Icon name="close-circle" className="h-3.5 w-3.5 text-[var(--status-error)]" />
+                                <span className="text-xs font-medium text-muted-foreground">{t('chat.chatInput.prCheckContext')}</span>
+                                <span className="text-xs font-semibold" style={{ color: currentTheme?.colors?.status?.info }}>{prCheckCount}</span>
+                                <button
+                                    type="button"
+                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
+                                    style={{ minHeight: 0, minWidth: 0 }}
+                                    onClick={() => removePreviewDrafts('pr-check')}
+                                    aria-label={t('chat.chatInput.prCheckContextRemove')}
+                                    title={t('chat.chatInput.prCheckContextRemove')}
                                 >
                                     <Icon name="close" className="h-3 w-3" />
                                 </button>
