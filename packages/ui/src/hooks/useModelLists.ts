@@ -8,7 +8,8 @@ import {
   favoriteRefFromExecutionTarget,
   legacyRefsToFavoriteTargets,
 } from '@/lib/harness/favorite-targets';
-import type { ExecutionTarget } from '@/types/harness';
+import { buildClaudeModelMetadata } from '@/lib/harness/claude-models';
+import type { EngineCatalogModel, ExecutionTarget } from '@/types/harness';
 import type { Provider } from '@opencode-ai/sdk/v2';
 
 type ProviderModel = Provider['models'][string];
@@ -31,24 +32,45 @@ const buildClaudeProvider = (name: string, models: ProviderModel[]): ProviderWit
   models,
 });
 
-const asProviderModel = (id: string, name: string): ProviderModel => ({
-  id,
-  name,
-  providerID: CLAUDE_FAVORITE_PROVIDER_ID,
-  api: { npm: '', id },
-  capabilities: {
-    temperature: false,
-    reasoning: false,
-    attachment: false,
-    toolcall: true,
-    input: { text: true, audio: false, image: true, video: false, pdf: false },
-    output: { text: true, audio: false, image: false, video: false, pdf: false },
-    interleaved: false,
-  },
-  cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-  limit: { context: 0, output: 0 },
-  status: 'active',
-} as ProviderModel);
+const asProviderModel = (catalogModel: EngineCatalogModel): ProviderModel => {
+  const metadata = buildClaudeModelMetadata(catalogModel);
+  const input = metadata.modalities?.input ?? ['text'];
+  const output = metadata.modalities?.output ?? ['text'];
+  return {
+    id: catalogModel.id,
+    name: catalogModel.name,
+    providerID: CLAUDE_FAVORITE_PROVIDER_ID,
+    api: { npm: '', id: catalogModel.id },
+    capabilities: {
+      temperature: false,
+      reasoning: Boolean(metadata.reasoning),
+      attachment: Boolean(metadata.attachment),
+      toolcall: Boolean(metadata.tool_call),
+      input: {
+        text: input.includes('text'),
+        audio: input.includes('audio'),
+        image: input.includes('image'),
+        video: input.includes('video'),
+        pdf: input.includes('pdf'),
+      },
+      output: {
+        text: output.includes('text'),
+        audio: output.includes('audio'),
+        image: output.includes('image'),
+        video: output.includes('video'),
+        pdf: output.includes('pdf'),
+      },
+      interleaved: false,
+    },
+    // Subscription engine — leave costs unset rather than fake OpenCode API pricing.
+    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    limit: {
+      context: metadata.limit?.context ?? 0,
+      output: metadata.limit?.output ?? 0,
+    },
+    status: 'active',
+  } as ProviderModel;
+};
 
 export const useModelLists = () => {
   const providers = useConfigStore((state) => state.providers);
@@ -80,7 +102,7 @@ export const useModelLists = () => {
         if (!model) continue;
         const ref = favoriteRefFromExecutionTarget(target);
         if (isHidden(ref.providerID, ref.modelID)) continue;
-        const providerModel = asProviderModel(model.id, model.name);
+        const providerModel = asProviderModel(model);
         const provider = buildClaudeProvider(
           claudeCatalog?.engine.displayName || 'Claude Code',
           [providerModel],

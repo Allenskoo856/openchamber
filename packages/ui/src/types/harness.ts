@@ -12,6 +12,9 @@ export type ClaudePermissionMode =
   | 'dontAsk'
   | 'bypassPermissions';
 
+/** Claude Agent SDK effort levels (named). */
+export type ClaudeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
 export type ExecutionTarget =
   | {
       harnessId: 'opencode';
@@ -24,6 +27,8 @@ export type ExecutionTarget =
       harnessId: 'claude-code';
       modelRef: string;
       permissionMode?: ClaudePermissionMode;
+      /** Reasoning effort for Claude Agent SDK; omit for SDK default. */
+      effort?: ClaudeEffort;
     };
 
 export type CapabilityLevel = 'full' | 'partial' | 'none';
@@ -74,6 +79,16 @@ export type EngineCatalogModel = {
   name: string;
   supportsImages?: boolean;
   supportsDocuments?: boolean;
+  reasoning?: boolean;
+  toolCall?: boolean;
+  limit?: {
+    context?: number;
+    output?: number;
+  };
+  modalities?: {
+    input?: string[];
+    output?: string[];
+  };
 };
 
 export type EngineCatalogSection = {
@@ -133,8 +148,19 @@ const CLAUDE_PERMISSION_MODES: readonly ClaudePermissionMode[] = [
   'bypassPermissions',
 ] as const;
 
+export const CLAUDE_EFFORT_LEVELS: readonly ClaudeEffort[] = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const;
+
 export const isClaudePermissionMode = (value: unknown): value is ClaudePermissionMode =>
   typeof value === 'string' && (CLAUDE_PERMISSION_MODES as readonly string[]).includes(value);
+
+export const isClaudeEffort = (value: unknown): value is ClaudeEffort =>
+  typeof value === 'string' && (CLAUDE_EFFORT_LEVELS as readonly string[]).includes(value);
 
 export const isExecutionTarget = (value: unknown): value is ExecutionTarget => {
   if (typeof value !== 'object' || value === null) {
@@ -152,7 +178,8 @@ export const isExecutionTarget = (value: unknown): value is ExecutionTarget => {
   if (candidate.harnessId === 'claude-code') {
     return typeof candidate.modelRef === 'string'
       && candidate.modelRef.length > 0
-      && (candidate.permissionMode === undefined || isClaudePermissionMode(candidate.permissionMode));
+      && (candidate.permissionMode === undefined || isClaudePermissionMode(candidate.permissionMode))
+      && (candidate.effort === undefined || isClaudeEffort(candidate.effort));
   }
   return false;
 };

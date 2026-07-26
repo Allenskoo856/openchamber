@@ -38,6 +38,8 @@ export function resolveSessionBindingsPath() {
  * @param {unknown} value
  * @returns {object | null}
  */
+const CLAUDE_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
 function sanitizeTarget(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const target = /** @type {Record<string, unknown>} */ (value);
@@ -48,6 +50,9 @@ function sanitizeTarget(value) {
   const out = { harnessId };
   if (typeof target.modelRef === 'string') out.modelRef = target.modelRef;
   if (typeof target.permissionMode === 'string') out.permissionMode = target.permissionMode;
+  if (typeof target.effort === 'string' && CLAUDE_EFFORT_LEVELS.has(target.effort)) {
+    out.effort = target.effort;
+  }
   if (typeof target.providerId === 'string') out.providerId = target.providerId;
   if (typeof target.modelId === 'string') out.modelId = target.modelId;
   if (typeof target.agentName === 'string') out.agentName = target.agentName;

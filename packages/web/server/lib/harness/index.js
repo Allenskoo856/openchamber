@@ -6,6 +6,8 @@ export {
   HARNESS_IDS,
   HARNESS_CAPABILITIES,
   CLAUDE_CODE_MODELS,
+  CLAUDE_EFFORT_LEVELS,
+  isClaudeEffort,
   isKnownHarnessId,
   getHarnessDescriptor,
   listHarnessDescriptors,

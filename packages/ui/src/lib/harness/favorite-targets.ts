@@ -5,7 +5,7 @@
  */
 
 import type { ClaudePermissionMode, ExecutionTarget } from '@/types/harness';
-import { isClaudePermissionMode, isExecutionTarget, isHarnessId } from '@/types/harness';
+import { isClaudeEffort, isClaudePermissionMode, isExecutionTarget, isHarnessId } from '@/types/harness';
 
 export const CLAUDE_FAVORITE_PROVIDER_ID = 'claude-code';
 
@@ -14,7 +14,7 @@ export type LegacyModelRef = { providerID: string; modelID: string };
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** Identity key for favorites/recents (excludes permissionMode / agent / variant). */
+/** Identity key for favorites/recents (excludes permissionMode / effort / agent / variant). */
 export function executionTargetIdentityKey(target: ExecutionTarget): string {
   if (target.harnessId === 'claude-code') {
     return `claude-code:${target.modelRef}`;
@@ -100,8 +100,11 @@ export function parseFavoriteTargetEntry(value: unknown): ExecutionTarget | null
           : '';
     if (!modelRef) return null;
     const permissionMode = value.permissionMode;
-    // Favorites ignore permissionMode; reject unknown modes if present.
+    // Favorites ignore permissionMode/effort; reject unknown values if present.
     if (permissionMode !== undefined && !isClaudePermissionMode(permissionMode)) {
+      return null;
+    }
+    if (value.effort !== undefined && !isClaudeEffort(value.effort)) {
       return null;
     }
     return { harnessId: 'claude-code', modelRef };

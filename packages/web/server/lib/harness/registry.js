@@ -65,12 +65,56 @@ const CLAUDE_CODE_CAPABILITIES = Object.freeze({
   'openchamber-tool': 'none',
 });
 
+const CLAUDE_MODEL_LIMIT = Object.freeze({ context: 200_000, output: 64_000 });
+const CLAUDE_MODEL_MODALITIES = Object.freeze({
+  input: Object.freeze(['text', 'image']),
+  output: Object.freeze(['text']),
+});
+
 /** Static Claude Code model catalog for v1 (no provider nesting). */
 export const CLAUDE_CODE_MODELS = Object.freeze([
-  { id: 'sonnet', name: 'Sonnet', supportsImages: true, supportsDocuments: true },
-  { id: 'opus', name: 'Opus', supportsImages: true, supportsDocuments: true },
-  { id: 'haiku', name: 'Haiku', supportsImages: true, supportsDocuments: true },
+  {
+    id: 'sonnet',
+    name: 'Sonnet',
+    supportsImages: true,
+    supportsDocuments: true,
+    reasoning: true,
+    toolCall: true,
+    limit: CLAUDE_MODEL_LIMIT,
+    modalities: CLAUDE_MODEL_MODALITIES,
+  },
+  {
+    id: 'opus',
+    name: 'Opus',
+    supportsImages: true,
+    supportsDocuments: true,
+    reasoning: true,
+    toolCall: true,
+    limit: CLAUDE_MODEL_LIMIT,
+    modalities: CLAUDE_MODEL_MODALITIES,
+  },
+  {
+    id: 'haiku',
+    name: 'Haiku',
+    supportsImages: true,
+    supportsDocuments: true,
+    reasoning: true,
+    toolCall: true,
+    limit: CLAUDE_MODEL_LIMIT,
+    modalities: CLAUDE_MODEL_MODALITIES,
+  },
 ]);
+
+/** Named Claude Agent SDK effort levels accepted on ExecutionTarget. */
+export const CLAUDE_EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
+
+/**
+ * @param {unknown} value
+ * @returns {value is typeof CLAUDE_EFFORT_LEVELS[number]}
+ */
+export function isClaudeEffort(value) {
+  return typeof value === 'string' && CLAUDE_EFFORT_LEVELS.includes(value);
+}
 
 const DESCRIPTORS = Object.freeze({
   opencode: Object.freeze({

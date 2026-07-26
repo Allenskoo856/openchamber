@@ -105,6 +105,7 @@ type ExecutionTarget =
       harnessId: 'claude-code'
       modelRef: string          // Claude Code model id/alias (e.g. sonnet, opus, full id)
       permissionMode?: ClaudePermissionMode
+      effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' // Claude Agent SDK effort; omit = SDK default
       // no API key fields
     }
 

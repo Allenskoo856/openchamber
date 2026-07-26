@@ -25,6 +25,11 @@ describe('harness registry', () => {
     expect(claude.capabilities.goal).toBe('none');
     expect(claude.capabilities['openchamber-tool']).toBe('none');
     expect(CLAUDE_CODE_MODELS.length).toBeGreaterThan(0);
+    for (const model of CLAUDE_CODE_MODELS) {
+      expect(model.limit?.context).toBeGreaterThan(0);
+      expect(model.reasoning).toBe(true);
+      expect(model.toolCall).toBe(true);
+    }
   });
 
   it('exposes OpenCode provider auth mode', () => {

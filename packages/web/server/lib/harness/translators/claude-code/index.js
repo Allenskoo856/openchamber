@@ -126,6 +126,7 @@ export function createClaudeCodeTranslator(deps = {}) {
         harnessId: 'claude-code',
         modelRef: typeof target?.modelRef === 'string' ? target.modelRef : 'sonnet',
         permissionMode: target?.permissionMode,
+        effort: target?.effort,
       },
       capabilitySnapshot: capabilities,
       seedFromSessionId: typeof body?.seedFromSessionId === 'string' ? body.seedFromSessionId : undefined,
@@ -179,6 +180,7 @@ export function createClaudeCodeTranslator(deps = {}) {
         model: binding.target?.modelRef,
         resume: binding.foreignSessionId,
         permissionMode: binding.target?.permissionMode,
+        effort: binding.target?.effort,
         canUseTool,
         includePartialMessages: true,
       });

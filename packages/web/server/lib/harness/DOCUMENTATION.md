@@ -107,7 +107,8 @@ in responses. Never log tokens, OAuth material, or attachment bytes.
   "target": {
     "harnessId": "claude-code",
     "modelRef": "sonnet",
-    "permissionMode": "default"
+    "permissionMode": "default",
+    "effort": "high"
   },
   "text": "…",
   "files": [{ "mime": "image/png", "url": "data:image/png;base64,…", "filename": "a.png" }],
@@ -198,7 +199,7 @@ Dependency: `@anthropic-ai/claude-agent-sdk` in `packages/web/package.json`.
 `query.js`:
 
 - Lazy-imports the SDK; caches load failures.
-- `startClaudeQuery({ prompt, cwd, model, resume, permissionMode, canUseTool, env })`
+- `startClaudeQuery({ prompt, cwd, model, resume, permissionMode, effort, canUseTool, env })`
 - Resolves `pathToClaudeCodeExecutable` via `executable-path.js` (PATH / env /
   `app.asar.unpacked` native package) so Electron does not spawn a path inside
   `app.asar` (that fails with `ENOTDIR`).

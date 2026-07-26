@@ -76,7 +76,12 @@ describe('durable session bindings', () => {
       sessionId: 'ses_persist',
       harnessId: 'claude-code',
       directory: '/tmp/project',
-      target: { harnessId: 'claude-code', modelRef: 'opus', permissionMode: 'default' },
+      target: {
+        harnessId: 'claude-code',
+        modelRef: 'opus',
+        permissionMode: 'default',
+        effort: 'high',
+      },
       foreignSessionId: 'foreign_1',
     });
     updateSessionBinding('ses_persist', {
@@ -106,7 +111,12 @@ describe('durable session bindings', () => {
       harnessId: 'claude-code',
       directory: '/tmp/project',
       foreignSessionId: 'foreign_1',
-      target: { harnessId: 'claude-code', modelRef: 'opus', permissionMode: 'default' },
+      target: {
+        harnessId: 'claude-code',
+        modelRef: 'opus',
+        permissionMode: 'default',
+        effort: 'high',
+      },
       lastError: { code: 'X', message: 'y', at: 123 },
     });
   });

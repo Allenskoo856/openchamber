@@ -9,6 +9,7 @@ export type {
   HarnessId,
   ExecutionTarget,
   ClaudePermissionMode,
+  ClaudeEffort,
   CapabilityLevel,
   HarnessCapability,
   HarnessRuntimeStatus,
@@ -22,10 +23,12 @@ export type {
 export {
   HARNESS_IDS,
   HARNESS_CAPABILITIES,
+  CLAUDE_EFFORT_LEVELS,
   isHarnessId,
   isHarnessRuntimeStatus,
   isCapabilityLevel,
   isClaudePermissionMode,
+  isClaudeEffort,
   isExecutionTarget,
 } from './harness';
 

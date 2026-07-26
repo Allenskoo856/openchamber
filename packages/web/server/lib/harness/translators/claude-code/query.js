@@ -138,6 +138,7 @@ export function killProcessTree(pid, options = {}) {
  * @param {string} [params.model]
  * @param {string} [params.resume]
  * @param {string} [params.permissionMode]
+ * @param {string} [params.effort]
  * @param {(toolName: string, input: Record<string, unknown>, options: object) => Promise<object | null>} [params.canUseTool]
  * @param {Record<string, string | undefined>} [params.env]
  * @param {boolean} [params.includePartialMessages]
@@ -181,6 +182,9 @@ export async function startClaudeQuery(params) {
   }
   if (typeof params.permissionMode === 'string' && params.permissionMode.trim()) {
     options.permissionMode = params.permissionMode.trim();
+  }
+  if (typeof params.effort === 'string' && params.effort.trim()) {
+    options.effort = params.effort.trim();
   }
   if (typeof params.canUseTool === 'function') {
     options.canUseTool = params.canUseTool;

@@ -23,9 +23,9 @@ describe('favorite-targets sanitize', () => {
     ]);
   });
 
-  test('accepts Claude ExecutionTarget entries and strips permissionMode', () => {
+  test('accepts Claude ExecutionTarget entries and strips permissionMode/effort', () => {
     const result = sanitizeFavoriteTargets([
-      { harnessId: 'claude-code', modelRef: 'opus', permissionMode: 'acceptEdits' },
+      { harnessId: 'claude-code', modelRef: 'opus', permissionMode: 'acceptEdits', effort: 'high' },
       { harnessId: 'claude-code', modelRef: 'sonnet' },
     ], 64);
     expect(result).toEqual([
@@ -86,10 +86,22 @@ describe('favorite-targets sanitize', () => {
     })).toEqual({ harnessId: 'opencode', providerId: 'openai', modelId: 'gpt' });
   });
 
-  test('identity helpers ignore permissionMode', () => {
-    const a = { harnessId: 'claude-code' as const, modelRef: 'sonnet', permissionMode: 'plan' as const };
+  test('identity helpers ignore permissionMode and effort', () => {
+    const a = {
+      harnessId: 'claude-code' as const,
+      modelRef: 'sonnet',
+      permissionMode: 'plan' as const,
+      effort: 'max' as const,
+    };
     const b = { harnessId: 'claude-code' as const, modelRef: 'sonnet' };
     expect(executionTargetIdentityKey(normalizeFavoriteTarget(a))).toBe(executionTargetIdentityKey(b));
     expect(executionTargetFromFavoriteRef(favoriteRefFromExecutionTarget(a))).toEqual(b);
+  });
+
+  test('rejects Claude favorites with unknown effort', () => {
+    const result = sanitizeFavoriteTargets([
+      { harnessId: 'claude-code', modelRef: 'opus', effort: 'turbo' },
+    ], 64);
+    expect(result).toEqual([]);
   });
 });
