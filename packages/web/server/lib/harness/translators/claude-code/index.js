@@ -287,10 +287,34 @@ export function createClaudeCodeTranslator(deps = {}) {
     activeTurns.delete(sessionId);
 
     if (binding?.directory) {
-      emitHarnessEvents(getBroadcast(), binding.directory, [{
-        type: 'session.status',
-        properties: { sessionID: sessionId, status: { type: 'idle' } },
-      }]);
+      // Emit MessageAbortedError so session-goal pauses immediately (same
+      // contract as OpenCode abort), then idle for UI/status consumers.
+      const abortedAssistantId = createOpenCodeId('msg');
+      emitHarnessEvents(getBroadcast(), binding.directory, [
+        {
+          type: 'message.updated',
+          properties: {
+            info: {
+              id: abortedAssistantId,
+              sessionID: sessionId,
+              role: 'assistant',
+              time: { created: Date.now(), completed: Date.now() },
+              providerID: 'claude-code',
+              modelID: binding.target?.modelRef || 'sonnet',
+              agent: 'build',
+              mode: 'build',
+              error: {
+                name: 'MessageAbortedError',
+                data: { message: 'Aborted by user' },
+              },
+            },
+          },
+        },
+        {
+          type: 'session.status',
+          properties: { sessionID: sessionId, status: { type: 'idle' } },
+        },
+      ]);
     }
 
     return { ok: true, sessionId, aborted: true };

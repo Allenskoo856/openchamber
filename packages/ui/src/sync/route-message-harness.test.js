@@ -117,7 +117,11 @@ describe('routeMessage Claude harness branch', () => {
     expect(harnessPromptCalls).toHaveLength(1);
     expect(harnessPromptCalls[0].sessionId).toBe('session-claude');
     expect(harnessPromptCalls[0].directory).toBe('/claude/project');
-    expect(harnessPromptCalls[0].target).toEqual({ harnessId: 'claude-code', modelRef: 'sonnet' });
+    expect(harnessPromptCalls[0].target).toEqual({
+      harnessId: 'claude-code',
+      modelRef: 'sonnet',
+      permissionMode: 'default',
+    });
     expect(harnessPromptCalls[0].text).toBe('hello claude');
     expect(harnessPromptCalls[0].files).toEqual([{ mime: 'image/png', url: 'data:image/png;base64,x', filename: 'a.png' }]);
     expect(sendMessageCalls).toHaveLength(0);

@@ -4,7 +4,7 @@
  * Claude favorites use harnessId: 'claude-code' (or providerID sentinel 'claude-code').
  */
 
-import type { ClaudePermissionMode, ExecutionTarget } from '@/types/harness';
+import type { ExecutionTarget } from '@/types/harness';
 import { isClaudeEffort, isClaudePermissionMode, isExecutionTarget, isHarnessId } from '@/types/harness';
 
 export const CLAUDE_FAVORITE_PROVIDER_ID = 'claude-code';
@@ -159,18 +159,4 @@ export function legacyRefsToFavoriteTargets(refs: LegacyModelRef[]): ExecutionTa
     result.push(target);
   }
   return result;
-}
-
-export type ClaudePermissionModeOption = Exclude<ClaudePermissionMode, 'bypassPermissions'>;
-
-export const CLAUDE_PERMISSION_MODE_OPTIONS: readonly ClaudePermissionModeOption[] = [
-  'default',
-  'acceptEdits',
-  'plan',
-  'dontAsk',
-] as const;
-
-export function isExposedClaudePermissionMode(value: unknown): value is ClaudePermissionModeOption {
-  return typeof value === 'string'
-    && (CLAUDE_PERMISSION_MODE_OPTIONS as readonly string[]).includes(value);
 }

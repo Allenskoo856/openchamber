@@ -33,12 +33,12 @@ describe('sessionSupports', () => {
     expect(sessionSupports(null, 'multirun')).toBe(true);
   });
 
-  test('returns false for Claude sessions on goal/multirun', () => {
+  test('supports goal on Claude but not multirun', () => {
     useSelectionStore.getState().saveSessionTarget('ses_claude', {
       harnessId: 'claude-code',
       modelRef: 'sonnet',
     });
-    expect(sessionSupports('ses_claude', 'goal')).toBe(false);
+    expect(sessionSupports('ses_claude', 'goal')).toBe(true);
     expect(sessionSupports('ses_claude', 'multirun')).toBe(false);
     expect(sessionSupports('ses_claude', 'prompt')).toBe(true);
     expect(sessionSupports('ses_claude', 'abort')).toBe(true);
@@ -61,14 +61,16 @@ describe('sessionSupports', () => {
       harnessId: 'claude-code',
       modelRef: 'haiku',
     });
-    expect(sessionSupports('ses_new', 'goal')).toBe(false);
+    expect(sessionSupports('ses_new', 'goal')).toBe(true);
+    expect(sessionSupports('ses_new', 'multirun')).toBe(false);
   });
 
   test('falls back to last-used target for drafts', () => {
     useSelectionStore.setState({
       lastUsedTarget: { harnessId: 'claude-code', modelRef: 'sonnet' },
     });
-    expect(sessionSupports(null, 'goal')).toBe(false);
+    expect(sessionSupports(null, 'goal')).toBe(true);
+    expect(sessionSupports(null, 'multirun')).toBe(false);
   });
 
   test('prefers catalog capability levels when present', () => {
@@ -94,6 +96,6 @@ describe('sessionSupports', () => {
       error: null,
     });
     expect(getHarnessCapabilityLevel('claude-code', 'prompt')).toBe('none');
-    expect(getHarnessCapabilityLevel('claude-code', 'goal')).toBe('none');
+    expect(getHarnessCapabilityLevel('claude-code', 'goal')).toBe('partial');
   });
 });

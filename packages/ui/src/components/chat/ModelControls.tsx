@@ -46,12 +46,7 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { withEnginesSettingsDefaults } from '@/lib/harness/settings';
 import { buildOpenCodeExecutionTarget, persistSessionExecutionTarget } from '@/lib/harness/resolve-execution-target';
 import { applySessionExecutionTargetSelection } from '@/lib/harness/session-handoff';
-import {
-    CLAUDE_FAVORITE_PROVIDER_ID,
-    CLAUDE_PERMISSION_MODE_OPTIONS,
-    isExposedClaudePermissionMode,
-    type ClaudePermissionModeOption,
-} from '@/lib/harness/favorite-targets';
+import { CLAUDE_FAVORITE_PROVIDER_ID } from '@/lib/harness/favorite-targets';
 import {
     buildClaudeModelMetadata,
     buildClaudeModelMetadataMap,
@@ -59,24 +54,13 @@ import {
     resolveClaudeCatalogModel,
     type ClaudeEffort,
 } from '@/lib/harness/claude-models';
+import { claudePermissionModeFromEditPermission } from '@/lib/harness/claude-permission-mode';
+import { getAgentDefaultEditPermission } from '@/stores/utils/permissionUtils';
 import type { ExecutionTarget, HarnessId, HarnessRuntimeStatus } from '@/types/harness';
 import { isClaudeEffort } from '@/types/harness';
 import { useShallow } from 'zustand/react/shallow';
 
 const CLAUDE_PICKER_PROVIDER_ID = CLAUDE_FAVORITE_PROVIDER_ID;
-
-const CLAUDE_PERMISSION_MODE_LABEL_KEYS: Record<
-    ClaudePermissionModeOption,
-    | 'chat.engines.permissionMode.default'
-    | 'chat.engines.permissionMode.acceptEdits'
-    | 'chat.engines.permissionMode.plan'
-    | 'chat.engines.permissionMode.dontAsk'
-> = {
-    default: 'chat.engines.permissionMode.default',
-    acceptEdits: 'chat.engines.permissionMode.acceptEdits',
-    plan: 'chat.engines.permissionMode.plan',
-    dontAsk: 'chat.engines.permissionMode.dontAsk',
-};
 
 const CLAUDE_EFFORT_LABEL_KEYS: Record<
     ClaudeEffort,
@@ -426,7 +410,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const [enginesClaudeCodeEnabled, setEnginesClaudeCodeEnabled] = React.useState(true);
     const [pickerHarnessId, setPickerHarnessId] = React.useState<HarnessId>('opencode');
     const [claudeModelRef, setClaudeModelRef] = React.useState('sonnet');
-    const [claudePermissionMode, setClaudePermissionMode] = React.useState<ClaudePermissionModeOption>('default');
     const [claudeEffort, setClaudeEffort] = React.useState<ClaudeEffort | undefined>(undefined);
 
     const contextHydrated = useContextStore((state) => state.hasHydrated);
@@ -564,9 +547,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         if (sticky?.harnessId === 'claude-code') {
             setPickerHarnessId('claude-code');
             setClaudeModelRef(sticky.modelRef || 'sonnet');
-            setClaudePermissionMode(
-                isExposedClaudePermissionMode(sticky.permissionMode) ? sticky.permissionMode : 'default',
-            );
             setClaudeEffort(isClaudeEffort(sticky.effort) ? sticky.effort : undefined);
             return;
         }
@@ -611,12 +591,15 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const buildClaudeTarget = React.useCallback((
         modelRef: string,
         opts?: {
-            permissionMode?: ClaudePermissionModeOption;
+            agentName?: string | null;
             /** Pass `null` to clear effort back to SDK default. */
             effort?: ClaudeEffort | null;
         },
     ): ExecutionTarget => {
-        const permissionMode = opts?.permissionMode ?? claudePermissionMode;
+        const agentName = opts?.agentName ?? uiAgentName;
+        const permissionMode = claudePermissionModeFromEditPermission(
+            getAgentDefaultEditPermission(agentName || undefined),
+        );
         const effort = opts && Object.prototype.hasOwnProperty.call(opts, 'effort')
             ? (opts.effort ?? undefined)
             : claudeEffort;
@@ -626,7 +609,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             permissionMode,
             ...(effort ? { effort } : {}),
         };
-    }, [claudeEffort, claudePermissionMode]);
+    }, [claudeEffort, uiAgentName]);
 
     const handleSelectEngine = React.useCallback((engineId: string) => {
         if (engineId === 'claude-code') {
@@ -652,11 +635,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         currentProviderId,
         currentModelId,
     ]);
-
-    const handleClaudePermissionModeChange = React.useCallback((mode: ClaudePermissionModeOption) => {
-        setClaudePermissionMode(mode);
-        persistTarget(buildClaudeTarget(claudeModelRef, { permissionMode: mode }));
-    }, [buildClaudeTarget, claudeModelRef, persistTarget]);
 
     const handleClaudeEffortChange = React.useCallback((effort?: ClaudeEffort) => {
         setClaudeEffort(effort);
@@ -1442,6 +1420,10 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             if (currentSessionId) {
                 saveSessionAgentSelection(currentSessionId, agentName);
             }
+            // Claude permissionMode mirrors the selected OpenCode agent's edit rule.
+            if (pickerHarnessId === 'claude-code') {
+                persistTarget(buildClaudeTarget(claudeModelRef, { agentName }));
+            }
             if (isCompact) {
                 closeMobilePanel();
             }
@@ -1450,9 +1432,13 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         }
     }, [
         addRecentAgent,
+        buildClaudeTarget,
         closeMobilePanel,
+        claudeModelRef,
         currentSessionId,
         isCompact,
+        persistTarget,
+        pickerHarnessId,
         saveSessionAgentSelection,
         setAgent,
         setAgentMenuOpen,
@@ -3033,140 +3019,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         );
     };
 
-    const renderClaudePermissionModeSelector = () => {
-        if (!isReady || pickerHarnessId !== 'claude-code') {
-            return null;
-        }
-
-        const displayMode = t(CLAUDE_PERMISSION_MODE_LABEL_KEYS[claudePermissionMode]);
-        const isDefault = claudePermissionMode === 'default';
-        const colorClass = isDefault ? 'text-muted-foreground' : 'text-[color:var(--status-info)]';
-
-        if (isCompact) {
-            return (
-                <button
-                    type="button"
-                    onClick={() => setActiveMobilePanel('permission')}
-                    className={cn(
-                        'model-controls__permission-trigger flex items-center gap-1.5 transition-opacity min-w-0 focus:outline-none',
-                        buttonHeight,
-                        'cursor-pointer hover:bg-transparent hover:opacity-70',
-                    )}
-                    aria-label={t('chat.engines.permissionMode.aria', { mode: displayMode })}
-                >
-                    <Icon name="shield" className={cn(controlIconSize, 'flex-shrink-0', colorClass)} />
-                    <span
-                        className={cn(
-                            'model-controls__permission-label',
-                            controlTextSize,
-                            'font-medium min-w-0 truncate',
-                            isMobile && 'max-w-[72px]',
-                            colorClass,
-                        )}
-                    >
-                        {displayMode}
-                    </span>
-                </button>
-            );
-        }
-
-        return (
-            <Tooltip delayDuration={600}>
-                <DropdownMenu>
-                    <TooltipTrigger asChild>
-                        <DropdownMenuTrigger asChild>
-                            <button
-                                type="button"
-                                className={cn(
-                                    'model-controls__permission-trigger flex items-center gap-1.5 transition-opacity min-w-0 focus:outline-none',
-                                    buttonHeight,
-                                    'cursor-pointer hover:bg-transparent hover:opacity-70',
-                                )}
-                                aria-label={t('chat.engines.permissionMode.aria', { mode: displayMode })}
-                            >
-                                <Icon name="shield" className={cn(controlIconSize, 'flex-shrink-0', colorClass)} />
-                                <span
-                                    className={cn(
-                                        'model-controls__permission-label',
-                                        controlTextSize,
-                                        'font-medium min-w-0 truncate',
-                                        isDesktop ? 'max-w-[140px]' : undefined,
-                                        colorClass,
-                                    )}
-                                >
-                                    {displayMode}
-                                </span>
-                            </button>
-                        </DropdownMenuTrigger>
-                    </TooltipTrigger>
-                    <DropdownMenuContent align="end" alignOffset={-40} className="w-[min(200px,calc(100vw-2rem))]">
-                        <DropdownMenuLabel className="typography-ui-header font-semibold text-foreground">
-                            {t('chat.engines.permissionMode.label')}
-                        </DropdownMenuLabel>
-                        {CLAUDE_PERMISSION_MODE_OPTIONS.map((mode) => {
-                            const selected = claudePermissionMode === mode;
-                            return (
-                                <DropdownMenuItem
-                                    key={mode}
-                                    className="typography-meta"
-                                    onSelect={() => handleClaudePermissionModeChange(mode)}
-                                >
-                                    <div className="flex items-center justify-between gap-2 w-full min-w-0">
-                                        <span className="typography-meta font-medium text-foreground truncate min-w-0">
-                                            {t(CLAUDE_PERMISSION_MODE_LABEL_KEYS[mode])}
-                                        </span>
-                                        {selected ? <Icon name="check" className="size-4 text-primary flex-shrink-0" /> : null}
-                                    </div>
-                                </DropdownMenuItem>
-                            );
-                        })}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-                <TooltipContent side="top">
-                    <p className="typography-meta">{t('chat.engines.permissionMode.tooltip', { mode: displayMode })}</p>
-                </TooltipContent>
-            </Tooltip>
-        );
-    };
-
-    const renderMobilePermissionPanel = () => {
-        if (!isCompact || pickerHarnessId !== 'claude-code') return null;
-
-        return (
-            <MobileOverlayPanel
-                open={activeMobilePanel === 'permission'}
-                onClose={closeMobilePanel}
-                title={t('chat.engines.permissionMode.label')}
-            >
-                <div className="flex flex-col gap-1.5">
-                    {CLAUDE_PERMISSION_MODE_OPTIONS.map((mode) => {
-                        const selected = claudePermissionMode === mode;
-                        return (
-                            <button
-                                key={mode}
-                                type="button"
-                                className={cn(
-                                    'flex w-full items-center justify-between gap-2 rounded-xl border px-2 py-1.5 text-left',
-                                    'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary',
-                                    selected ? 'border-primary/30 bg-primary/10' : 'border-border/40',
-                                )}
-                                onClick={() => {
-                                    handleClaudePermissionModeChange(mode);
-                                    closeMobilePanel();
-                                }}
-                            >
-                                <span className="typography-meta font-medium text-foreground">
-                                    {t(CLAUDE_PERMISSION_MODE_LABEL_KEYS[mode])}
-                                </span>
-                                {selected ? <Icon name="check" className="size-4 text-primary flex-shrink-0" /> : null}
-                            </button>
-                        );
-                    })}
-                </div>
-            </MobileOverlayPanel>
-        );
-    };
-
     const renderClaudeEffortSelector = () => {
         if (!isReady || pickerHarnessId !== 'claude-code') {
             return null;
@@ -3622,7 +3474,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         isMobile && 'overflow-hidden'
                     )}
                 >
-                    {renderClaudePermissionModeSelector()}
                     {renderClaudeEffortSelector()}
                     {renderClaudeEffortMobilePanel()}
                     {renderVariantSelector()}
@@ -3633,7 +3484,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
             {renderMobileModelPanel()}
             {renderMobileVariantPanel()}
-            {renderMobilePermissionPanel()}
             {renderMobileAgentPanel()}
             {renderMobileModelTooltip()}
             {renderMobileAgentTooltip()}

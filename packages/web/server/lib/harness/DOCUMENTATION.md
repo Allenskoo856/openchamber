@@ -107,7 +107,7 @@ in responses. Never log tokens, OAuth material, or attachment bytes.
   "target": {
     "harnessId": "claude-code",
     "modelRef": "sonnet",
-    "permissionMode": "default",
+    "permissionMode": "acceptEdits",
     "effort": "high"
   },
   "text": "…",
@@ -181,6 +181,20 @@ a mocked `router` / `detectAll` / `detectOne`, and set `initBindings: false` or
 UI: `harnessPermissionReply` → `respondToPermission` / `dismissPermission` branch
 when `getSessionTarget(sessionId)?.harnessId === 'claude-code'`.
 
+`permissionMode` is not a separate Claude composer control. The UI derives it
+from the selected OpenCode agent's edit permission (`allow`→`acceptEdits`,
+`ask`→`default`, `deny`→`plan`) on each send. Session permission auto-accept
+also settles bridged harness asks via `replyHarnessPermission` (never OpenCode
+`/permission/:id/reply` for Claude-bound sessions).
+
+## Goal on Claude
+
+Capability `goal: partial`. Session-goal listens to harness events through
+`addHarnessEventObserver` and reads last-turn text from
+`turn-snapshot.js` (OpenCode `/session/:id/message` is empty for harness
+turns). Continuations call `harnessRouter.prompt` / `/api/harness/prompt`.
+Token budget accounting is best-effort until Claude usage tokens are mapped.
+
 ## Claude auth-env policy
 
 `translators/claude-code/auth-env.js` builds child env from `process.env` and
@@ -252,7 +266,8 @@ client-provided `messageId` / `assistantMessageId` for optimistic reconcile.
 
 - Codex CLI / Gemini CLI engines
 - Reverse handoff billing notice (Claude → OpenCode)
-- Goal / MultiRun / OpenChamber injected tool on Claude
+- MultiRun / OpenChamber injected tool on Claude
+- Full Claude token → goal budget accounting
 
 ## Testing
 

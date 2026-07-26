@@ -22,7 +22,7 @@ describe('harness registry', () => {
     expect(claude.install.binaryNames).toContain('claude');
     expect(claude.capabilities.prompt).toBe('full');
     expect(claude.capabilities.multirun).toBe('none');
-    expect(claude.capabilities.goal).toBe('none');
+    expect(claude.capabilities.goal).toBe('partial');
     expect(claude.capabilities['openchamber-tool']).toBe('none');
     expect(CLAUDE_CODE_MODELS.length).toBeGreaterThan(0);
     for (const model of CLAUDE_CODE_MODELS) {

@@ -300,6 +300,18 @@ export function getPendingPermissionCount() {
   return pending.size;
 }
 
+/**
+ * Pending bridged permission requests for auto-accept reconcile.
+ * @returns {Array<{ id: string, sessionID: string, directory: string }>}
+ */
+export function listPendingPermissions() {
+  return Array.from(pending.entries()).map(([id, entry]) => ({
+    id,
+    sessionID: entry.sessionId,
+    directory: entry.directory,
+  }));
+}
+
 /** Test helper — clears pending map and timers. */
 export function resetPendingPermissions() {
   for (const entry of pending.values()) {

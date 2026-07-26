@@ -110,6 +110,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       permissionAutoAcceptRuntime,
       getBroadcastGlobalUiEvent,
       getOpenCodeReady,
+      harnessRouter,
     } = routeDependencies;
 
     registerSettingsUtilityRoutes(app, {
@@ -272,6 +273,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       getOpenCodeReady: typeof getOpenCodeReady === 'function'
         ? getOpenCodeReady
         : () => true,
+      ...(harnessRouter ? { router: harnessRouter } : {}),
     });
     registerSessionGoalRoutes(app);
     registerGitHubRoutes(app);

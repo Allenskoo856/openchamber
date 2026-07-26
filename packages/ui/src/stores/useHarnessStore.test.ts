@@ -76,7 +76,7 @@ const claudeCatalog = {
       mcp: 'partial',
       subagents: 'partial',
       multirun: 'none',
-      goal: 'none',
+      goal: 'partial',
       'openchamber-tool': 'none',
     },
     install: { binaryNames: ['claude'], docsUrl: 'https://example.com/claude' },

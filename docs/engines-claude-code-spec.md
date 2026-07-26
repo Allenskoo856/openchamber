@@ -21,7 +21,8 @@ Related product intent: keep OpenChamber UI/API as the primary surface; expand e
 - Codex CLI / Gemini CLI engines (structure must allow them later).
 - Using Claude subscription OAuth through direct Anthropic HTTP from OpenChamber.
 - Full TTY parity with interactive `claude` (rewind UI, all interactive-only slash commands).
-- OpenChamber Goal Mode / MultiRun / injected `openchamber` tool on Claude sessions.
+- MultiRun / injected `openchamber` tool on Claude sessions.
+- Separate Claude permission-mode chip (Claude `permissionMode` mirrors OpenCode agent edit + auto-accept).
 - Editing Claude MCP/settings from OpenChamber Providers/MCP pages.
 - Lossless binary clone of OpenCode sessions into Claude native session format.
 
@@ -176,7 +177,8 @@ type HarnessDescriptor = {
 | slash-commands | partial | user skills via prompt text where CLI expands; no interactive-only cmds |
 | mcp | partial | whatever Claude loads natively; no OpenChamber MCP editor bridge |
 | subagents | partial | appear in stream if CLI emits; limited UI affordances |
-| multirun / goal / openchamber-tool | none | OpenCode-only |
+| goal | partial | Server loop via harness turn snapshots + `/api/harness/prompt` continuations; token budget best-effort |
+| multirun / openchamber-tool | none | OpenCode-only |
 
 ### 5.4 Session binding
 
@@ -329,7 +331,9 @@ Hard requirements:
 - Resume uses stored `foreignSessionId`.
 - Working directory = session/project directory.
 - Do **not** default to `--bare` for product sessions (bare skips CLAUDE.md/skills/MCP and hurts nativity). Bare may exist later as an advanced opt-in; not v1 default.
-- Permission mode from `ExecutionTarget.permissionMode`.
+- Permission mode derived from the selected OpenCode agent's edit permission
+  (`allow`→`acceptEdits`, `ask`→`default`, `deny`→`plan`); not a separate Claude UI control.
+  Session permission auto-accept replies through `/api/harness/permission/reply`.
 - `canUseTool` bridges into OpenChamber permission requests.
 
 ### 7.4 Process lifecycle
@@ -718,7 +722,7 @@ Minimum focused coverage:
 5. Attachments: image/text/pdf accept; unknown binary reject; HEIC conversion path.
 6. Handoff: creates new session, seeds text, preserves source, sets `seedFromSessionId`.
 7. Notice setting: default on; checkbox persists off only on Continue; settings re-enable works.
-8. Capability gate: multirun/goal not offered on Claude sessions.
+8. Capability gate: multirun not offered on Claude sessions; goal is offered (`partial`).
 9. Failure isolation: Claude crash leaves OpenCode sessions usable.
 
 Runtime validation on desktop/web host with real `claude` login is required before calling the feature done; typecheck alone is insufficient.

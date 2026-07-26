@@ -87,6 +87,14 @@ import { createPushRuntime } from './lib/notifications/push-runtime.js';
 import { createApnsRuntime } from './lib/notifications/apns-runtime.js';
 import { createNotificationTemplateRuntime } from './lib/notifications/template-runtime.js';
 import { createPermissionAutoAcceptRuntime } from './lib/permission-auto-accept/runtime.js';
+import {
+  createHarnessRouter,
+  getSessionBinding,
+  listPendingPermissions as listHarnessPendingPermissions,
+  addHarnessEventObserver,
+  getHarnessRecentMessages,
+  isHarnessSessionWorking,
+} from './lib/harness/index.js';
 import { createGracefulShutdownRuntime } from './lib/opencode/shutdown-runtime.js';
 import { createProjectConfigRuntime } from './lib/projects/project-config.js';
 import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.js';
@@ -445,6 +453,9 @@ const broadcastGlobalUiEvent = createGlobalUiEventBroadcaster({
   wsClients: uiNotificationWsClients,
   writeSseEvent,
 });
+const harnessRouter = createHarnessRouter({
+  getBroadcast: () => broadcastGlobalUiEvent,
+});
 const broadcastUiNotification = (...args) => notificationEmitterRuntime.broadcastUiNotification(...args);
 
 const sessionRuntime = createSessionRuntime({
@@ -733,6 +744,10 @@ const sessionGoalRuntime = createSessionGoalRuntime({
   buildOpenCodeUrl,
   getOpenCodeAuthHeaders,
   getSmallModelService: async () => import('./lib/small-model/index.js'),
+  getHarnessBinding: (sessionId) => getSessionBinding(sessionId),
+  getHarnessRecentMessages,
+  isHarnessSessionWorking,
+  promptHarness: (body) => harnessRouter.prompt(body),
   emitGoalNotification: async ({ sessionId, directory, status, goal }) => {
     // The goal settle notification replaces the per-turn ready notifications
     // (suppressed while the goal is active) — so it obeys the same toggle.
@@ -786,11 +801,21 @@ const permissionAutoAcceptRuntime = createPermissionAutoAcceptRuntime({
   readSettingsFromDiskMigrated,
   persistSettings,
   broadcastGlobalUiEvent,
+  isHarnessSession: (sessionId) => getSessionBinding(sessionId)?.harnessId === 'claude-code',
+  replyHarnessPermission: (body) => harnessRouter.replyPermission(body),
+  listHarnessPendingPermissions,
 });
 permissionAutoAcceptRuntime.start();
 notificationTriggerRuntime.setGetIsSessionAutoAccepting(
   (sessionId, directory) => permissionAutoAcceptRuntime.isSessionAutoAccepting(sessionId, directory),
 );
+
+// Harness events are not on the OpenCode global hub — fan them into Goal and
+// permission auto-accept so backend loops work without a connected UI.
+addHarnessEventObserver((payload, directory) => {
+  sessionGoalRuntime.processPayload(payload, directory);
+  permissionAutoAcceptRuntime.processHarnessPayload(payload, directory);
+});
 
 const openCodeWatcherRuntime = createOpenCodeWatcherRuntime({
   waitForOpenCodePort: (...args) => waitForOpenCodePort(...args),
@@ -1609,6 +1634,7 @@ async function main(options = {}) {
     permissionAutoAcceptRuntime,
     getBroadcastGlobalUiEvent: () => broadcastGlobalUiEvent,
     getOpenCodeReady: () => isOpenCodeReady,
+    harnessRouter,
   });
 
   const previewProxyRuntime = createPreviewProxyRuntime({

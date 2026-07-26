@@ -71,6 +71,8 @@ import { getRuntimeKey } from "@/lib/runtime-switch"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
 import { HarnessClientError, harnessPrompt } from "@/lib/harness/client"
+import { claudePermissionModeFromEditPermission } from "@/lib/harness/claude-permission-mode"
+import { getAgentDefaultEditPermission } from "@/stores/utils/permissionUtils"
 import {
   persistSessionExecutionTarget,
   resolveExecutionTarget,
@@ -114,7 +116,7 @@ export function routeMessage(params: {
   executionTarget?: ExecutionTarget
 }): Promise<void> {
   const requestDirectory = params.directory ?? undefined
-  const target = params.executionTarget && params.executionTarget.harnessId
+  let target = params.executionTarget && params.executionTarget.harnessId
     ? params.executionTarget
     : resolveExecutionTarget({
       sessionId: params.sessionId,
@@ -123,6 +125,17 @@ export function routeMessage(params: {
       agent: params.agent,
       variant: params.variant,
     })
+
+  // Claude permissionMode is not a separate UI control — mirror the selected
+  // OpenCode agent's edit permission on every send.
+  if (target.harnessId === "claude-code") {
+    target = {
+      ...target,
+      permissionMode: claudePermissionModeFromEditPermission(
+        getAgentDefaultEditPermission(params.agent),
+      ),
+    }
+  }
 
   if (params.sessionId) {
     persistSessionExecutionTarget(params.sessionId, target)

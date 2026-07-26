@@ -41,7 +41,7 @@ export const STATIC_HARNESS_CAPABILITIES: Record<HarnessId, Record<HarnessCapabi
     mcp: 'partial',
     subagents: 'partial',
     multirun: 'none',
-    goal: 'none',
+    goal: 'partial',
     'openchamber-tool': 'none',
   },
 };

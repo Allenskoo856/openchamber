@@ -61,7 +61,10 @@ const CLAUDE_CODE_CAPABILITIES = Object.freeze({
   mcp: 'partial',
   subagents: 'partial',
   multirun: 'none',
-  goal: 'none',
+  // Goal loop is supported via harness turn snapshots + /api/harness/prompt
+  // continuations. Token budget accounting stays best-effort (Claude token
+  // fields are not fully mapped yet) — treat as partial in the matrix.
+  goal: 'partial',
   'openchamber-tool': 'none',
 });
 

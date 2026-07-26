@@ -252,6 +252,14 @@ export const createSessionGoalRuntime = ({
   idleQuietMs = IDLE_QUIET_MS,
   kickoffQuietMs = KICKOFF_QUIET_MS,
   maxAutoTurns = MAX_AUTO_TURNS,
+  /** @type {(sessionId: string) => object | null | undefined} */
+  getHarnessBinding = null,
+  /** @type {(sessionId: string) => Array<{ info: object, parts: object[] }> | null | undefined} */
+  getHarnessRecentMessages = null,
+  /** @type {(sessionId: string) => boolean} */
+  isHarnessSessionWorking = null,
+  /** @type {(body: object) => Promise<unknown>} */
+  promptHarness = null,
 }) => {
   const timers = new Map();
   const inflight = new Set();
@@ -421,7 +429,33 @@ export const createSessionGoalRuntime = ({
     }
   };
 
-  const sendContinuation = async ({ sessionId, directory, goal, lastAssistantInfo }) => {
+  const sendContinuation = async ({ sessionId, directory, goal, lastAssistantInfo, harnessBinding }) => {
+    if (harnessBinding?.harnessId === 'claude-code') {
+      if (typeof promptHarness !== 'function') {
+        throw new Error('cannot continue goal: harness prompt is unavailable');
+      }
+      const target = harnessBinding.target && typeof harnessBinding.target === 'object'
+        ? harnessBinding.target
+        : { harnessId: 'claude-code', modelRef: 'sonnet' };
+      const modelRef = typeof target.modelRef === 'string' && target.modelRef
+        ? target.modelRef
+        : (typeof lastAssistantInfo?.modelID === 'string' && lastAssistantInfo.modelID
+          ? lastAssistantInfo.modelID
+          : 'sonnet');
+      await promptHarness({
+        sessionId,
+        directory,
+        target: {
+          harnessId: 'claude-code',
+          modelRef,
+          ...(typeof target.permissionMode === 'string' ? { permissionMode: target.permissionMode } : {}),
+          ...(typeof target.effort === 'string' ? { effort: target.effort } : {}),
+        },
+        text: buildContinuationPrompt(goal),
+      });
+      return;
+    }
+
     const providerID = typeof lastAssistantInfo?.providerID === 'string' ? lastAssistantInfo.providerID : '';
     const modelID = typeof lastAssistantInfo?.modelID === 'string' ? lastAssistantInfo.modelID : '';
     if (!providerID || !modelID) {
@@ -476,28 +510,47 @@ export const createSessionGoalRuntime = ({
       }
     }
 
+    const harnessBinding = typeof getHarnessBinding === 'function'
+      ? getHarnessBinding(sessionId)
+      : null;
+    const isClaudeHarness = harnessBinding?.harnessId === 'claude-code';
+
     // Parent idle does not imply the whole task is quiescent: a background
     // subagent runs in a child session while its parent stays idle. Re-read
     // authoritative live status after the quiet window. If the parent resumed,
     // its next idle event will arm a fresh tick. If a child is still working,
     // OpenCode will inject its result into the parent and produce the same
     // busy→idle cycle, so do not poll or audit the interim parent reply.
-    const statuses = await fetchSessionStatuses(directory);
-    if (!statuses) {
-      armTimer(sessionId, directory, idleQuietMs);
-      return;
-    }
-    if (isWorkingStatus(statuses[sessionId])) return;
+    //
+    // Claude harness sessions: OpenCode /session/status and /message are not
+    // authoritative — use the server harness turn snapshot instead.
+    let messages;
+    if (isClaudeHarness) {
+      if (typeof isHarnessSessionWorking === 'function' && isHarnessSessionWorking(sessionId)) {
+        return;
+      }
+      messages = typeof getHarnessRecentMessages === 'function'
+        ? getHarnessRecentMessages(sessionId)
+        : null;
+      if (!messages) return;
+    } else {
+      const statuses = await fetchSessionStatuses(directory);
+      if (!statuses) {
+        armTimer(sessionId, directory, idleQuietMs);
+        return;
+      }
+      if (isWorkingStatus(statuses[sessionId])) return;
 
-    const children = await fetchSessionChildren(sessionId, directory);
-    if (!children) {
-      armTimer(sessionId, directory, idleQuietMs);
-      return;
-    }
-    if (children.some((child) => typeof child?.id === 'string' && isWorkingStatus(statuses[child.id]))) return;
+      const children = await fetchSessionChildren(sessionId, directory);
+      if (!children) {
+        armTimer(sessionId, directory, idleQuietMs);
+        return;
+      }
+      if (children.some((child) => typeof child?.id === 'string' && isWorkingStatus(statuses[child.id]))) return;
 
-    const messages = await fetchRecentMessages(sessionId, directory);
-    if (!messages) return;
+      messages = await fetchRecentMessages(sessionId, directory);
+      if (!messages) return;
+    }
 
     let lastAssistant = null;
     for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -727,7 +780,9 @@ export const createSessionGoalRuntime = ({
 
     // The tail may have moved while auditing (user sent a message) — a
     // continuation now would collide with the user's own turn.
-    const latest = await fetchRecentMessages(sessionId, directory);
+    const latest = isClaudeHarness
+      ? (typeof getHarnessRecentMessages === 'function' ? getHarnessRecentMessages(sessionId) : null)
+      : await fetchRecentMessages(sessionId, directory);
     const latestLastInfo = latest && latest.length > 0 ? latest[latest.length - 1]?.info : null;
     if (!latestLastInfo || latestLastInfo.id !== lastMessageInfo?.id) {
       console.log('[session-goal] tail moved on, dropping continuation');
@@ -735,7 +790,13 @@ export const createSessionGoalRuntime = ({
     }
 
     console.log(`[session-goal] continuing ${sessionId} (turn ${written.turnsUsed}/${maxAutoTurns}, tokens ${written.tokensUsed}${written.tokenBudget ? `/${written.tokenBudget}` : ''})`);
-    await sendContinuation({ sessionId, directory, goal: { ...written, objective: effectiveObjective }, lastAssistantInfo: executionInfo ?? lastAssistantInfo });
+    await sendContinuation({
+      sessionId,
+      directory,
+      goal: { ...written, objective: effectiveObjective },
+      lastAssistantInfo: executionInfo ?? lastAssistantInfo,
+      harnessBinding,
+    });
   };
 
   const armTimer = (sessionId, directory, quietMs) => {

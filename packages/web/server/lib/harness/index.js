@@ -45,8 +45,17 @@ export {
   rejectPendingForSession,
   resetPendingPermissions,
   getPendingPermissionCount,
+  listPendingPermissions,
   DEFAULT_PERMISSION_TIMEOUT_MS,
 } from './translators/claude-code/permissions.js';
+
+export {
+  applyHarnessEventToSnapshot,
+  getHarnessTurnSnapshot,
+  getHarnessRecentMessages,
+  isHarnessSessionWorking,
+  resetHarnessTurnSnapshots,
+} from './turn-snapshot.js';
 
 export { createHarnessRouter } from './router.js';
 export { registerHarnessRoutes } from './routes.js';
@@ -70,4 +79,9 @@ export {
   createClaudeMapperContext,
   createOpenCodeId,
 } from './events/from-claude.js';
-export { emitHarnessEvent, emitHarnessEvents } from './events/emit.js';
+export {
+  emitHarnessEvent,
+  emitHarnessEvents,
+  addHarnessEventObserver,
+  resetHarnessEventObservers,
+} from './events/emit.js';
