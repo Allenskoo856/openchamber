@@ -2801,9 +2801,10 @@ export const ContextPanel: React.FC = () => {
       }
     : isExpanded
       ? {
-          ['--oc-context-panel-width' as string]: '100%',
-          width: '100%',
-          minWidth: '100%',
+          // px, not '100%': px↔% width changes do not interpolate, which
+          // would make the expand/collapse width snap instead of animating.
+          ['--oc-context-panel-width' as string]: availablePanelAreaWidth !== null ? `${availablePanelAreaWidth}px` : '100%',
+          width: availablePanelAreaWidth !== null ? `${availablePanelAreaWidth}px` : '100%',
           maxWidth: '100%',
         }
       : {
@@ -2821,9 +2822,11 @@ export const ContextPanel: React.FC = () => {
       inert={!isOpen || undefined}
       className={cn(
         'flex min-h-0 flex-col overflow-hidden bg-background',
-        isOpen && !isExpanded && 'border-l border-border/40',
+        // Right-anchored while expanded: `inset-0` would teleport the left
+        // edge instantly (position does not transition), so only the width
+        // animates and the panel grows leftwards from its docked position.
         isExpanded
-          ? 'absolute inset-0 z-20 min-w-0'
+          ? 'absolute inset-y-0 right-0 z-20 min-w-0'
           : 'relative h-full flex-shrink-0',
         !isOpen && 'pointer-events-none',
         'will-change-[width] motion-reduce:transition-none',
@@ -2834,6 +2837,12 @@ export const ContextPanel: React.FC = () => {
       onKeyDownCapture={handlePanelKeyDownCapture}
       style={panelStyle}
     >
+      {/* Painted divider instead of border-l: a real border eats 1px of the
+          content box only while collapsed, shifting the header controls by
+          1px between the collapsed and expanded states. */}
+      {isOpen && !isExpanded && (
+        <div aria-hidden="true" className="absolute left-0 top-0 z-40 h-full w-px bg-border/40" />
+      )}
       {!isExpanded && (
         <div
           className={cn(
@@ -2851,10 +2860,22 @@ export const ContextPanel: React.FC = () => {
       )}
       <div
         className={cn(
-          'relative z-10 flex h-full min-h-0 shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+          'relative z-10 flex h-full min-h-0 shrink-0 flex-col duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+          // Width must animate in sync with the panel when switching between
+          // surfaces with different widths; during manual resize it must track
+          // the live width instantly instead.
+          isResizing || suppressWidthTransition
+            ? 'transition-opacity'
+            : 'transition-[width,opacity]',
           !isOpen && 'pointer-events-none select-none opacity-0'
         )}
-        style={{ width: isExpanded ? '100%' : 'var(--oc-context-panel-width)' }}
+        // px in the expanded state too: px↔% width changes cannot interpolate,
+        // so the header controls would snap instead of riding the animation.
+        style={{
+          width: isExpanded
+            ? (availablePanelAreaWidth !== null ? `${availablePanelAreaWidth}px` : '100%')
+            : 'var(--oc-context-panel-width)',
+        }}
         aria-hidden={!isOpen}
       >
       {header}
