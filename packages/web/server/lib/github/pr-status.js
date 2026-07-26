@@ -339,6 +339,14 @@ export const invalidateRepoPullsCache = (owner, repo) => {
       repoPullsCache.delete(key);
     }
   }
+  // A just-created PR must also clear remembered search misses for this repo.
+  const repoNameLower = normalizeText(repo).toLowerCase();
+  for (const key of _searchMissCache.keys()) {
+    const [repoPart] = key.split('::');
+    if (repoPart && repoPart.split(',').includes(repoNameLower)) {
+      _searchMissCache.delete(key);
+    }
+  }
 };
 
 const getRepoPulls = (octokit, repo, state, { force = false } = {}) => {
@@ -396,6 +404,24 @@ const parseRepoFromApiUrl = (value) => {
 const _searchApiDisabledRepos = new Map();
 const SEARCH_API_RETRY_MS = 5 * 60 * 1000; // retry after 5 minutes
 
+// The Search API has its own tiny quota (30/min). A branch that has no PR
+// would otherwise re-search on every poll; a miss is extremely unlikely to
+// change within minutes, so remember it per repo+branch and back off.
+const SEARCH_MISS_RETRY_MS = 10 * 60 * 1000;
+const SEARCH_MISS_CACHE_MAX_ENTRIES = 500;
+const _searchMissCache = new Map();
+
+const rememberSearchMiss = (key) => {
+  _searchMissCache.delete(key);
+  _searchMissCache.set(key, Date.now());
+  if (_searchMissCache.size > SEARCH_MISS_CACHE_MAX_ENTRIES) {
+    const oldest = _searchMissCache.keys().next().value;
+    if (oldest !== undefined) {
+      _searchMissCache.delete(oldest);
+    }
+  }
+};
+
 const searchFallbackPr = async ({ octokit, branch, repoNames }) => {
   // Build a repo key to check/store 403 status per-repo
   const repoKey = [...repoNames].sort().join(',').toLowerCase();
@@ -403,6 +429,12 @@ const searchFallbackPr = async ({ octokit, branch, repoNames }) => {
   // Skip if this repo set returned 403 recently
   const disabledAt = _searchApiDisabledRepos.get(repoKey);
   if (disabledAt && Date.now() - disabledAt < SEARCH_API_RETRY_MS) {
+    return null;
+  }
+
+  const missKey = `${repoKey}::${normalizeText(branch)}`;
+  const missedAt = _searchMissCache.get(missKey);
+  if (missedAt && Date.now() - missedAt < SEARCH_MISS_RETRY_MS) {
     return null;
   }
 
@@ -465,6 +497,7 @@ const searchFallbackPr = async ({ octokit, branch, repoNames }) => {
     }
   }
 
+  rememberSearchMiss(missKey);
   return null;
 };
 
