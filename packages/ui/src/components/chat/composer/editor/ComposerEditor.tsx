@@ -101,6 +101,8 @@ export interface ComposerEditorProps {
      * both read from the DOM — and the smaller of it and `maxLines` wins.
      */
     boundSelector?: string;
+    /** Breathing room kept between the grown composer and the bound's edge. */
+    boundGapPx?: number;
     className?: string;
     contentClassName?: string;
     /**
@@ -149,6 +151,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             fillContainer = false,
             maxLines = 8,
             boundSelector,
+            boundGapPx = 0,
             className,
             contentClassName,
         } = props;
@@ -350,7 +353,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                 let cap = lineHeight * maxLines;
                 if (boundEl && branch) {
                     const chrome = branch.offsetHeight - view.scrollDOM.offsetHeight;
-                    const available = boundEl.clientHeight - chrome;
+                    const available = boundEl.clientHeight - chrome - boundGapPx;
                     if (available > 0) cap = Math.min(cap, available);
                 }
                 const next = `${cap}px`;
@@ -368,7 +371,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             if (branch) observer.observe(branch);
             if (boundEl) observer.observe(boundEl);
             return () => observer.disconnect();
-        }, [boundSelector, fillContainer, maxLines]);
+        }, [boundGapPx, boundSelector, fillContainer, maxLines]);
 
         React.useEffect(() => {
             const view = viewRef.current;

@@ -152,6 +152,12 @@ const MAX_VISIBLE_COMPOSER_LINES = 8;
  * absurdly tall editors on tablets.
  */
 const MAX_MOBILE_COMPOSER_LINES = 16;
+/**
+ * Breathing room between the fully grown composer and the top of its screen
+ * container: without it the composer's border lands exactly on the header's
+ * bottom edge on the chat screen. A visual gap by design, not an estimate.
+ */
+const MOBILE_COMPOSER_BOUND_GAP_PX = 4;
 const EMPTY_QUEUE: QueuedMessage[] = [];
 const COMPACT_CHAT_PLACEHOLDER_MAX_WIDTH = 560;
 const renameFileForAttachmentCitation = (file: File, filename: string): File => {
@@ -2647,6 +2653,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 fillContainer={isComposerExpanded}
                                 maxLines={isMobile ? MAX_MOBILE_COMPOSER_LINES : MAX_VISIBLE_COMPOSER_LINES}
                                 boundSelector={isMobile ? '[data-composer-bound]' : undefined}
+                                boundGapPx={MOBILE_COMPOSER_BOUND_GAP_PX}
                                 className={cn(
                                     'min-h-[52px] px-3 relative z-10',
                                     isComposerExpanded
