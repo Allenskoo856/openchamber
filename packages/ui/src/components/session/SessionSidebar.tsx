@@ -24,7 +24,6 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useArchivedAutoFolders } from './sidebar/hooks/useArchivedAutoFolders';
 import { useSessionSidebarSections } from './sidebar/hooks/useSessionSidebarSections';
 import { ProjectSessionSelectionEffect } from './sidebar/hooks/useProjectSessionSelection';
-import { useGroupOrdering } from './sidebar/hooks/useGroupOrdering';
 import { useSessionGrouping } from './sidebar/hooks/useSessionGrouping';
 import { useSessionSearchEffects } from './sidebar/hooks/useSessionSearchEffects';
 import { useSessionActions } from './sidebar/hooks/useSessionActions';
@@ -34,7 +33,6 @@ import { useProjectSessionLists } from './sidebar/hooks/useProjectSessionLists';
 import { useAuthoritativeSessionCleanup } from './sidebar/hooks/useAuthoritativeSessionCleanup';
 import { createSessionOwnershipIndex } from './sidebar/sessionOwnership';
 import { useStickyProjectHeaders } from './sidebar/hooks/useStickyProjectHeaders';
-import { getGitHubPrStatusKey, usePrVisualSummaryByKeys, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
 import { ProjectEditDialog } from '@/components/layout/ProjectEditDialog';
 import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { SessionGroupSection } from './sidebar/SessionGroupSection';
@@ -49,7 +47,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { listProjectWorktrees, worktreeMapsEqual } from '@/lib/worktrees/worktreeManager';
 import { checkIsGitRepository } from '@/lib/gitApi';
 import type { WorktreeMetadata } from '@/types/worktree';
-import type { SortableDragHandleProps } from './sidebar/sortableItems';
 import {
   BulkSessionDeleteConfirmDialog,
   FolderDeleteConfirmDialog,
@@ -86,15 +83,14 @@ import {
   resolveGlobalSessionDirectory,
   useGlobalSessionsStore,
 } from '@/stores/useGlobalSessionsStore';
-import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
+import { useNotificationStore } from '@/sync/notification-store';
 import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
 import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { streamPerfCount, streamPerfMark } from '@/stores/utils/streamDebug';
 
 const PROJECT_COLLAPSE_STORAGE_KEY = 'oc.sessions.projectCollapse';
-const GROUP_ORDER_STORAGE_KEY = 'oc.sessions.groupOrder';
 const GROUP_COLLAPSE_STORAGE_KEY = 'oc.sessions.groupCollapse';
 const PROJECT_ACTIVE_SESSION_STORAGE_KEY = 'oc.sessions.activeSessionByProject';
 // v3 holds composite "${renderContext}:${active|archived}:${sessionId}"
@@ -102,32 +98,6 @@ const PROJECT_ACTIVE_SESSION_STORAGE_KEY = 'oc.sessions.activeSessionByProject';
 // and a project's root) has independent expand state. Older expansion state
 // mixed contexts and is intentionally not migrated.
 const SESSION_EXPANDED_STORAGE_KEY = 'oc.sessions.expandedParents.v3';
-
-type PrVisualState = 'draft' | 'open' | 'blocked' | 'merged' | 'closed';
-
-type PrIndicator = {
-  visualState: PrVisualState;
-  number: number;
-  url: string | null;
-  state: 'open' | 'closed' | 'merged';
-  draft: boolean;
-  title: string | null;
-  base: string | null;
-  head: string | null;
-  checks: {
-    state: 'success' | 'failure' | 'pending' | 'unknown';
-    total: number;
-    success: number;
-    failure: number;
-    pending: number;
-  } | null;
-  canMerge: boolean | null;
-  mergeableState: string | null;
-  repo: {
-    owner: string;
-    repo: string;
-  } | null;
-};
 
 const buildKnownSessionDirectories = (
   projects: Array<{ path: string }>,
@@ -162,8 +132,6 @@ const isKnownActiveSessionDirectory = (
   if (knownDirectories.size === 0) return options?.allowEmptyDirectorySet ?? true;
   return knownDirectories.has(directory);
 };
-
-const SIDEBAR_PR_NO_PR_RETRY_MS = 5 * 60_000;
 
 const EMPTY_SUBTREE_SET: Set<string> = new Set();
 const EMPTY_STRING_ARRAY: string[] = [];
@@ -230,6 +198,57 @@ const SidebarBootstrapDemandEffect: React.FC<{
   return null;
 };
 
+// Aggregated activity/attention dot for a collapsed project header. Only
+// mounted while the project is collapsed, so the per-status-event scans stay
+// rare and bounded by the project's directory count.
+const ProjectAggregateStatusIndicator: React.FC<{ directories: Array<string | null> }> = ({ directories }) => {
+  const { t } = useI18n();
+  const directorySet = React.useMemo(() => {
+    const set = new Set<string>();
+    directories.forEach((directory) => {
+      const normalized = normalizePath(directory)?.toLowerCase();
+      if (normalized) set.add(normalized);
+    });
+    return set;
+  }, [directories]);
+  const hasBusySession = useGlobalSessionStatusStore(React.useCallback((state) => {
+    for (const entry of state.statusById.values()) {
+      if (entry.status.type !== 'busy' && entry.status.type !== 'retry') continue;
+      const directory = normalizePath(entry.directory)?.toLowerCase();
+      if (directory && directorySet.has(directory)) return true;
+    }
+    return false;
+  }, [directorySet]));
+  const hasUnseenNotification = useNotificationStore(React.useCallback((state) => {
+    for (const [directory, count] of Object.entries(state.index.project.unseenCount)) {
+      if (!count) continue;
+      const normalized = normalizePath(directory)?.toLowerCase();
+      if (normalized && directorySet.has(normalized)) return true;
+    }
+    return false;
+  }, [directorySet]));
+
+  if (hasBusySession) {
+    return (
+      <span
+        className="h-2 w-2 rounded-full bg-primary animate-busy-pulse ring-[3px] ring-primary/20"
+        aria-label={t('sessions.sidebar.session.status.active')}
+        title={t('sessions.sidebar.session.status.active')}
+      />
+    );
+  }
+  if (hasUnseenNotification) {
+    return (
+      <span
+        className="h-2 w-2 rounded-full bg-[var(--status-info)]"
+        aria-label={t('sessions.sidebar.session.status.unread')}
+        title={t('sessions.sidebar.session.status.unread')}
+      />
+    );
+  }
+  return null;
+};
+
 const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   isVisible = true,
   mobileVariant = false,
@@ -247,7 +266,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const [sessionSearchQuery, setSessionSearchQuery] = React.useState('');
   const sessionSearchContainerRef = React.useRef<HTMLDivElement | null>(null);
   const sessionSearchInputRef = React.useRef<HTMLInputElement | null>(null);
-  const retriedNoPrStatusKeysRef = React.useRef<Set<string>>(new Set());
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editTitle, setEditTitle] = React.useState('');
   const [editingProjectDialogId, setEditingProjectDialogId] = React.useState<string | null>(null);
@@ -286,24 +304,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       return new Set(Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []);
     } catch {
       return new Set();
-    }
-  });
-  const [groupOrderByProject, setGroupOrderByProject] = React.useState<Map<string, string[]>>(() => {
-    try {
-      const raw = getDeferredSafeStorage().getItem(GROUP_ORDER_STORAGE_KEY);
-      if (!raw) {
-        return new Map();
-      }
-      const parsed = JSON.parse(raw) as Record<string, string[]>;
-      const next = new Map<string, string[]>();
-      Object.entries(parsed).forEach(([projectId, order]) => {
-        if (Array.isArray(order)) {
-          next.set(projectId, order.filter((item) => typeof item === 'string'));
-        }
-      });
-      return next;
-    } catch {
-      return new Map();
     }
   });
   const initialActiveSessionByProject = React.useMemo<Map<string, string>>(() => {
@@ -655,10 +655,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     keys: {
       sessionExpanded: SESSION_EXPANDED_STORAGE_KEY,
       projectCollapse: PROJECT_COLLAPSE_STORAGE_KEY,
-      groupOrder: GROUP_ORDER_STORAGE_KEY,
       groupCollapse: GROUP_COLLAPSE_STORAGE_KEY,
     },
-    groupOrderByProject,
     collapsedGroups,
     setExpandedParents,
     setCollapsedProjects,
@@ -1010,13 +1008,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     void refreshGlobalSessionsForDirectories(addedDirectories, syncSessionsSnapshotRef.current);
   }, [isVSCode, projectSessionDirectories]);
 
-  const { github } = useRuntimeAPIs();
   const githubAuthStatus = useGitHubAuthStore((state) => state.status);
   const githubAuthChecked = useGitHubAuthStore((state) => state.hasChecked);
   const gitRepoStatus = useGitRepoStatusMap(isVisible ? normalizedProjectPaths : EMPTY_STRING_ARRAY);
-  const ensurePrStatusEntry = useGitHubPrStatusStore((state) => state.ensureEntry);
-  const setPrStatusParams = useGitHubPrStatusStore((state) => state.setParams);
-  const refreshPrStatusTargets = useGitHubPrStatusStore((state) => state.refreshTargets);
 
   useProjectRepoStatus({
     enabled: isVisible,
@@ -1131,7 +1125,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     deleteFolderConfirm,
     bulkDeleteConfirm,
     collapsedGroups,
-    groupOrderByProject,
   };
   const previousSidebarRenderSourcesRef = React.useRef<typeof sidebarRenderSources | null>(null);
   const previousSidebarRenderSources = previousSidebarRenderSourcesRef.current;
@@ -1190,7 +1183,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const {
     projectSections,
     groupSearchDataByGroup,
-    sectionsForRender,
+    flatSectionsForRender,
     searchMatchCount,
   } = useSessionSidebarSections({
     normalizedProjects: sortedProjects,
@@ -1215,7 +1208,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     </div>
   ), [t]);
 
-  const { getOrderedGroups } = useGroupOrdering(groupOrderByProject);
   const hasInitializedArchivedCollapseRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -1344,118 +1336,18 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   );
 
 
+  // Web/desktop route archived sessions to the Archive page; only the VS Code
+  // compact webview keeps inline archived buckets behind its toggle.
+  const showInlineArchived = isVSCode && showArchivedSessions;
   const sectionsForSidebarRender = React.useMemo(() => {
-    return showArchivedSessions
-      ? sectionsForRender
-      : sectionsForRender.map((section) => ({
-        ...section,
-        groups: section.groups.filter((group) => !group.isArchivedBucket),
-      }));
-  }, [sectionsForRender, showArchivedSessions]);
-
-  const prLookup = React.useMemo(() => {
-    if (!isVisible) {
-      return {
-        keys: EMPTY_STRING_ARRAY,
-        displayKeyByLookupKey: new Map<string, string>(),
-      };
-    }
-    const keys = new Set<string>();
-    const displayKeyByLookupKey = new Map<string, string>();
-    sectionsForSidebarRender.forEach((section) => {
-      section.groups.forEach((group) => {
-        const directory = normalizePath(group.directory ?? null);
-        const branch = group.branch?.trim() || gitBranches.get(directory || '')?.trim();
-        if (!directory || !branch) {
-          return;
-        }
-        const lookupKey = getGitHubPrStatusKey(directory, branch);
-        keys.add(lookupKey);
-        displayKeyByLookupKey.set(lookupKey, `${directory}::${branch}`);
-      });
-    });
-    return { keys: [...keys], displayKeyByLookupKey };
-  }, [gitBranches, isVisible, sectionsForSidebarRender]);
-
-  const prVisualSummaryMap = usePrVisualSummaryByKeys(prLookup.keys);
-
-  React.useEffect(() => {
-    if (!isVisible || !githubAuthChecked || !githubAuthStatus?.connected || !github) {
-      return;
-    }
-
-    const targetsByKey = new Map<string, { directory: string; branch: string }>();
-    const now = Date.now();
-
-    sectionsForSidebarRender.forEach((section) => {
-      if (collapsedProjects.has(section.project.id)) {
-        return;
-      }
-
-      section.groups.forEach((group) => {
-        const directory = normalizePath(group.directory ?? null);
-        const branch = group.branch?.trim() || gitBranches.get(directory || '')?.trim();
-        if (!directory || !branch) {
-          return;
-        }
-        const key = getGitHubPrStatusKey(directory, branch);
-        const entry = useGitHubPrStatusStore.getState().entries[key];
-        const hasPr = Boolean(entry?.status?.pr);
-        const retryKey = `${directory}::${branch}`;
-        const noPrLastCheckedAt = Math.max(entry?.lastRefreshAt ?? 0, entry?.lastDiscoveryPollAt ?? 0);
-        const shouldRetryNoPr = Boolean(
-          entry?.isInitialStatusResolved
-          && !hasPr
-          && (
-            !retriedNoPrStatusKeysRef.current.has(retryKey)
-            || now - noPrLastCheckedAt >= SIDEBAR_PR_NO_PR_RETRY_MS
-          ),
-        );
-
-        if (!entry || !entry.isInitialStatusResolved || shouldRetryNoPr) {
-          if (shouldRetryNoPr) {
-            retriedNoPrStatusKeysRef.current.add(retryKey);
-          }
-          if (!targetsByKey.has(key)) {
-            targetsByKey.set(key, { directory, branch });
-          }
-        }
-      });
-    });
-
-    if (targetsByKey.size === 0) {
-      return;
-    }
-
-    targetsByKey.forEach((target, key) => {
-      ensurePrStatusEntry(key);
-      setPrStatusParams(key, {
-        directory: target.directory,
-        branch: target.branch,
-        remoteName: null,
-        canShow: true,
-        github,
-        githubAuthChecked,
-        githubConnected: githubAuthStatus.connected,
-      });
-    });
-
-    void refreshPrStatusTargets([...targetsByKey.values()], {
-      silent: true,
-      markInitialResolved: true,
-    });
-  }, [
-    collapsedProjects,
-    ensurePrStatusEntry,
-    github,
-    githubAuthChecked,
-    githubAuthStatus?.connected,
-    isVisible,
-    gitBranches,
-    refreshPrStatusTargets,
-    sectionsForSidebarRender,
-    setPrStatusParams,
-  ]);
+    return showInlineArchived
+      ? flatSectionsForRender
+      : flatSectionsForRender.map((section) => (
+        section.groups.some((group) => group.isArchivedBucket)
+          ? { ...section, groups: section.groups.filter((group) => !group.isArchivedBucket) }
+          : section
+      ));
+  }, [flatSectionsForRender, showInlineArchived]);
 
   const desktopHeaderActionButtonClass =
     'inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md leading-none text-foreground hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed';
@@ -1529,6 +1421,16 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     ),
   );
 
+  const renderProjectStatusIndicator = React.useCallback((_projectId: string, groups: SessionGroup[]) => {
+    const directories: Array<string | null> = [];
+    groups.forEach((group) => {
+      if (group.isArchivedBucket) return;
+      directories.push(group.directory);
+      group.folderScopes?.forEach((scope) => directories.push(scope.directory));
+    });
+    return <ProjectAggregateStatusIndicator directories={directories} />;
+  }, []);
+
   const toggleCollapsedGroup = React.useCallback((key: string) => {
     resetGroupSessionLimit(key);
     setCollapsedGroups((prev) => {
@@ -1539,38 +1441,12 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     });
   }, [resetGroupSessionLimit]);
 
-  const prVisualStateByDirectoryBranch = React.useMemo(() => {
-    const result = new Map<string, PrIndicator>();
-    for (const [key, summary] of prVisualSummaryMap) {
-      const displayKey = prLookup.displayKeyByLookupKey.get(key);
-      if (!displayKey) {
-        continue;
-      }
-      result.set(displayKey, {
-        visualState: summary.visualState as PrVisualState,
-        number: summary.number,
-        url: summary.url,
-        state: summary.prState as 'open' | 'closed' | 'merged',
-        draft: summary.draft,
-        title: summary.title,
-        base: summary.base,
-        head: summary.head,
-        checks: summary.checks as PrIndicator['checks'],
-        canMerge: summary.canMerge,
-        mergeableState: summary.mergeableState,
-        repo: summary.repo,
-      });
-    }
-    return result;
-  }, [prLookup.displayKeyByLookupKey, prVisualSummaryMap]);
-
   const renderGroupSessions = React.useCallback(
     (
       group: SessionGroup,
       groupKey: string,
       projectId?: string | null,
       hideGroupLabel?: boolean,
-      dragHandleProps?: SortableDragHandleProps | null,
       compactBodyPadding?: boolean,
       scrollContainerRef?: React.RefObject<HTMLElement | null>,
     ) => (
@@ -1593,8 +1469,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         showDeletionDialog={showDeletionDialog}
         setDeleteFolderConfirm={setDeleteFolderConfirm}
         renderSessionNode={renderSessionNode}
-        projectRepoStatus={projectRepoStatus}
-        lastRepoStatus={lastRepoStatusRef.current}
         showMoreGroupSessions={showMoreGroupSessions}
         resetGroupSessionLimit={resetGroupSessionLimit}
         mobileVariant={mobileVariant}
@@ -1616,9 +1490,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         editingId={editingId}
         editTitle={editTitle}
         openSidebarMenuKey={openSidebarMenuKey}
-        prVisualStateByDirectoryBranch={prVisualStateByDirectoryBranch}
         onToggleCollapsedGroup={toggleCollapsedGroup}
-        dragHandleProps={dragHandleProps}
         scrollContainerRef={scrollContainerRef}
       />
     ),
@@ -1635,7 +1507,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       deleteFolder,
       showDeletionDialog,
       renderSessionNode,
-      projectRepoStatus,
       showMoreGroupSessions,
       resetGroupSessionLimit,
       mobileVariant,
@@ -1655,7 +1526,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       editingId,
       editTitle,
       openSidebarMenuKey,
-      prVisualStateByDirectoryBranch,
       toggleCollapsedGroup,
     ],
   );
@@ -1804,8 +1674,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         projectHeaderSentinelRefs={projectHeaderSentinelRefs}
         reorderProjects={reorderProjects}
         projectSortOrder={projectSortOrder}
-        getOrderedGroups={getOrderedGroups}
-        setGroupOrderByProject={setGroupOrderByProject}
+        renderProjectStatusIndicator={renderProjectStatusIndicator}
         openSidebarMenuKey={openSidebarMenuKey}
         setOpenSidebarMenuKey={setOpenSidebarMenuKey}
         isInlineEditing={isInlineEditing}

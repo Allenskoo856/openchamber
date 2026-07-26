@@ -7,6 +7,12 @@ import type { SessionNodeChildRenderExtras, SessionNodeRenderExtras } from './si
 
 interface SessionFolderItemProps<TSessionNode> {
   folder: SessionFolder;
+  /**
+   * Optional display label override. Flat folder rendering shows nested
+   * folders at the top level with a "Parent / Child" path instead of
+   * indentation.
+   */
+  displayName?: string;
   sessions: TSessionNode[];
   /** Sub-folders that belong directly to this folder */
   subFolderItems?: React.ReactNode;
@@ -58,6 +64,7 @@ interface SessionFolderItemProps<TSessionNode> {
 
 const SessionFolderItemBase = <TSessionNode,>({
   folder,
+  displayName,
   sessions,
   subFolderItems,
   isCollapsed,
@@ -239,7 +246,7 @@ const SessionFolderItemBase = <TSessionNode,>({
           ) : (
             <div className="min-w-0 flex items-center gap-1.5 flex-1">
               <span className={cn('typography-ui-label font-semibold truncate', isDropTarget ? 'text-primary' : 'text-muted-foreground')}>
-                {folder.name}
+                {displayName ?? folder.name}
               </span>
               <span className="typography-micro text-muted-foreground/70 flex-shrink-0">
                 • {sessions.length}

@@ -30,7 +30,6 @@ import { nodeContainsSessionId, nodeHasPinnedMembershipChange } from './sessionN
 import type { SessionNodeChildRenderExtras, SessionNodeRenderExtras } from './sessionNodeItemUtils';
 import type { SessionNode } from './types';
 import { formatSessionCompactDateLabel, formatSessionDateLabel, normalizePath, renderHighlightedText } from './utils';
-import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
 import { useI18n } from '@/lib/i18n';
@@ -284,15 +283,9 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     menuOpenSessionId,
     childRenderExtrasFor,
   } = props;
-  const hasSecondaryProjectLabel = Boolean(secondaryMeta?.projectLabel);
   const hasSecondaryBranchLabel = Boolean(secondaryMeta?.branchLabel);
 
-  const displayMode = useSessionDisplayStore((state) => state.displayMode);
   const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
-  // VS Code always uses the minimal (single-line) layout: sessions are grouped
-  // under workspace project headers, so the second metadata row (project/branch)
-  // is redundant. The display-mode toggle is hidden there, so force it on.
-  const isMinimalMode = displayMode === 'minimal' || isVSCode;
   const isElectron = React.useMemo(() => canUseElectronDesktopIPC(), []);
   const runtimeApis = React.useContext(RuntimeAPIContext);
   const revealOnHoverClass = isVSCode
@@ -303,25 +296,17 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     : 'group-hover:opacity-0 group-focus-within:opacity-0';
   const showOpenInEditorAction = isVSCode;
   const showQuickArchiveAction = !archivedBucket && !mobileVariant;
-  const revealPaddingClass = isMinimalMode
-    ? (isVSCode
-        // VS Code minimal rows reveal up to three actions on hover
-        // (open-in-editor + quick-archive + menu, each h-4). The date sits in the
-        // row flow, so the title must shrink enough to clear the actions or they
-        // overlap the timestamp. Open-in-editor is always present in VS Code.
-        ? (showQuickArchiveAction && showOpenInEditorAction
-            ? 'group-hover:pr-18'
-            : showQuickArchiveAction || showOpenInEditorAction
-              ? 'group-hover:pr-14'
-              : 'group-hover:pr-8')
-        : 'group-hover:pr-2 group-focus-within:pr-2')
-    : (isVSCode
-        ? (showQuickArchiveAction && showOpenInEditorAction
-            ? 'group-hover:pr-18'
-            : showQuickArchiveAction || showOpenInEditorAction
-              ? 'group-hover:pr-12'
-              : 'group-hover:pr-5')
-        : (showQuickArchiveAction ? 'group-hover:pr-12 group-focus-within:pr-12' : 'group-hover:pr-5 group-focus-within:pr-5'));
+  const revealPaddingClass = isVSCode
+    // VS Code rows reveal up to three actions on hover
+    // (open-in-editor + quick-archive + menu, each h-4). The date sits in the
+    // row flow, so the title must shrink enough to clear the actions or they
+    // overlap the timestamp. Open-in-editor is always present in VS Code.
+    ? (showQuickArchiveAction && showOpenInEditorAction
+        ? 'group-hover:pr-18'
+        : showQuickArchiveAction || showOpenInEditorAction
+          ? 'group-hover:pr-14'
+          : 'group-hover:pr-8')
+    : 'group-hover:pr-2 group-focus-within:pr-2';
   const alwaysActionPaddingClass = showQuickArchiveAction ? 'pr-13' : 'pr-7';
   const suppressNextSelectRef = React.useRef(false);
   const [isTouchPressed, setIsTouchPressed] = React.useState(false);
@@ -418,8 +403,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const isSessionMenuOpen = isMenuOpen || isContextMenuOpen;
   const isMultiRunLikeSession = React.useMemo(() => parseMultiRunSessionTitle(resolvedSession.title) !== null, [resolvedSession.title]);
   const [fusionDialogOpen, setFusionDialogOpen] = React.useState(false);
-  const metadataSubsessionChevron = isVSCode && renderContext === 'recent' && !isMinimalMode;
-  const inlineSubsessionChevron = isVSCode && renderContext === 'recent' && isMinimalMode;
 
   const descendantCount = React.useMemo(() => collectNodeDescendantIds(node).length, [collectNodeDescendantIds, node]);
 
@@ -593,16 +576,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
               <Icon name="close" className="size-4" />
             </button>
           </form>
-          {!isMinimalMode ? (
-            <div className="flex items-center justify-between gap-3 text-muted-foreground/60 min-w-0 overflow-hidden leading-tight" style={{ fontSize: 'calc(var(--text-ui-label) * 0.85)' }}>
-              <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-                {hasChildren ? <span className="inline-flex items-center justify-center flex-shrink-0">{isExpanded ? <Icon name="arrow-down-s" className="h-3 w-3" /> : <Icon name="arrow-right-s" className="h-3 w-3" />}</span> : null}
-                <span className="flex-shrink-0">{sessionUpdatedLabel}</span>
-                {hasSecondaryProjectLabel ? <span className="truncate">{secondaryMeta?.projectLabel}</span> : null}
-                {hasSecondaryBranchLabel ? <span className="inline-flex min-w-0 items-center gap-0.5"><Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground/70" /><span className="truncate">{secondaryMeta?.branchLabel}</span></span> : null}
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
     );
@@ -616,14 +589,14 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const statusMarkerContent = isStreaming
     ? (
         <span
-          className="h-1.5 w-1.5 rounded-full bg-primary animate-busy-pulse"
+          className="h-2 w-2 rounded-full bg-primary animate-busy-pulse ring-[3px] ring-primary/20"
           aria-label={t('sessions.sidebar.session.status.active')}
           title={t('sessions.sidebar.session.status.active')}
         />
       )
     : (
         <span
-          className="h-1.5 w-1.5 rounded-full bg-[var(--status-info)]"
+          className="h-2 w-2 rounded-full bg-[var(--status-info)]"
           aria-label={t('sessions.sidebar.session.status.unread')}
           title={t('sessions.sidebar.session.status.unread')}
         />
@@ -640,8 +613,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const leadingIndicators = isMovingToWorktree || showStatusMarker || showPinnedMarker ? (
     <span
       className={cn(
-        'pointer-events-none absolute left-0.5 inline-flex h-3.5 w-3.5 items-center justify-center transition-opacity',
-        isMinimalMode ? 'top-1/2 -translate-y-1/2' : 'top-[14.5px] -translate-y-1/2',
+        'pointer-events-none absolute left-0.5 top-1/2 inline-flex h-3.5 w-3.5 -translate-y-1/2 items-center justify-center transition-opacity',
         hideLeadingIndicatorOnHover ? 'opacity-100 group-hover:opacity-0 group-focus-within:opacity-0' : '',
       )}
     >
@@ -672,13 +644,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
       }}
       style={{ minWidth: 14, minHeight: 14 }}
       className={cn(
-        'inline-flex h-3.5 w-3.5 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
-        metadataSubsessionChevron
-          ? 'absolute left-1.5 bottom-1'
-          : inlineSubsessionChevron
-          ? 'relative mr-0.5 shrink-0'
-          : cn('absolute left-0.5', isMinimalMode ? 'top-1/2 -translate-y-1/2' : 'top-[14.5px] -translate-y-1/2'),
-        !metadataSubsessionChevron && !inlineSubsessionChevron && hideChevronUntilHover
+        'absolute left-0.5 top-1/2 inline-flex h-3.5 w-3.5 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
+        hideChevronUntilHover
           ? 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto'
           : '',
       )}
@@ -1089,7 +1056,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           {leadingIndicators}
           {subsessionChevron}
           <div className="flex min-w-0 flex-1 items-center">
-            {isMinimalMode ? (
+            {(
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -1111,8 +1078,14 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                         : revealPaddingClass,
                     )}
                   >
-                    <div className={cn('flex w-full items-center min-w-0 flex-1 overflow-hidden', isMinimalMode ? 'gap-1' : 'gap-1')}>
-                      <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', isActive ? 'text-primary' : 'text-foreground')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
+                    <div className="flex w-full items-center min-w-0 flex-1 gap-1 overflow-hidden">
+                      <div className={cn('block min-w-0 flex-1 truncate typography-ui-label', needsAttention && !isActive ? 'font-medium' : 'font-normal', isActive ? 'text-primary' : 'text-foreground')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
+                      {hasSecondaryBranchLabel ? (
+                        <span className="ml-1 inline-flex min-w-0 max-w-[45%] flex-shrink items-center gap-0.5 text-[0.72rem] text-muted-foreground/70">
+                          <Icon name="git-branch" className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">{secondaryMeta?.branchLabel}</span>
+                        </span>
+                      ) : null}
                       {alwaysShowActions ? (
                         <span className="ml-2 inline-flex flex-shrink-0 items-center gap-1 text-[0.72rem] text-muted-foreground/75">
                           {sessionGoalGlyph}
@@ -1161,52 +1134,11 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 </TooltipContent>
                 ) : null}
               </Tooltip>
-            ) : (
-              <button
-                type="button"
-	                onPointerDown={handleRowPointerDown}
-	                onPointerUp={handleRowPointerEnd}
-	                onPointerCancel={handleRowPointerEnd}
-	                onMouseDown={handleRowMouseDown}
-	                onClick={(event) => handleRowSelect(event)}
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  handleSessionDoubleClick(session.id, sessionTitle);
-                }}
-                className={cn(
-	                  'flex min-w-0 flex-1 cursor-pointer flex-col gap-0 overflow-hidden rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none transition-[padding]',
-	                  isTouchPressed && 'bg-interactive-hover/70',
-                  alwaysShowActions
-                    ? (isVSCode ? revealPaddingClass : alwaysActionPaddingClass)
-                    : revealPaddingClass
-                )}
-              >
-                <div className={cn('flex w-full items-center min-w-0 flex-1 overflow-hidden', isMinimalMode ? 'gap-1' : 'gap-1')}>
-                    <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', isActive ? 'text-primary' : 'text-foreground')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
-                    {pendingPermissionCount > 0 ? (
-                      <span className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1 py-0.5 text-[0.7rem] text-destructive flex-shrink-0" title={t('sessions.sidebar.session.status.permissionRequired')} aria-label={t('sessions.sidebar.session.status.permissionRequired')}>
-                        <Icon name="shield" className="h-3 w-3" />
-                        <span className="leading-none">{pendingPermissionCount}</span>
-                      </span>
-                    ) : null}
-                  </div>
- 
-                {!isMinimalMode ? (
-                  <div className="flex items-center justify-between gap-3 text-muted-foreground/60 min-w-0 overflow-hidden leading-tight" style={{ fontSize: 'calc(var(--text-ui-label) * 0.85)' }}>
-                    <div className={cn('flex min-w-0 items-center gap-1.5 overflow-hidden', metadataSubsessionChevron && hasChildren ? 'pl-4' : '')}>
-                      {sessionGoalGlyph}
-                      <span className="flex-shrink-0">{sessionUpdatedLabel}</span>
-                      {hasSecondaryProjectLabel ? <span className="truncate">{secondaryMeta?.projectLabel}</span> : null}
-                      {hasSecondaryBranchLabel ? <span className="inline-flex min-w-0 items-center gap-0.5"><Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground/70" /><span className="truncate">{secondaryMeta?.branchLabel}</span></span> : null}
-                    </div>
-                  </div>
-                ) : null}
-              </button>
             )}
           </div>
 
           {streamingIndicator && !mobileVariant ? (
-            <div className={cn('absolute top-1/2 -translate-y-1/2 z-10', isMinimalMode ? 'right-0' : 'right-[30px]')}>
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 z-10">
               {streamingIndicator}
             </div>
           ) : null}
@@ -1223,8 +1155,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
               <QuickSessionAction
                 archiveLabel={t('sessions.sidebar.bulkActions.archive')}
                 deleteLabel={t('sessions.sidebar.bulkActions.delete')}
-                buttonSizeClass={isMinimalMode && !alwaysShowActions ? 'h-4 w-4' : 'h-6 w-6'}
-                iconSizeClass={isMinimalMode && !alwaysShowActions ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5'}
+                buttonSizeClass={!alwaysShowActions ? 'h-4 w-4' : 'h-6 w-6'}
+                iconSizeClass={!alwaysShowActions ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5'}
                 onPointerDown={handleQuickArchivePointerDown}
                 onMouseDown={handleQuickArchiveMouseDown}
                 onArchive={handleQuickArchiveClick}
@@ -1238,7 +1170,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                     type="button"
                     className={cn(
                       'inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
-                      isMinimalMode && !alwaysShowActions ? 'h-4 w-4' : 'h-6 w-6',
+                      !alwaysShowActions ? 'h-4 w-4' : 'h-6 w-6',
                     )}
                     aria-label={t('sessions.sidebar.session.actions.openInEditor')}
                     onPointerDown={handleOpenInEditorPointerDown}
@@ -1246,7 +1178,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                     onClick={handleOpenInEditorClick}
                     onKeyDown={(event) => event.stopPropagation()}
                   >
-                    <Icon name="external-link" className={cn(isMinimalMode && !alwaysShowActions ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5')} />
+                    <Icon name="external-link" className={cn(!alwaysShowActions ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5')} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="left" sideOffset={8}>
@@ -1260,7 +1192,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                   type="button"
                   className={cn(
                     'inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
-                    isMinimalMode && !alwaysShowActions
+                    !alwaysShowActions
                       ? (isSessionMenuOpen
                           ? 'h-4 w-4 opacity-100'
                           : cn('h-4 w-4 opacity-0', revealOnHoverClass))
@@ -1272,7 +1204,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                   onClick={handleMenuTriggerClick}
                   onKeyDown={(event) => event.stopPropagation()}
                 >
-                   <Icon name="more-2" className={cn(isMinimalMode && !alwaysShowActions ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5')} />
+                   <Icon name="more-2" className={cn(!alwaysShowActions ? 'h-2.5 w-2.5' : 'h-3.5 w-3.5')} />
                 </button>
               </DropdownMenuTrigger>
               {sessionMenuContent}

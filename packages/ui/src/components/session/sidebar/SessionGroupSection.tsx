@@ -15,7 +15,6 @@ import { sessionEvents } from '@/lib/sessionEvents';
 import type { MainTab } from '@/stores/useUIStore';
 import { SessionFolderItem } from '../SessionFolderItem';
 import { DroppableFolderWrapper, SessionFolderDndScope } from './sessionFolderDnd';
-import type { SortableDragHandleProps } from './sortableItems';
 import type { GroupSearchData, SessionGroup, SessionNode } from './types';
 import { isBranchDifferentFromLabel, normalizePath, renderHighlightedText } from './utils';
 import { compareSessionsByLifecycleOrder, EMPTY_SESSION_ORDER_RANKS } from '@/sync/session-ordering';
@@ -28,11 +27,7 @@ import {
   selectFolderRootNodes,
 } from './sessionNodeItemUtils';
 import type { SessionNodeRenderExtras } from './sessionNodeItemUtils';
-import type { SessionFolder } from '@/stores/useSessionFoldersStore';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
-import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
-import { openExternalUrl } from '@/lib/url';
-import { isVSCodeRuntime } from '@/lib/desktop';
 import { useI18n } from '@/lib/i18n';
 import { useChildStoreManager } from '@/sync/sync-context';
 
@@ -71,8 +66,6 @@ type Props = {
     renderContext?: 'project' | 'recent',
     renderExtras?: SessionNodeRenderExtras,
   ) => React.ReactNode;
-  projectRepoStatus: Map<string, boolean | null>;
-  lastRepoStatus: boolean;
   showMoreGroupSessions: (groupKey: string, currentVisibleCount: number) => void;
   resetGroupSessionLimit: (groupKey: string) => void;
   mobileVariant: boolean;
@@ -94,31 +87,7 @@ type Props = {
   editingId: string | null;
   editTitle: string;
   openSidebarMenuKey: string | null;
-  prVisualStateByDirectoryBranch: Map<string, {
-    visualState: 'draft' | 'open' | 'blocked' | 'merged' | 'closed';
-    number: number;
-    url: string | null;
-    state: 'open' | 'closed' | 'merged';
-    draft: boolean;
-    title: string | null;
-    base: string | null;
-    head: string | null;
-    checks: {
-      state: 'success' | 'failure' | 'pending' | 'unknown';
-      total: number;
-      success: number;
-      failure: number;
-      pending: number;
-    } | null;
-    canMerge: boolean | null;
-    mergeableState: string | null;
-    repo: {
-      owner: string;
-      repo: string;
-    } | null;
-  }>;
   onToggleCollapsedGroup: (groupKey: string) => void;
-  dragHandleProps?: SortableDragHandleProps | null;
   compactBodyPadding?: boolean;
   /**
    * Optional scroll container ref threaded from the outer ScrollableOverlay.
@@ -176,13 +145,6 @@ const groupHasExpansionMembershipChange = (
   return group.sessions.some(visit);
 };
 
-const getProjectRepoStatusValue = (props: Props): boolean | null | undefined => {
-  if (!props.projectId) return undefined;
-  return props.projectRepoStatus.has(props.projectId)
-    ? props.projectRepoStatus.get(props.projectId)
-    : undefined;
-};
-
 const areGroupPropsEqual = (prev: Props, next: Props): boolean => {
   // Bail on Object.is for the props that drive the most work: the group
   // itself, its key, and the group-level chrome. These change rarely and
@@ -197,11 +159,6 @@ const areGroupPropsEqual = (prev: Props, next: Props): boolean => {
 
   if (prev.collapsedGroups !== next.collapsedGroups
     && prev.collapsedGroups.has(prev.groupKey) !== next.collapsedGroups.has(next.groupKey)) {
-    return false;
-  }
-
-  if (prev.projectRepoStatus !== next.projectRepoStatus
-    && getProjectRepoStatusValue(prev) !== getProjectRepoStatusValue(next)) {
     return false;
   }
 
@@ -236,20 +193,6 @@ const areGroupPropsEqual = (prev: Props, next: Props): boolean => {
     if (prevMenuSessionId || nextMenuSessionId) return false;
   }
 
-  // Per-row / per-state props. The PR-visual-state map flips frequently
-  // during bootstrap but a single group's value is usually stable, so we
-  // compare only the value this group actually consumes instead of the
-  // whole map reference.
-  if (prev.prVisualStateByDirectoryBranch !== next.prVisualStateByDirectoryBranch) {
-    const prevVal = prev.group?.directory && prev.group?.branch
-      ? prev.prVisualStateByDirectoryBranch.get(`${prev.group.directory}::${prev.group.branch.trim()}`)
-      : undefined;
-    const nextVal = next.group?.directory && next.group?.branch
-      ? next.prVisualStateByDirectoryBranch.get(`${next.group.directory}::${next.group.branch.trim()}`)
-      : undefined;
-    if (!Object.is(prevVal, nextVal)) return false;
-  }
-
   // Other props are typically stable references from the parent. Default
   // to reference equality (the cheap path) and only re-render when the
   // parent actually swapped something.
@@ -264,7 +207,6 @@ const areGroupPropsEqual = (prev: Props, next: Props): boolean => {
     && prev.showDeletionDialog === next.showDeletionDialog
     && prev.setDeleteFolderConfirm === next.setDeleteFolderConfirm
     && prev.renderSessionNode === next.renderSessionNode
-    && prev.lastRepoStatus === next.lastRepoStatus
     && prev.showMoreGroupSessions === next.showMoreGroupSessions
     && prev.resetGroupSessionLimit === next.resetGroupSessionLimit
     && prev.mobileVariant === next.mobileVariant
@@ -281,7 +223,6 @@ const areGroupPropsEqual = (prev: Props, next: Props): boolean => {
     && prev.setRenameFolderDraft === next.setRenameFolderDraft
     && prev.setRenamingFolderId === next.setRenamingFolderId
     && prev.onToggleCollapsedGroup === next.onToggleCollapsedGroup
-    && prev.dragHandleProps === next.dragHandleProps
     && prev.scrollContainerRef === next.scrollContainerRef
   );
 };
@@ -306,8 +247,6 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     showDeletionDialog,
     setDeleteFolderConfirm,
     renderSessionNode,
-    projectRepoStatus,
-    lastRepoStatus,
     showMoreGroupSessions,
     resetGroupSessionLimit,
     mobileVariant,
@@ -328,9 +267,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     sessionOrderIndex,
     editingId,
     openSidebarMenuKey,
-    prVisualStateByDirectoryBranch,
     onToggleCollapsedGroup,
-    dragHandleProps,
     compactBodyPadding = false,
     scrollContainerRef,
   } = props;
@@ -347,10 +284,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
   }, [pinnedSessionIds, sessionOrderIndex]);
 
   const searchData = hasSessionSearchQuery ? groupSearchDataByGroup.get(group) : null;
-  const displayMode = useSessionDisplayStore((state) => state.displayMode);
   const foldersMap = useSessionFoldersStore((state) => state.foldersMap);
-  // VS Code always uses the expanded layout (see SessionNodeItem).
-  const isMinimalMode = displayMode === 'minimal' && !isVSCodeRuntime();
   const isCollapsed = hasSessionSearchQuery ? false : collapsedGroups.has(groupKey);
   const childStores = useChildStoreManager();
   const bootstrapDirectory = normalizePath(group.directory ?? null);
@@ -375,9 +309,16 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     [compareSessionNodes, group.sessions, searchData?.filteredNodes, shouldFilterGroupContents],
   );
   const folderScopeKey = group.folderScopeKey ?? normalizePath(group.directory ?? null);
+  // Merged flat groups list every contributing scope; single-scope groups
+  // (archived buckets, VS Code workspaces) fall back to folderScopeKey.
+  const folderScopes = React.useMemo<Array<{ scopeKey: string; directory: string | null }>>(() => {
+    if (group.folderScopes && group.folderScopes.length > 0) return group.folderScopes;
+    return folderScopeKey ? [{ scopeKey: folderScopeKey, directory: group.directory ?? null }] : [];
+  }, [folderScopeKey, group.directory, group.folderScopes]);
   const scopeFolders = React.useMemo(
-    () => folderScopeKey ? (foldersMap[folderScopeKey] ?? []) : [],
-    [folderScopeKey, foldersMap]
+    () => folderScopes.flatMap(({ scopeKey, directory }) =>
+      (foldersMap[scopeKey] ?? []).map((folder) => ({ folder, scopeKey, scopeDirectory: directory }))),
+    [folderScopes, foldersMap]
   );
 
   const nodeBySessionId = React.useMemo(() => {
@@ -394,9 +335,9 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     return map;
   }, [sourceGroupNodes]);
 
-  const allFoldersForGroupBase = React.useMemo(() => scopeFolders.map((folder) => {
+  const allFoldersForGroupBase = React.useMemo(() => scopeFolders.map(({ folder, scopeKey, scopeDirectory }) => {
     const nodes = selectFolderRootNodes(folder.sessionIds, nodeBySessionId).sort(compareSessionNodes);
-    return { folder, nodes };
+    return { folder, scopeKey, scopeDirectory, nodes };
   }), [scopeFolders, nodeBySessionId, compareSessionNodes]);
 
   const allFoldersForGroup = React.useMemo(() => {
@@ -707,87 +648,15 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     return null;
   }
 
-  const isGitProject = projectId && projectRepoStatus.has(projectId)
-    ? Boolean(projectRepoStatus.get(projectId))
-    : lastRepoStatus;
-  const groupDirectoryKey = normalizePath(group.directory ?? null);
-  const groupBranchKey = group.branch?.trim() ?? null;
-  const prIndicator = groupDirectoryKey && groupBranchKey
-    ? (prVisualStateByDirectoryBranch.get(`${groupDirectoryKey}::${groupBranchKey}`) ?? null)
+  const showBranchSubtitle = !group.isMain && Boolean(group.branch);
+  const statusLine = group.branch && isBranchDifferentFromLabel(group.branch, group.label)
+    ? { label: group.branch, color: null as string | null }
     : null;
-  const showInlinePrTitle = Boolean(prIndicator && group.branch);
-  const showBranchSubtitle = !prIndicator && !group.isMain && Boolean(group.branch);
-  const prVisualState = prIndicator?.visualState ?? null;
-  const checksSummary = prIndicator && prIndicator.state === 'open' && prIndicator.checks
-    ? t('sessions.sidebar.group.pr.checksPassed', {
-      success: prIndicator.checks.success,
-      total: prIndicator.checks.total,
-    })
-    : null;
-  const checksTail = prIndicator && prIndicator.state === 'open' && prIndicator.checks
-    ? [
-      prIndicator.checks.failure > 0
-        ? t('sessions.sidebar.group.pr.failingCount', { count: prIndicator.checks.failure })
-        : null,
-      prIndicator.checks.pending > 0
-        ? t('sessions.sidebar.group.pr.pendingCount', { count: prIndicator.checks.pending })
-        : null,
-    ].filter((item): item is string => Boolean(item)).join(', ')
-    : null;
-  const mergeabilityLabel = prIndicator && prIndicator.state === 'open'
-    ? (prIndicator.mergeableState === 'blocked' || prIndicator.mergeableState === 'dirty'
-        ? t('sessions.sidebar.group.pr.conflictsOrBlocked')
-        : (prIndicator.mergeableState === 'clean' || prIndicator.canMerge === true ? t('sessions.sidebar.group.pr.mergeable') : null))
-    : null;
-  const mergeStateLabel = prIndicator && prIndicator.state === 'open' && prIndicator.mergeableState
-    ? t('sessions.sidebar.group.pr.mergeState', { state: prIndicator.mergeableState })
-    : null;
-  const baseBranchLabel = prIndicator?.base ?? null;
-  const headBranchLabel = prIndicator?.head ?? null;
-  const statusLine = (() => {
-    if (!prIndicator) {
-      return group.branch && isBranchDifferentFromLabel(group.branch, group.label)
-        ? { label: group.branch, color: null as string | null }
-        : null;
-    }
-    switch (prIndicator.visualState) {
-      case 'merged':
-        return { label: t('sessions.sidebar.group.pr.status.merged'), color: 'var(--pr-merged)' };
-      case 'open':
-        return (prIndicator.canMerge === true || prIndicator.mergeableState === 'clean' || prIndicator.checks?.state === 'success')
-          ? { label: t('sessions.sidebar.group.pr.status.readyToMerge'), color: 'var(--pr-open)' }
-          : { label: t('sessions.sidebar.group.pr.status.open'), color: 'var(--pr-open)' };
-      case 'blocked':
-        return {
-          label: prIndicator.mergeableState === 'dirty'
-            ? t('sessions.sidebar.group.pr.status.mergeConflicts')
-            : t('sessions.sidebar.group.pr.status.mergeBlocked'),
-          color: 'var(--pr-blocked)',
-        };
-      case 'draft':
-        return { label: t('sessions.sidebar.group.pr.status.draft'), color: 'var(--pr-draft)' };
-      case 'closed':
-        return { label: t('sessions.sidebar.group.pr.status.closed'), color: 'var(--pr-closed)' };
-      default:
-        return null;
-    }
-  })();
-  const branchIconColor = statusLine?.color ?? (prVisualState ? `var(--pr-${prVisualState})` : undefined);
-  const handlePrLinkClick = (event: React.MouseEvent<HTMLElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const url = prIndicator?.url;
-    if (!url) {
-      return;
-    }
-    void openExternalUrl(url);
-  };
 
-  const renderOneFolderItem = (folder: SessionFolder, nodes: SessionNode[], depth: number): React.ReactNode => {
-    const directSubFolders = allFoldersForGroup.filter(({ folder: f }) => f.parentId === folder.id);
-    const subFolderItems = directSubFolders.length > 0
-      ? <>{directSubFolders.map(({ folder: sf, nodes: sn }) => renderOneFolderItem(sf, sn, depth + 1))}</>
-      : undefined;
+  type FolderEntry = (typeof allFoldersForGroup)[number];
+
+  const renderOneFolderItem = (entry: FolderEntry, displayName: string): React.ReactNode => {
+    const { folder, scopeKey, scopeDirectory, nodes } = entry;
     const folderSessionsForDelete = folderSessionsForDeleteById.get(folder.id) ?? [];
 
     return (
@@ -795,12 +664,12 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
         {(droppableRef, isDropTarget) => (
           <SessionFolderItem
             folder={folder}
+            displayName={displayName}
             sessions={nodes}
-            subFolderItems={subFolderItems}
             isCollapsed={hasSessionSearchQuery ? false : collapsedFolderIds.has(folder.id)}
             onToggle={() => toggleFolderCollapse(folder.id)}
             onRename={(name) => {
-              if (folderScopeKey) renameFolder(folderScopeKey, folder.id, name);
+              renameFolder(scopeKey, folder.id, name);
             }}
             onDelete={() => {
               if (group.isArchivedBucket) {
@@ -812,15 +681,14 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                 });
                 return;
               }
-              if (!folderScopeKey) return;
               if (!showDeletionDialog) {
-                deleteFolder(folderScopeKey, folder.id);
+                deleteFolder(scopeKey, folder.id);
                 return;
               }
               const subFolderCount = allFoldersForGroup.filter(({ folder: f }) => f.parentId === folder.id).length;
               const sessionCount = nodes.length;
               setDeleteFolderConfirm({
-                scopeKey: folderScopeKey,
+                scopeKey,
                 folderId: folder.id,
                 folderName: folder.name,
                 subFolderCount,
@@ -836,7 +704,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                 childRenderExtrasFor,
               })
               : undefined}
-            groupDirectory={group.directory}
+            groupDirectory={scopeDirectory ?? group.directory}
             projectId={projectId}
             mobileVariant={mobileVariant}
             alwaysShowActions={alwaysShowActions}
@@ -845,8 +713,8 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
             onRenameDraftChange={(value) => setRenameFolderDraft(value)}
             onRenameSave={() => {
               const trimmed = renameFolderDraft.trim();
-              if (trimmed && folderScopeKey) {
-                renameFolder(folderScopeKey, folder.id, trimmed);
+              if (trimmed) {
+                renameFolder(scopeKey, folder.id, trimmed);
               }
               setRenamingFolderId(null);
               setRenameFolderDraft('');
@@ -857,16 +725,15 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
             }}
             droppableRef={droppableRef}
             isDropTarget={isDropTarget}
-            depth={depth}
+            depth={0}
             onNewSession={() => {
               if (projectId && projectId !== activeProjectId) setActiveProjectIdOnly(projectId);
               setActiveMainTab('chat');
               if (mobileVariant) setSessionSwitcherOpen(false);
-              openNewSessionDraft({ selectedProjectId: projectId, directoryOverride: group.directory, targetFolderId: folder.id });
+              openNewSessionDraft({ selectedProjectId: projectId, directoryOverride: scopeDirectory ?? group.directory, targetFolderId: folder.id });
             }}
-            onNewSubFolder={depth === 0 ? () => {
-              if (!folderScopeKey) return;
-              createFolderAndStartRename(folderScopeKey, folder.id);
+            onNewSubFolder={!folder.parentId ? () => {
+              createFolderAndStartRename(scopeKey, folder.id);
             } : undefined}
             hideActions={false}
             archivedBucket={group.isArchivedBucket === true}
@@ -876,27 +743,40 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     );
   };
 
-  const renderFolderItems = () => rootFolders.map(({ folder, nodes }) => renderOneFolderItem(folder, nodes, 0));
-  const hasWorktreeDeleteAction = Boolean(!group.isMain && group.worktree);
-  const groupHeaderRightPadding = alwaysShowActions
-    ? (hasWorktreeDeleteAction ? 'pr-14' : 'pr-7')
-    : isMinimalMode
-      ? (hasWorktreeDeleteAction
-          ? 'pr-2 group-hover/gh:pr-14 group-focus-within/gh:pr-14'
-          : 'pr-2')
-      : (hasWorktreeDeleteAction
-          ? 'pr-5 group-hover/gh:pr-14 group-focus-within/gh:pr-14'
-          : 'pr-5');
+  // Folders render flat: nested folders keep their data-model parent link but
+  // display at the same level with a "Parent / Child" path label, so sessions
+  // never gain extra indentation. Collapsing a folder hides its whole subtree.
+  const renderFolderItems = () => {
+    const childEntriesByParentId = new Map<string, FolderEntry[]>();
+    for (const entry of allFoldersForGroup) {
+      const parentId = entry.folder.parentId;
+      if (!parentId) continue;
+      const existing = childEntriesByParentId.get(parentId);
+      if (existing) existing.push(entry);
+      else childEntriesByParentId.set(parentId, [entry]);
+    }
+    const out: React.ReactNode[] = [];
+    const visit = (entry: FolderEntry, parentPath: string) => {
+      const displayName = parentPath ? `${parentPath} / ${entry.folder.name}` : entry.folder.name;
+      out.push(renderOneFolderItem(entry, displayName));
+      const isFolderCollapsed = !hasSessionSearchQuery && collapsedFolderIds.has(entry.folder.id);
+      if (isFolderCollapsed) return;
+      (childEntriesByParentId.get(entry.folder.id) ?? []).forEach((child) => visit(child, displayName));
+    };
+    rootFolders.forEach((entry) => visit(entry, ''));
+    return out;
+  };
+  const groupHeaderRightPadding = alwaysShowActions ? 'pr-7' : 'pr-2';
 
   const body = (
     <SessionFolderDndScope
-      scopeKey={folderScopeKey}
+      scopeKey={folderScopes[0]?.scopeKey ?? folderScopeKey}
       hasFolders={allFoldersForGroup.length > 0}
       onSessionDroppedOnFolder={(sessionId, folderId) => {
-        if (folderScopeKey) addSessionToFolder(folderScopeKey, folderId, sessionId);
+        const targetEntry = allFoldersForGroup.find(({ folder }) => folder.id === folderId);
+        if (targetEntry) addSessionToFolder(targetEntry.scopeKey, folderId, sessionId);
       }}
     >
-      {renderFolderItems()}
       {shouldVirtualize ? (
         <div ref={archivedVirtualContainerRef}>
           {!virtualizerReady ? (
@@ -1013,6 +893,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
           {t('sessions.sidebar.group.showFewer')}
         </button>
       ) : null}
+      {renderFolderItems()}
     </SessionFolderDndScope>
   );
 
@@ -1041,76 +922,14 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
         aria-expanded={!isCollapsed}
       >
         <div
-          ref={dragHandleProps?.setActivatorNodeRef}
           className={cn(
-            'min-w-0 flex flex-1 items-start gap-1 overflow-hidden pl-0.5 transition-[padding] cursor-grab active:cursor-grabbing',
+            'min-w-0 flex flex-1 items-start gap-1 overflow-hidden pl-0.5 transition-[padding]',
             groupHeaderRightPadding,
           )}
-          {...(dragHandleProps?.listeners ?? {})}
         >
           <div className="min-w-0 flex flex-1 flex-col justify-center gap-0.5 overflow-hidden">
             <p className="text-[14px] font-normal truncate text-foreground/92">
-              {showInlinePrTitle && prIndicator ? (
-                <span className="inline-flex min-w-0 max-w-full items-center">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex shrink-0 items-center gap-1 leading-none align-middle">
-                        <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                          <Icon name="git-branch"
-                            className={cn('h-3.5 w-3.5 shrink-0', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')}
-                            style={branchIconColor ? { color: branchIconColor } : undefined}
-                          />
-                          <span className={cn(
-                            'text-muted-foreground h-3.5 w-3.5 items-center justify-center',
-                            alwaysShowActions ? 'inline-flex' : 'hidden group-hover/gh:inline-flex',
-                          )}>
-                            {isCollapsed ? <Icon name="arrow-right-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-down-s" className="h-3.5 w-3.5" />}
-                          </span>
-                        </span>
-                        {prIndicator.url ? (
-                          <button
-                            type="button"
-                            className="inline-flex shrink-0 items-center leading-none"
-                            onMouseDown={(event) => event.stopPropagation()}
-                            onClick={handlePrLinkClick}
-                          >
-                            #{prIndicator.number}
-                          </button>
-                        ) : (
-                          <span className="inline-flex shrink-0 items-center leading-none">#{prIndicator.number}</span>
-                        )}
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={6} align="start" className="max-w-sm">
-                      <div className="space-y-1 text-xs">
-                        {(baseBranchLabel || headBranchLabel) ? (
-                          <div className="text-muted-foreground truncate">
-                            {baseBranchLabel && headBranchLabel ? (
-                              <>
-                                <span>{baseBranchLabel}</span>
-                                <Icon name="arrow-left-long" className="mx-0.5 inline h-3 w-3 align-[-2px]" />
-                                <span>{headBranchLabel}</span>
-                              </>
-                            ) : (
-                              <span>{baseBranchLabel ?? headBranchLabel ?? ''}</span>
-                            )}
-                          </div>
-                        ) : null}
-                        {mergeStateLabel ? <div className="text-muted-foreground truncate">{mergeStateLabel}</div> : null}
-                        {(mergeabilityLabel || checksSummary) ? (
-                          <div className="text-muted-foreground truncate">
-                            {mergeabilityLabel ?? ''}
-                            {mergeabilityLabel && checksSummary ? ' • ' : ''}
-                            {checksSummary ?? ''}
-                            {checksTail ? ` (${checksTail})` : ''}
-                          </div>
-                        ) : null}
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                  <span className="ml-1 min-w-0 flex-1 truncate leading-none align-middle">{group.branch}</span>
-                </span>
-              ) : group.isArchivedBucket ? (
+              {group.isArchivedBucket ? (
                 <span className="inline-flex min-w-0 max-w-full items-center gap-1">
                   <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
                     <Icon name="archive" className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')} />
@@ -1128,7 +947,6 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                   <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
                     <Icon name="git-branch"
                       className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')}
-                      style={branchIconColor ? { color: branchIconColor } : undefined}
                     />
                     <span className={cn(
                       'text-muted-foreground h-3.5 w-3.5 items-center justify-center',
@@ -1147,51 +965,10 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
               <span className="inline-flex min-w-0 items-center gap-1.5 leading-tight">
                 {group.isArchivedBucket ? (
                   <Icon name="archive" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                ) : (!group.isMain || isGitProject) ? (
-                  showInlinePrTitle && prIndicator ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="inline-flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center">
-                          <Icon name="git-branch" className="h-3.5 w-3.5 text-muted-foreground"
-                            style={branchIconColor ? { color: branchIconColor } : undefined}/>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" sideOffset={6} align="start" className="max-w-sm">
-                        <div className="space-y-1 text-xs">
-                          {(baseBranchLabel || headBranchLabel) ? (
-                            <div className="text-muted-foreground truncate">
-                              {baseBranchLabel && headBranchLabel ? (
-                                <>
-                                  <span>{baseBranchLabel}</span>
-                                  <Icon name="arrow-left-long" className="mx-0.5 inline h-3 w-3 align-[-2px]" />
-                                  <span>{headBranchLabel}</span>
-                                </>
-                              ) : (
-                                <span>{baseBranchLabel ?? headBranchLabel ?? ''}</span>
-                              )}
-                            </div>
-                          ) : null}
-                          {mergeStateLabel ? <div className="text-muted-foreground truncate">{mergeStateLabel}</div> : null}
-                          {(mergeabilityLabel || checksSummary) ? (
-                            <div className="text-muted-foreground truncate">
-                              {mergeabilityLabel ?? ''}
-                              {mergeabilityLabel && checksSummary ? ' • ' : ''}
-                              {checksSummary ?? ''}
-                              {checksTail ? ` (${checksTail})` : ''}
-                            </div>
-                          ) : null}
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <Icon name="git-branch" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground"
-                      style={branchIconColor ? { color: branchIconColor } : undefined}/>
-                  )
-                ) : null}
-                <span
-                  className={cn('min-w-0 truncate text-[11px] font-medium', !statusLine.color && 'text-muted-foreground/80')}
-                  style={statusLine.color ? { color: statusLine.color } : undefined}
-                >
+                ) : (
+                  <Icon name="git-branch" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                )}
+                <span className="min-w-0 truncate text-[11px] font-medium text-muted-foreground/80">
                   {statusLine.label}
                 </span>
               </span>
@@ -1218,30 +995,6 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.group.actions.deleteArchivedSessions')}</p></TooltipContent>
-            </Tooltip>
-          </div>
-        ) : null}
-        {group.directory && !group.isMain && group.worktree ? (
-          <div className={cn('absolute right-7 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100')}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    sessionEvents.requestDelete({
-                      sessions: allGroupSessions,
-                      mode: 'worktree',
-                      worktree: group.worktree,
-                    });
-                  }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={t('sessions.sidebar.group.actions.deleteGroupAria', { label: group.label })}
-                >
-                  <Icon name="delete-bin" className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.group.actions.deleteWorktree')}</p></TooltipContent>
             </Tooltip>
           </div>
         ) : null}

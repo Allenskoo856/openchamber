@@ -43,12 +43,9 @@ export interface SortableProjectItemProps {
   hideHeader?: boolean;
   openSidebarMenuKey: string | null;
   setOpenSidebarMenuKey: (key: string | null) => void;
+  /** Aggregated activity/attention indicator shown while the project is collapsed. */
+  statusIndicator?: React.ReactNode;
 }
-
-export type SortableDragHandleProps = {
-  listeners: ReturnType<typeof useSortable>['listeners'];
-  setActivatorNodeRef: ReturnType<typeof useSortable>['setActivatorNodeRef'];
-};
 
 export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   id,
@@ -77,6 +74,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   hideHeader = false,
   openSidebarMenuKey,
   setOpenSidebarMenuKey,
+  statusIndicator = null,
 }) => {
   const { t } = useI18n();
   const { currentTheme } = useThemeSystem();
@@ -179,7 +177,10 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 />
               }
             >
-            <div className="relative flex items-center gap-1 px-0.5 py-0.5" {...attributes}>
+            {/* Sticky zone header: the solid sidebar backing keeps scrolled
+                session rows from showing through the translucent band. */}
+            <div className="sticky top-0 z-10 -mx-1 rounded-md bg-sidebar">
+            <div className="relative flex items-center gap-1 rounded-md bg-interactive-hover/50 px-1.5 py-1" {...attributes}>
               <Tooltip>
                 <TooltipTrigger asChild>
                     <button
@@ -235,6 +236,9 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                     )}>
                       {projectLabel}
                     </span>
+                    {statusIndicator ? (
+                      <span className="ml-1 inline-flex flex-shrink-0 items-center">{statusIndicator}</span>
+                    ) : null}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right" sideOffset={8}>
@@ -331,6 +335,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 </div>
               ) : null}
             </div>
+            </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="min-w-[180px]">
               {renderProjectMenuItems(ContextMenuItem)}
@@ -344,40 +349,3 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   );
 };
 
-const SortableGroupItemBase: React.FC<{
-  id: string;
-  disabled?: boolean;
-  children: React.ReactNode | ((dragHandleProps: SortableDragHandleProps) => React.ReactNode);
-}> = ({ id, disabled = false, children }) => {
-  const {
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id, disabled });
-
-  const dragHandleProps = React.useMemo<SortableDragHandleProps>(() => ({
-    listeners,
-    setActivatorNodeRef,
-  }), [listeners, setActivatorNodeRef]);
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-      }}
-      className={cn(
-        'space-y-0.5 rounded-md',
-        isDragging && 'opacity-50',
-      )}
-    >
-      {typeof children === 'function' ? children(dragHandleProps) : children}
-    </div>
-  );
-};
-
-export const SortableGroupItem = React.memo(SortableGroupItemBase);
