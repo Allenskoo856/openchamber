@@ -109,20 +109,41 @@ describe('probeClaudeAuthStatusCli / probeClaudeLogin', () => {
     expect(result?.detail).toBe('auth-status-oauth');
   });
 
-  it('prefers auth status over credentials fallback', () => {
+  it('uses credentials / env token when auth status reports logged-out', () => {
     const result = probeClaudeLogin({
       probeAuthStatus: () => ({ loggedIn: false, detail: 'auth-status-logged-out' }),
       hasCredentials: () => true,
+      env: {},
     });
-    expect(result.loggedIn).toBe(false);
-    expect(result.detail).toBe('auth-status-logged-out');
+    expect(result).toEqual({
+      loggedIn: true,
+      detail: 'credentials-oauth-present',
+      authMethod: 'oauth_credentials_file',
+    });
+  });
+
+  it('treats CLAUDE_CODE_OAUTH_TOKEN as subscription login', () => {
+    const result = probeClaudeLogin({
+      probeAuthStatus: () => null,
+      env: { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test' },
+    });
+    expect(result).toEqual({
+      loggedIn: true,
+      detail: 'env-oauth-token',
+      authMethod: 'oauth_token_env',
+    });
   });
 
   it('falls back to structured credentials when auth status probe fails', () => {
     const result = probeClaudeLogin({
       probeAuthStatus: () => null,
       hasCredentials: () => true,
+      env: {},
     });
-    expect(result).toEqual({ loggedIn: true, detail: 'credentials-oauth-present' });
+    expect(result).toEqual({
+      loggedIn: true,
+      detail: 'credentials-oauth-present',
+      authMethod: 'oauth_credentials_file',
+    });
   });
 });

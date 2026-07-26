@@ -4,6 +4,7 @@ import {
   hasClaudeCliOAuthCredentials,
   listClaudeCredentialsCandidates,
   readClaudeCliOAuthAccessToken,
+  readClaudeCodeOAuthTokenFromEnv,
 } from './claude-cli-auth.js';
 
 describe('claude-cli-auth', () => {
@@ -25,9 +26,27 @@ describe('claude-cli-auth', () => {
     expect(extractClaudeOAuthAccessToken({ claudeAiOauth: { accessToken: '  ' } })).toBeNull();
   });
 
+  it('prefers CLAUDE_CODE_OAUTH_TOKEN over credentials files', () => {
+    expect(readClaudeCodeOAuthTokenFromEnv({ CLAUDE_CODE_OAUTH_TOKEN: ' env-token ' })).toBe('env-token');
+    expect(readClaudeCliOAuthAccessToken({
+      env: { CLAUDE_CODE_OAUTH_TOKEN: 'env-token' },
+      homeDir: '/home/u',
+      existsSync: () => true,
+      readFile: () => JSON.stringify({ claudeAiOauth: { accessToken: 'file-token' } }),
+    })).toBe('env-token');
+  });
+
+  it('includes CLAUDE_CONFIG_DIR candidates first', () => {
+    const candidates = listClaudeCredentialsCandidates('/home/u', {
+      CLAUDE_CONFIG_DIR: '/custom/claude',
+    });
+    expect(candidates[0]).toBe('/custom/claude/.credentials.json');
+    expect(candidates).toContain('/home/u/.claude/.credentials.json');
+  });
+
   it('reads the first valid credentials candidate via injectable FS', () => {
     const homeDir = '/home/u';
-    const primary = listClaudeCredentialsCandidates(homeDir)[0];
+    const primary = listClaudeCredentialsCandidates(homeDir, {})[0];
     const files = new Map([
       [primary, JSON.stringify({
         claudeAiOauth: { accessToken: 'cli-token' },
@@ -36,6 +55,7 @@ describe('claude-cli-auth', () => {
 
     expect(readClaudeCliOAuthAccessToken({
       homeDir,
+      env: {},
       existsSync: (filePath) => files.has(filePath),
       readFile: (filePath) => {
         const value = files.get(filePath);
@@ -46,6 +66,7 @@ describe('claude-cli-auth', () => {
 
     expect(hasClaudeCliOAuthCredentials({
       homeDir,
+      env: {},
       existsSync: () => false,
       readFile: () => '',
     })).toBe(false);
@@ -53,7 +74,7 @@ describe('claude-cli-auth', () => {
 
   it('skips malformed credentials and continues to the next candidate', () => {
     const homeDir = '/home/u';
-    const [first, second] = listClaudeCredentialsCandidates(homeDir);
+    const [first, second] = listClaudeCredentialsCandidates(homeDir, {});
     const files = new Map([
       [first, '{not-json'],
       [second, JSON.stringify({ claudeAiOauth: { accessToken: 'second-token' } })],
@@ -61,6 +82,7 @@ describe('claude-cli-auth', () => {
 
     expect(readClaudeCliOAuthAccessToken({
       homeDir,
+      env: {},
       existsSync: (filePath) => files.has(filePath),
       readFile: (filePath) => files.get(filePath) ?? '',
     })).toBe('second-token');

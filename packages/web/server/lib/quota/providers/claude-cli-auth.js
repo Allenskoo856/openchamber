@@ -2,6 +2,10 @@
  * Read Claude Code CLI subscription OAuth access token for Usage probes.
  * Never log or return credential file contents beyond the access token value
  * needed for the Anthropic usage request.
+ *
+ * Resolution order:
+ * 1. `CLAUDE_CODE_OAUTH_TOKEN` env (Cursor Use Environment / CI secrets)
+ * 2. Credentials files under `CLAUDE_CONFIG_DIR` or `$HOME/.claude` / `.config/claude`
  */
 
 import fs from 'node:fs';
@@ -9,15 +13,36 @@ import os from 'node:os';
 import path from 'node:path';
 
 /**
+ * Non-empty `CLAUDE_CODE_OAUTH_TOKEN` from env (subscription OAuth for automated hosts).
+ *
+ * @param {NodeJS.ProcessEnv | Record<string, string | undefined>} [env]
+ * @returns {string | null}
+ */
+export function readClaudeCodeOAuthTokenFromEnv(env = process.env) {
+  const value = env?.CLAUDE_CODE_OAUTH_TOKEN;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
  * @param {string} [homeDir]
+ * @param {NodeJS.ProcessEnv | Record<string, string | undefined>} [env]
  * @returns {string[]}
  */
-export function listClaudeCredentialsCandidates(homeDir = os.homedir()) {
-  return [
+export function listClaudeCredentialsCandidates(homeDir = os.homedir(), env = process.env) {
+  const candidates = [];
+  const configDir = typeof env?.CLAUDE_CONFIG_DIR === 'string' ? env.CLAUDE_CONFIG_DIR.trim() : '';
+  if (configDir) {
+    candidates.push(path.join(configDir, '.credentials.json'));
+    candidates.push(path.join(configDir, 'credentials.json'));
+  }
+  candidates.push(
     path.join(homeDir, '.claude', '.credentials.json'),
     path.join(homeDir, '.claude', 'credentials.json'),
     path.join(homeDir, '.config', 'claude', '.credentials.json'),
-  ];
+  );
+  return candidates;
 }
 
 /**
@@ -50,17 +75,22 @@ export function extractClaudeOAuthAccessToken(parsed) {
 /**
  * @param {{
  *   homeDir?: string,
+ *   env?: NodeJS.ProcessEnv | Record<string, string | undefined>,
  *   readFile?: (path: string, encoding: BufferEncoding) => string,
  *   existsSync?: (path: string) => boolean,
  * }} [options]
  * @returns {string | null}
  */
 export function readClaudeCliOAuthAccessToken(options = {}) {
+  const env = options.env || process.env;
+  const fromEnv = readClaudeCodeOAuthTokenFromEnv(env);
+  if (fromEnv) return fromEnv;
+
   const homeDir = options.homeDir || os.homedir();
   const readFile = options.readFile || ((filePath, encoding) => fs.readFileSync(filePath, encoding));
   const existsSync = options.existsSync || ((filePath) => fs.existsSync(filePath));
 
-  for (const candidate of listClaudeCredentialsCandidates(homeDir)) {
+  for (const candidate of listClaudeCredentialsCandidates(homeDir, env)) {
     try {
       if (!existsSync(candidate)) continue;
       const raw = readFile(candidate, 'utf8');
@@ -77,11 +107,12 @@ export function readClaudeCliOAuthAccessToken(options = {}) {
 }
 
 /**
- * True when a Claude CLI credentials file contains a non-empty OAuth access token.
- * Does not return or log the token.
+ * True when a Claude CLI credentials file or `CLAUDE_CODE_OAUTH_TOKEN` contains
+ * a non-empty OAuth access token. Does not return or log the token.
  *
  * @param {{
  *   homeDir?: string,
+ *   env?: NodeJS.ProcessEnv | Record<string, string | undefined>,
  *   readFile?: (path: string, encoding: BufferEncoding) => string,
  *   existsSync?: (path: string) => boolean,
  * }} [options]

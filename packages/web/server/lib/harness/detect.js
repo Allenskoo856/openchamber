@@ -114,7 +114,7 @@ export function probeClaudeAuthStatusCli(options) {
 /**
  * Best-effort Claude subscription login probe (no secrets returned).
  * Prefers `claude auth status --json` (API keys stripped from child env),
- * then structured CLI credentials-file OAuth presence.
+ * then `CLAUDE_CODE_OAUTH_TOKEN` / credentials-file OAuth presence.
  *
  * @param {{
  *   homeDir?: string,
@@ -126,26 +126,41 @@ export function probeClaudeAuthStatusCli(options) {
  * @returns {{ loggedIn: boolean, detail?: string, authMethod?: string }}
  */
 export function probeClaudeLogin(options = {}) {
+  const env = options.env || process.env;
   const probeAuthStatus = options.probeAuthStatus || (() => {
     const binaryPath = options.binaryPath
       || findBinaryOnPath('claude');
     if (!binaryPath) return null;
     return probeClaudeAuthStatusCli({
       binaryPath,
-      env: options.env,
+      env,
     });
   });
 
   const status = probeAuthStatus();
-  if (status) {
+  // Authoritative CLI status wins when it confirms login.
+  if (status?.loggedIn) {
     return status;
   }
 
   const hasCredentials = options.hasCredentials
-    || (() => hasClaudeCliOAuthCredentials({ homeDir: options.homeDir }));
+    || (() => hasClaudeCliOAuthCredentials({ homeDir: options.homeDir, env }));
 
+  // Env token / credentials file still count as subscription auth when the CLI
+  // probe is unavailable, or when it reports logged-out while a Cursor/CI
+  // `CLAUDE_CODE_OAUTH_TOKEN` secret is present for this host.
   if (hasCredentials()) {
-    return { loggedIn: true, detail: 'credentials-oauth-present' };
+    const fromEnv = typeof env.CLAUDE_CODE_OAUTH_TOKEN === 'string'
+      && env.CLAUDE_CODE_OAUTH_TOKEN.trim().length > 0;
+    return {
+      loggedIn: true,
+      detail: fromEnv ? 'env-oauth-token' : 'credentials-oauth-present',
+      authMethod: fromEnv ? 'oauth_token_env' : 'oauth_credentials_file',
+    };
+  }
+
+  if (status) {
+    return status;
   }
 
   return { loggedIn: false, detail: 'no-credentials-file' };

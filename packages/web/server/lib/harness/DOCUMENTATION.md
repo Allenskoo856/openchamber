@@ -143,9 +143,14 @@ Streaming continues asynchronously via the event broadcaster.
 
 **Login probe (B6):** `claude auth status --json` with API-priority env stripped
 (`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`). OAuth-like `authMethod` → ready;
-API-key / logged-out → `needs-login`. If the CLI status probe fails, fall back to
-structured presence of `claudeAiOauth.accessToken` in the Claude credentials file
-(no secret values returned).
+API-key / logged-out → continue to credential fallbacks. Fallbacks (in order):
+
+1. Non-empty `CLAUDE_CODE_OAUTH_TOKEN` (Cursor Use Environment / CI secret)
+2. Structured `claudeAiOauth.accessToken` in credentials under `CLAUDE_CONFIG_DIR`
+   or `~/.claude/.credentials.json` (no secret values returned)
+
+Child Claude processes keep `CLAUDE_CODE_OAUTH_TOKEN` via `auth-env.js` so Desktop
+and cloud hosts that inject the secret authenticate without an interactive login.
 
 **Invariant:** detect failure never returns `status: "ready"` with an empty
 success catalog. Error / missing-cli responses use `sections: []`.
