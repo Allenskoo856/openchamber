@@ -561,7 +561,7 @@ Engines → Claude Code detail sections:
 
 Compact chip:
 
-`[Claude · Sonnet ▾]  [Accept edits ▾]`
+`[Claude · Sonnet 5 ▾]  [Accept edits ▾]`
 
 Picker structure:
 
