@@ -232,6 +232,37 @@ const findResolvedSiblingEntry = (
   return fallback;
 };
 
+/**
+ * Freshest known status for a directory+branch across ALL remote-keyed
+ * entries. Passive readers (e.g. the git-view PR chip) should use this
+ * instead of a single key: the entry being actively watched/refreshed may be
+ * keyed by a concrete remote while the 'auto' entry goes stale.
+ */
+export const getFreshestPrStatusForBranch = (
+  entries: Record<string, PrStatusEntry>,
+  directory: string,
+  branch: string,
+): GitHubPullRequestStatus | null => {
+  const runtimeKey = getRuntimeKey();
+  let best: PrStatusEntry | null = null;
+  for (const [key, entry] of Object.entries(entries)) {
+    if (!entry.status) {
+      continue;
+    }
+    const parsed = parseStatusKey(key);
+    if (!parsed
+      || parsed.runtimeKey !== runtimeKey
+      || parsed.directory !== directory
+      || parsed.branch !== branch) {
+      continue;
+    }
+    if (!best || entry.lastRefreshAt > best.lastRefreshAt) {
+      best = entry;
+    }
+  }
+  return best?.status ?? null;
+};
+
 const getKeysBySignature = (entries: Record<string, PrStatusEntry>, signature: string): string[] => {
   return Object.entries(entries)
     .filter(([, entry]) => getSignatureFromEntry(entry) === signature)

@@ -27,6 +27,7 @@ import { useInlineCommentDraftStore, type InlineCommentDraftTarget } from '@/sto
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { getGitHubPrStatusKey, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
 import { getPrContextKey, usePrContextStore } from '@/stores/usePrContextStore';
+import { summarizeCheckRuns } from '@/lib/githubChecks';
 import type {
   GitHubPullRequest,
   GitHubCheckRun,
@@ -528,6 +529,38 @@ export const PullRequestSection: React.FC<{
   const checks = status?.checks ?? null;
   const checksArePending = (checks?.pending ?? 0) > 0;
 
+  // The detailed run list (pulls/context) and the status aggregate (pr/status)
+  // come from different endpoints with different cache ages. The run list is
+  // the fresher, richer source whenever we have it — derive the aggregate from
+  // it and push it into the status store so every consumer (header, badges,
+  // git-view chip) shows the same numbers as the visible runs.
+  const contextCheckRuns = prContext?.checkRuns ?? null;
+  React.useEffect(() => {
+    if (!contextCheckRuns || contextCheckRuns.length === 0) {
+      return;
+    }
+    const derived = summarizeCheckRuns(contextCheckRuns);
+    updatePrStatus(prStatusKey, (previous) => {
+      if (!previous?.pr) {
+        return previous;
+      }
+      const current = previous.checks;
+      const unchanged = current
+        && current.state === derived.state
+        && current.total === derived.total
+        && current.success === derived.success
+        && current.failure === derived.failure
+        && current.pending === derived.pending
+        && current.inProgress === derived.inProgress
+        && current.queued === derived.queued
+        && current.startedAt === derived.startedAt;
+      if (unchanged) {
+        return previous;
+      }
+      return { ...previous, checks: derived };
+    });
+  }, [contextCheckRuns, prStatusKey, updatePrStatus]);
+
   // While checks run and the checks segment is visible, keep the detailed
   // run list fresh; the shared context store dedupes against other callers.
   React.useEffect(() => {
@@ -577,7 +610,7 @@ export const PullRequestSection: React.FC<{
     setHydratingPrBodyKey(hydrationKey);
 
     let cancelled = false;
-    void github.prContext(directory, pr.number, { includeDiff: false, includeCheckDetails: false, sourceRepo: status?.repo ?? null })
+    void ensurePrContext(github, directory, pr.number, { sourceRepo: status?.repo ?? null })
       .then((ctx) => {
         if (cancelled) {
           return;
@@ -610,7 +643,7 @@ export const PullRequestSection: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [directory, github, pr, prStatusKey, status?.repo, updatePrStatus]);
+  }, [directory, ensurePrContext, github, pr, prStatusKey, status?.repo, updatePrStatus]);
 
   React.useEffect(() => {
     if (!pr) {

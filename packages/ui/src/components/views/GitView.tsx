@@ -58,7 +58,7 @@ import { StashDialog } from './git/StashDialog';
 import { InProgressOperationBanner } from './git/InProgressOperationBanner';
 import { BranchIntegrationSection, type OperationLogEntry } from './git/BranchIntegrationSection';
 import { deriveBaseBranch } from './git/baseBranch';
-import { getGitHubPrStatusKey, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
+import { getFreshestPrStatusForBranch, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
 import { createGitIndexMutationQueue, type GitIndexMutationDirection, type GitIndexMutationQueue } from './git/gitIndexMutationQueue';
 import type { GitRemote } from '@/lib/gitApi';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
@@ -302,13 +302,12 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
   const openContextSurface = useUIStore((state) => state.openContextSurface);
 
   const prStatusBranch = status?.current ?? null;
-  const prStatusKey = React.useMemo(() => {
+  const prChipStatus = useGitHubPrStatusStore((state) => {
     if (!currentDirectory || !prStatusBranch) {
       return null;
     }
-    return getGitHubPrStatusKey(currentDirectory, prStatusBranch);
-  }, [currentDirectory, prStatusBranch]);
-  const prChipStatus = useGitHubPrStatusStore((state) => (prStatusKey ? state.entries[prStatusKey]?.status ?? null : null));
+    return getFreshestPrStatusForBranch(state.entries, currentDirectory, prStatusBranch);
+  });
   const navigateToDiff = useUIStore((state) => state.navigateToDiff);
 
   const previousBootstrapStatusRef = React.useRef<'pending' | 'ready' | 'failed' | null>(null);
