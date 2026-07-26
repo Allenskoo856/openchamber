@@ -814,12 +814,19 @@ export type GitHubChecksSummary = {
   total: number;
   success: number;
   failure: number;
+  /** queued + in_progress + unconcluded runs. */
   pending: number;
+  inProgress?: number;
+  queued?: number;
+  /** Earliest started_at among in-progress runs (ISO), for elapsed display. */
+  startedAt?: string;
 };
 
 export type GitHubCheckRun = {
   id?: number;
   name: string;
+  startedAt?: string;
+  completedAt?: string;
   app?: {
     name?: string;
     slug?: string;
@@ -837,6 +844,7 @@ export type GitHubCheckRun = {
     jobId?: number;
     url?: string;
     name?: string;
+    workflowName?: string;
     conclusion?: string | null;
     steps?: Array<{
       name: string;
