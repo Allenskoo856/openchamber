@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { EditorState } from '@codemirror/state';
 
-import { COMPOSER_EDITOR_THEME_SPEC, composerEditorTheme } from '../theme';
+import {
+    COMPOSER_EDITOR_THEME_SPEC,
+    NATIVE_SELECTION_THEME_SPEC,
+    composerEditorTheme,
+    composerNativeSelectionExtension,
+} from '../theme';
 
 const selectors = Object.keys(COMPOSER_EDITOR_THEME_SPEC);
 const declarations = JSON.stringify(COMPOSER_EDITOR_THEME_SPEC);
@@ -87,5 +92,97 @@ describe('composerEditorTheme', () => {
         for (const rule of rules) {
             expect(rule.background.includes('transparent')).toBe(true);
         }
+    });
+});
+
+describe('composerNativeSelectionTheme', () => {
+    const nativeSelectors = Object.keys(NATIVE_SELECTION_THEME_SPEC);
+    const nativeDeclarations = JSON.stringify(NATIVE_SELECTION_THEME_SPEC);
+
+    /**
+     * Touch devices layer this over `drawSelection()` so iOS can attach its
+     * selection handles to a visible native selection. `drawSelection()` must
+     * NOT be removed for that: without it CodeMirror starts enforcing cursor
+     * association on the native selection while typing in wrapped text, and
+     * iOS answers those programmatic selection moves with severe input lag.
+     */
+    test('it compiles and can be installed', () => {
+        let failure: unknown = null;
+        try {
+            EditorState.create({ extensions: [composerNativeSelectionExtension] });
+        } catch (error) {
+            failure = error;
+        }
+        expect(failure).toBeNull();
+    });
+
+    /**
+     * `drawSelection()` hides the native selection through a `Prec.highest`
+     * theme with `!important` on `.cm-line ::selection`. Winning that back
+     * needs both `!important` and strictly more specificity, because the
+     * mount order of two highest-precedence themes is not something to bet
+     * on.
+     */
+    test('the native selection is re-shown with enough weight to win', () => {
+        const rule = nativeSelectors.find((selector) => selector.includes('::selection'));
+        expect(rule).toBeDefined();
+        expect(rule!.includes('.cm-content')).toBe(true);
+        expect(rule!.includes('.cm-line')).toBe(true);
+        const value = (NATIVE_SELECTION_THEME_SPEC as Record<string, Record<string, string>>)[rule!];
+        expect(value.backgroundColor.includes('!important')).toBe(true);
+        expect(value.backgroundColor.includes('transparent')).toBe(true);
+    });
+
+    test('the painted selection layer is hidden so highlights do not stack', () => {
+        const rule = nativeSelectors.find((selector) => selector.includes('.cm-selectionLayer'));
+        expect(rule).toBeDefined();
+        const value = (NATIVE_SELECTION_THEME_SPEC as Record<string, Record<string, string>>)[rule!];
+        expect(value.display).toBe('none');
+    });
+
+    /**
+     * iOS colours its selection drag handles from the caret colour. With
+     * `drawSelection()`'s `caret-color: transparent !important` in effect the
+     * handles are drawn — invisibly. The native caret must come back with
+     * enough weight to win, and the drawn cursor layer must go so there are
+     * not two carets.
+     *
+     * BUT a visible native caret makes WebKit re-render its caret UI after
+     * every keystroke's decoration redraw — severe input lag. Both rules are
+     * therefore scoped to `.oc-native-range`, which only exists while a range
+     * is selected (when there is no caret to lag on).
+     */
+    test('the native caret is re-enabled, since the handles take its colour', () => {
+        const rule = nativeSelectors.find((selector) =>
+            selector.includes('.cm-content')
+            && (NATIVE_SELECTION_THEME_SPEC as Record<string, Record<string, string>>)[selector].caretColor);
+        expect(rule).toBeDefined();
+        const value = (NATIVE_SELECTION_THEME_SPEC as Record<string, Record<string, string>>)[rule!];
+        expect(value.caretColor.startsWith('var(--')).toBe(true);
+        expect(value.caretColor.includes('!important')).toBe(true);
+        expect(rule!.includes('&.cm-editor')).toBe(true);
+    });
+
+    test('the native caret shows only while a range is selected', () => {
+        for (const selector of nativeSelectors) {
+            const value = (NATIVE_SELECTION_THEME_SPEC as Record<string, Record<string, string>>)[selector];
+            if (value.caretColor) {
+                expect(selector.includes('.oc-native-range')).toBe(true);
+            }
+        }
+    });
+
+    test('the drawn cursor layer is hidden so there are not two carets', () => {
+        const rule = nativeSelectors.find((selector) => selector.includes('.cm-cursorLayer'));
+        expect(rule).toBeDefined();
+        expect(rule!.includes('.oc-native-range')).toBe(true);
+        const value = (NATIVE_SELECTION_THEME_SPEC as Record<string, Record<string, string>>)[rule!];
+        expect(value.display).toBe('none');
+    });
+
+    test('every theme token is kebab-case, as the theme emits them', () => {
+        const tokens = [...nativeDeclarations.matchAll(/var\((--[A-Za-z-]+)/g)].map((m) => m[1]);
+        expect(tokens.length > 0).toBe(true);
+        expect(tokens.filter((token) => /[A-Z]/.test(token))).toEqual([]);
     });
 });

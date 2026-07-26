@@ -36,7 +36,23 @@ import { cn } from '@/lib/utils';
 import type { ComposerLanguageContext } from '../language/tokenize';
 import { composerLanguage, setLanguageContext } from './composerLanguage';
 import type { ComposerEditorViewStore } from './viewStore';
-import { composerEditorTheme } from './theme';
+import { composerEditorTheme, composerNativeSelectionExtension } from './theme';
+
+/**
+ * `drawSelection()` hides the native selection iOS pins its drag handles to —
+ * after a double-tap the word highlights and nothing shows that the range can
+ * be extended. Touch-primary devices layer `composerNativeSelectionExtension`
+ * on top, which shows the native selection (and, only while a range is
+ * selected, the native caret whose colour the handles borrow) through the
+ * drawn one. `drawSelection()` itself stays, and the native caret stays
+ * transparent while typing: both a removed `drawSelection()` and a visible
+ * native caret make iOS answer every keystroke with severe input lag (see the
+ * theme's comment).
+ */
+const prefersNativeSelection = () =>
+    typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(pointer: coarse)').matches;
 
 export interface ComposerSelection {
     start: number;
@@ -208,6 +224,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                     extensions: [
                         history(),
                         drawSelection(),
+                        ...(prefersNativeSelection() ? [composerNativeSelectionExtension] : []),
                         EditorView.lineWrapping,
                         // Highest precedence: the composer's own keys must win
                         // over CodeMirror's defaults (Enter sends, ArrowUp

@@ -698,6 +698,17 @@
   opacity: 0;
 }
 
+/* On touch devices the composer re-enables the NATIVE caret with `!important`
+   (composerNativeSelectionTheme: iOS colours its selection handles from the
+   caret colour, so the caret cannot stay transparent). That declaration beats
+   the plain [contenteditable] rule above, so the caret-hold needs its own
+   heavier rule for the composer — !important plus more specificity than the
+   theme's `.cm-editor .cm-content` selector. */
+:root.oc-capacitor-app.oc-kb-caret-hold .cm-editor .cm-content,
+:root.oc-capacitor-app.oc-kb-caret-hold .cm-editor .cm-content .cm-line {
+  caret-color: transparent !important;
+}
+
 /* The composer keeps its 1rem bottom padding while the keyboard is down (breathing
    room above the home indicator), but that gap looks artificial sitting right above
    the keyboard — so tighten it while the keyboard is open. Snaps at the start of the

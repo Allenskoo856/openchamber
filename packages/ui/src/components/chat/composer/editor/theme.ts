@@ -80,3 +80,68 @@ export const COMPOSER_EDITOR_THEME_SPEC = {
 };
 
 export const composerEditorTheme = EditorView.theme(COMPOSER_EDITOR_THEME_SPEC);
+
+/**
+ * Touch devices keep `drawSelection()` but show the NATIVE selection through
+ * it. iOS attaches its selection handles (the draggable pins after a
+ * double-tap) to the *visible* native selection, and `drawSelection()` hides
+ * it with `.cm-line ::selection { background: transparent !important }`, so
+ * the handles never appear and range selection is undiscoverable.
+ *
+ * Dropping `drawSelection()` entirely is NOT an option: without it CodeMirror
+ * clears the `nativeSelectionHidden` facet and starts enforcing cursor
+ * association on the native selection while typing in wrapped text —
+ * programmatic selection moves that iOS answers with severe input lag (each
+ * one also resets the keyboard's autocorrect context). Typing must stay on
+ * the drawn-selection code path; only the paint changes.
+ *
+ * Both rules below fight `drawSelection()`'s own `Prec.highest` theme, so
+ * they carry `!important` and one class more specificity
+ * (`.cm-content .cm-line` vs its `.cm-line`) to win regardless of style
+ * mount order. The painted selection layer is hidden rather than removed —
+ * two highlights would otherwise stack.
+ */
+export const NATIVE_SELECTION_THEME_SPEC = {
+    '& .cm-content .cm-line ::selection, & .cm-content .cm-line::selection': {
+        backgroundColor:
+            'color-mix(in srgb, var(--interactive-selection) 55%, transparent) !important',
+    },
+    // iOS derives the colour of its selection UI — the drag handles included —
+    // from the caret colour, and `drawSelection()` sets `caret-color:
+    // transparent !important` on both `.cm-content` and `.cm-line`. A visible
+    // native selection alone is therefore not enough: the handles get drawn,
+    // in transparent.
+    //
+    // But a visible native caret is not free either: while it shows, WebKit
+    // re-renders its caret UI after every keystroke's decoration redraw, which
+    // arrives as severe input lag. The handles only exist while a RANGE is
+    // selected — exactly when there is no caret — so the native caret (and the
+    // drawn cursor layer's absence) are scoped to `.oc-native-range`, which
+    // `composerNativeSelectionExtension` sets on the editor whenever the main
+    // selection is non-empty. Typing stays on the transparent-native-caret
+    // fast path.
+    '&.cm-editor.oc-native-range .cm-content, &.cm-editor.oc-native-range .cm-content .cm-line': {
+        caretColor: 'var(--surface-foreground) !important',
+    },
+    '&.oc-native-range .cm-scroller > .cm-cursorLayer': {
+        display: 'none',
+    },
+    // The layers live beside the content, as children of the scroller.
+    '& .cm-scroller > .cm-selectionLayer': {
+        display: 'none',
+    },
+};
+
+export const composerNativeSelectionTheme = EditorView.theme(NATIVE_SELECTION_THEME_SPEC);
+
+/**
+ * The touch-device selection arrangement: the theme above plus the
+ * `.oc-native-range` marker class that scopes its caret rules to the moments
+ * a range is actually selected. `editorAttributes` re-evaluates on every
+ * update, so the class follows the selection with no listener of its own.
+ */
+export const composerNativeSelectionExtension = [
+    composerNativeSelectionTheme,
+    EditorView.editorAttributes.of((view) =>
+        view.state.selection.main.empty ? null : { class: 'oc-native-range' }),
+];

@@ -59,6 +59,19 @@ overlay was disabled outright on mobile, where wrapped text drifted anyway.
 **Those constraints are gone**; adding a width-affecting style is now a
 question of design, not of feasibility.
 
+Selection rendering: every device runs CodeMirror's `drawSelection()` — it
+keeps typing on the drawn-selection code path, and removing it makes
+CodeMirror enforce cursor association on the native selection, which iOS
+answers with severe input lag. Touch-primary devices additionally layer
+`composerNativeSelectionExtension` (`editor/theme.ts`) on top: it re-shows
+the native selection, and — only while a range is selected — the native caret,
+hiding the painted layers those replace. Both halves matter to iOS's selection
+drag handles: they attach to the visible native selection, and they take their
+colour from the caret, so a transparent caret means invisible handles. The
+range-only scoping is load-bearing too — a native caret visible while typing
+makes WebKit re-render its caret UI after every keystroke, felt as severe
+input lag.
+
 `composerLanguage.ts` retokenizes the whole document on every change. The
 composer holds a prompt, not a source file: it is short enough that a full pass
 is cheaper and far simpler than incremental mapping, and it keeps the editor
