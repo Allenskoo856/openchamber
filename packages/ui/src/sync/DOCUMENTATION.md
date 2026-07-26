@@ -191,7 +191,7 @@ Directory stores also own session-keyed sidecar notification channels for permis
 
 Message sidecar consumers also filter targeted updates by purpose before notifying React. Suspended live-tail text/reasoning changes do not rebuild visible message records, but structural Task session identity changes bypass suspension so a parent can link a newly created subagent immediately. Assistant-only part changes do not rebuild user input history, and targeted updates that preserve authoritative part buckets do not recheck a session that is already renderable. Message replacements, removed final part buckets, and conservative resets always notify.
 
-The active-session watchdog also applies a narrow defensive settlement for orphan tool parts. When OpenCode leaves a tool part in `running`/`pending` without `time.end` after the owning session (or linked task child session) is idle, or after a long busy-side wall-clock grace, the client finalizes that part as `error`. This does not invent `session.idle`; it only prevents shell/task UI from waiting forever on a missed `message.part.updated`. Pending tools with an open permission request are left alone.
+The active-session watchdog finalizes orphan tool parts left `running`/`pending` after their session is already idle (OpenCode sometimes misses the settle event). Pending tools with an open permission request are left alone.
 
 ## Session action rules
 
