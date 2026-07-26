@@ -531,6 +531,7 @@ export function registerGitHubRoutes(app) {
           directory,
           branch,
           remoteName: remote,
+          force,
         }),
         PR_STATUS_RESOLVE_TIMEOUT_MS,
         'resolveGitHubPrStatus',
@@ -849,6 +850,10 @@ export function registerGitHubRoutes(app) {
       const headBranch = head.includes(':') ? head.split(':')[1] || head : head;
       const createCacheKey = `${directory}::${headBranch}::${remote}`;
       prStatusCache.delete(createCacheKey);
+      if (repo?.owner && repo?.repo) {
+        const { invalidateRepoPullsCache } = await import('./pr-status.js');
+        invalidateRepoPullsCache(repo.owner, repo.repo);
+      }
 
       return res.json({
         number: pr.number,
@@ -989,6 +994,8 @@ export function registerGitHubRoutes(app) {
           merge_method: method,
         });
         invalidatePrContextCache(directory, number);
+        const { invalidateRepoPullsCache } = await import('./pr-status.js');
+        invalidateRepoPullsCache(repo.owner, repo.repo);
         return res.json({ merged: Boolean(result?.data?.merged), message: result?.data?.message });
       } catch (error) {
         if (error?.status === 403) {
@@ -1048,6 +1055,10 @@ export function registerGitHubRoutes(app) {
       }
 
       invalidatePrContextCache(directory, number);
+      {
+        const { invalidateRepoPullsCache } = await import('./pr-status.js');
+        invalidateRepoPullsCache(repo.owner, repo.repo);
+      }
       return res.json({ ready: true });
     } catch (error) {
       console.error('Failed to mark PR ready:', error);
