@@ -11,6 +11,8 @@ import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { sessionSupports } from '@/lib/harness/capabilities';
+import { resolveComposerAttachmentModel } from '@/lib/harness/composer-attachment-model';
+import { useHarnessStore } from '@/stores/useHarnessStore';
 import { useInputStore } from '@/sync/input-store';
 import {
     ACCEPTED_ATTACHMENT_EXTENSIONS,
@@ -1123,6 +1125,33 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const currentModelMetadata = currentProviderId && currentModelId
         ? getModelMetadata(currentProviderId, currentModelId)
         : undefined;
+    const sessionTarget = useSelectionStore((state) => (
+        currentSessionId ? state.sessionTargets.get(currentSessionId) ?? null : null
+    ));
+    const pendingHandoffTarget = useSelectionStore((state) => (
+        currentSessionId ? state.pendingHandoffTargets.get(currentSessionId) ?? null : null
+    ));
+    const lastUsedTarget = useSelectionStore((state) => state.lastUsedTarget);
+    const claudeCatalog = useHarnessStore((state) => state.catalogsById['claude-code']);
+    const composerAttachmentModel = React.useMemo(() => resolveComposerAttachmentModel({
+        sessionId: currentSessionId,
+        sessionTarget,
+        pendingHandoffTarget,
+        lastUsedTarget,
+        openCodeProviderId: currentProviderId,
+        openCodeModelId: currentModelId,
+        openCodeMetadata: currentModelMetadata,
+        claudeCatalog,
+    }), [
+        claudeCatalog,
+        currentModelId,
+        currentModelMetadata,
+        currentProviderId,
+        currentSessionId,
+        lastUsedTarget,
+        pendingHandoffTarget,
+        sessionTarget,
+    ]);
     const currentVariant = useConfigStore((state) => state.currentVariant);
     const currentAgentName = useConfigStore((state) => state.currentAgentName);
     const setAgent = useConfigStore((state) => state.setAgent);
@@ -1161,14 +1190,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         content: '',
     });
     const attachmentCompatibilityRef = React.useRef({
-        modelKey: `${currentProviderId ?? ''}/${currentModelId ?? ''}`,
-        modalitySignature: currentModelMetadata?.modalities?.input?.slice().sort().join(',') ?? null,
+        modelKey: composerAttachmentModel.modelKey,
+        modalitySignature: composerAttachmentModel.inputModalities?.slice().sort().join(',') ?? null,
         attachmentIds: new Set<string>(),
     });
 
     React.useEffect(() => {
-        const modelKey = `${currentProviderId ?? ''}/${currentModelId ?? ''}`;
-        const inputModalities = currentModelMetadata?.modalities?.input;
+        const modelKey = composerAttachmentModel.modelKey;
+        const inputModalities = composerAttachmentModel.inputModalities;
         const modalitySignature = inputModalities?.slice().sort().join(',') ?? null;
         const previous = attachmentCompatibilityRef.current;
         const modelChanged = previous.modelKey !== modelKey;
@@ -1202,11 +1231,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             : filenames.join(', ');
 
         toast.warning(t('chat.chatInput.toast.unsupportedAttachmentModalities', {
-            model: currentModelMetadata.name ?? currentModelId ?? '',
+            model: composerAttachmentModel.modelName,
             modalities: unsupportedModalities.map((modality) => modalityLabels[modality]).join(', '),
             files: fileSummary,
         }), { id: `attachment-modalities:${modelKey}` });
-    }, [attachedFiles, currentModelId, currentModelMetadata, currentProviderId, t]);
+    }, [attachedFiles, composerAttachmentModel, t]);
 
     const handleShowAttachmentPreview = React.useCallback((content: ToolPopupContent) => {
         if (!content.image) return;

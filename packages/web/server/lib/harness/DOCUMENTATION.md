@@ -260,6 +260,7 @@ client-provided `messageId` / `assistantMessageId` for optimistic reconcile.
 - `packages/ui/src/lib/harness/resolve-execution-target.ts` — sticky `ExecutionTarget` resolution
 - `packages/ui/src/sync/session-ui-store.ts` — `routeMessage` branches `claude-code` → harness prompt (not OpenCode SDK)
 - `packages/ui/src/sync/session-actions.ts` — permission reply/dismiss branches for Claude targets
+- `packages/ui/src/lib/harness/composer-attachment-model.ts` — composer attachment modality warnings use the active `ExecutionTarget` (Claude catalog), not leftover OpenCode `currentModel`
 - Model picker Engines section lives in `ModelControls` / `ModelPickerList`
 
 ## Out of scope (later slices)
