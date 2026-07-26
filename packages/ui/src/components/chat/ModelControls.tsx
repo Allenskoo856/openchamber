@@ -852,15 +852,15 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const hasVariants = availableVariants.length > 0;
 
     const costRows = [
-        { label: 'Input', value: formatCost(currentMetadata?.cost?.input) },
-        { label: 'Output', value: formatCost(currentMetadata?.cost?.output) },
-        { label: 'Cache read', value: formatCost(currentMetadata?.cost?.cache_read) },
-        { label: 'Cache write', value: formatCost(currentMetadata?.cost?.cache_write) },
+        { label: t('chat.modelControls.input'), value: formatCost(currentMetadata?.cost?.input) },
+        { label: t('chat.modelControls.output'), value: formatCost(currentMetadata?.cost?.output) },
+        { label: t('chat.modelControls.cacheRead'), value: formatCost(currentMetadata?.cost?.cache_read) },
+        { label: t('chat.modelControls.cacheWrite'), value: formatCost(currentMetadata?.cost?.cache_write) },
     ];
 
     const limitRows = [
-        { label: 'Context', value: formatTokens(currentMetadata?.limit?.context) },
-        { label: 'Output', value: formatTokens(currentMetadata?.limit?.output) },
+        { label: t('chat.modelControls.context'), value: formatTokens(currentMetadata?.limit?.context) },
+        { label: t('chat.modelControls.output'), value: formatTokens(currentMetadata?.limit?.output) },
     ];
 
     const prevAgentNameRef = React.useRef<string | undefined>(undefined);
@@ -1648,7 +1648,13 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                     <div className="flex items-center gap-2">
                                         <span className="typography-meta text-muted-foreground/80 w-12">{t('chat.modelControls.input')}</span>
                                         <div className="flex gap-1">
-                                            {inputModalityIcons.map(({ key, icon, label }) => <IconBadge key={`input-${key}`} iconName={icon} label={`${label} input`} />)}
+                                            {inputModalityIcons.map(({ key, icon, label }) => (
+                                                <IconBadge
+                                                    key={`input-${key}`}
+                                                    iconName={icon}
+                                                    label={t('chat.modelControls.modalityInputAria', { modality: label })}
+                                                />
+                                            ))}
                                         </div>
                                     </div>
                                 )}
@@ -1656,7 +1662,13 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                     <div className="flex items-center gap-2">
                                         <span className="typography-meta text-muted-foreground/80 w-12">{t('chat.modelControls.output')}</span>
                                         <div className="flex gap-1">
-                                            {outputModalityIcons.map(({ key, icon, label }) => <IconBadge key={`output-${key}`} iconName={icon} label={`${label} output`} />)}
+                                            {outputModalityIcons.map(({ key, icon, label }) => (
+                                                <IconBadge
+                                                    key={`output-${key}`}
+                                                    iconName={icon}
+                                                    label={t('chat.modelControls.modalityOutputAria', { modality: label })}
+                                                />
+                                            ))}
                                         </div>
                                     </div>
                                 )}
@@ -1955,7 +1967,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             const indicatorIcons = Array.from(
                 new Map([...capabilityIcons, ...modalityIcons].map((icon) => [icon.key, icon])).values()
             );
-            const contextText = metadata?.limit?.context ? `${formatTokens(metadata.limit.context)} ctx` : null;
+            const contextText = metadata?.limit?.context
+                ? `${formatTokens(metadata.limit.context)} ${t('chat.modelControls.contextAbbr')}`
+                : null;
 
             return (
                 <div
@@ -2480,7 +2494,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 <div className="flex items-center gap-1.5">
                                     {inputModalityIcons.length > 0
                                         ? inputModalityIcons.map(({ key, icon, label }) =>
-                                              <IconBadge key={`input-${key}`} iconName={icon} label={`${label} input`} />
+                                              <IconBadge
+                                                key={`input-${key}`}
+                                                iconName={icon}
+                                                label={t('chat.modelControls.modalityInputAria', { modality: label })}
+                                              />
                                           )
                                         : <span className="typography-meta text-muted-foreground">-</span>}
                                 </div>
@@ -2490,7 +2508,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 <div className="flex items-center gap-1.5">
                                     {outputModalityIcons.length > 0
                                         ? outputModalityIcons.map(({ key, icon, label }) =>
-                                              <IconBadge key={`output-${key}`} iconName={icon} label={`${label} output`} />
+                                              <IconBadge
+                                                key={`output-${key}`}
+                                                iconName={icon}
+                                                label={t('chat.modelControls.modalityOutputAria', { modality: label })}
+                                              />
                                           )
                                         : <span className="typography-meta text-muted-foreground">-</span>}
                                 </div>
@@ -2628,7 +2650,14 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             capabilityReasoning: t('chat.modelControls.capability.reasoning'),
             input: t('chat.modelControls.input'),
             output: t('chat.modelControls.output'),
+            context: t('chat.modelControls.context'),
             costPerMillion: t('chat.modelControls.costPerMillion'),
+            costInOutShort: t('chat.modelControls.costInOutShort'),
+            modalityText: t('chat.modelControls.modality.text'),
+            modalityImage: t('chat.modelControls.modality.image'),
+            modalityVideo: t('chat.modelControls.modality.video'),
+            modalityAudio: t('chat.modelControls.modality.audio'),
+            modalityPdf: t('chat.modelControls.modality.pdf'),
             engines: t('chat.engines.section'),
         };
 
@@ -2655,6 +2684,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 id: model.id,
                 name: model.name,
                 limit: model.limit,
+                modalities: model.modalities,
+                reasoning: model.reasoning,
+                tool_call: model.toolCall,
             })),
         }];
 
