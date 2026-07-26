@@ -37,11 +37,11 @@ the `openContext*` actions in `useUIStore`.
 
 - Opening a surface must never require a control outside the rail, the
   command palette, or an in-content link.
-- Multi-instance and session-holding surfaces (file/editor, chat, preview,
-  diff, browser, terminal) are keep-alive panes in `ContextPanel.tsx`:
-  switching surfaces must not reset their state (open tabs, xterm session,
-  scroll positions). Singleton surfaces (git, pr, notes, plan, context)
-  intentionally remount on switch and must restore themselves from their
-  stores/snapshots instead.
+- Multi-instance and session-holding surfaces (file/editor, chat, diff,
+  browser, terminal) are keep-alive panes in `ContextPanel.tsx`: switching
+  surfaces must not reset their state (open tabs, xterm session, scroll
+  positions). Singleton surfaces (git, pr, notes, plan, context) and preview
+  tabs intentionally remount on switch and must restore themselves from
+  their stores/snapshots instead.
 - Runtime scope: desktop/web `MainLayout` only. VS Code and the dedicated
   mobile shell have their own layouts and do not consume this registry.
