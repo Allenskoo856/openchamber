@@ -31,6 +31,8 @@ import { bootstrapGlobal, bootstrapDirectory } from "./bootstrap"
 import { retry } from "./retry"
 import { touchStreamingSession, updateChangedStreamingSessions, updateStreamingState } from "./streaming"
 import { countSyncPerformance } from "./performance-diagnostics"
+import { applyStaleToolPartSettlements } from "./stale-tool-parts"
+import { isShellToolName } from "@/lib/shellToolNames"
 import { setActionRefs } from "./session-actions"
 import { setSyncRefs, getAllSyncSessions } from "./sync-refs"
 import { stripSessionDiffSnapshots } from "./sanitize"
@@ -2186,6 +2188,11 @@ export function SyncProvider(props: {
               lastChildDiscoveryAtByDirectoryRef.current.set(directory, now)
               void discoverChildSessions(directory, store, candidateSessionIds)
             }
+
+            // Defensive: OpenCode can leave tool parts `running` after idle/timeout
+            // without a final message.part.updated. Settle orphans so shell/task UI
+            // cannot wait forever on a missed settle event.
+            applyStaleToolPartSettlements(store, now)
           }
         })
         .finally(() => {
@@ -2672,7 +2679,7 @@ const USER_SHELL_MARKER = "The following tool was executed by the user"
 const isSuspendExemptShellBridge = (state: State, info: Message, parts: Part[] | undefined): boolean => {
   if (!parts || parts.length !== 1) return false
   const part = parts[0] as { type?: unknown; tool?: unknown }
-  if (part?.type !== "tool" || typeof part.tool !== "string" || part.tool.toLowerCase() !== "bash") return false
+  if (part?.type !== "tool" || typeof part.tool !== "string" || !isShellToolName(part.tool)) return false
   const parentID = (info as { parentID?: unknown }).parentID
   if (typeof parentID !== "string" || parentID.length === 0) return false
   const parentParts = state.part[parentID]

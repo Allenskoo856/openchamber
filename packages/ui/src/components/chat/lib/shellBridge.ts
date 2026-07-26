@@ -1,4 +1,5 @@
 import type { ChatMessageEntry } from './turns/types';
+import { isShellToolName } from '@/lib/shellToolNames';
 
 export const USER_SHELL_MARKER = 'The following tool was executed by the user';
 
@@ -63,8 +64,8 @@ export const getShellBridgeAssistantDetails = (
         return { hide: false, details: null };
     }
 
-    const toolName = typeof part.tool === 'string' ? part.tool.toLowerCase() : '';
-    if (toolName !== 'bash') {
+    const toolName = typeof part.tool === 'string' ? part.tool : '';
+    if (!isShellToolName(toolName)) {
         return { hide: false, details: null };
     }
 
