@@ -68,44 +68,48 @@ const CLAUDE_CODE_CAPABILITIES = Object.freeze({
   'openchamber-tool': 'none',
 });
 
-const CLAUDE_MODEL_LIMIT = Object.freeze({ context: 200_000, output: 64_000 });
+/** Current Anthropic API resolutions for Claude Code aliases (Fable/Opus/Sonnet 5). */
+const CLAUDE_MODEL_LIMIT_1M = Object.freeze({ context: 1_000_000, output: 128_000 });
+/** Haiku 4.5 (and older Claude 4.5-era models) still use a 200K window. */
+const CLAUDE_MODEL_LIMIT_200K = Object.freeze({ context: 200_000, output: 64_000 });
 const CLAUDE_MODEL_MODALITIES = Object.freeze({
   input: Object.freeze(['text', 'image']),
   output: Object.freeze(['text']),
 });
 
-/** Static Claude Code model catalog for v1 (no provider nesting). */
+/**
+ * @param {{
+ *   id: string,
+ *   name: string,
+ *   limit: Readonly<{ context: number, output: number }>,
+ * }} entry
+ */
+function buildClaudeModel(entry) {
+  return Object.freeze({
+    id: entry.id,
+    name: entry.name,
+    supportsImages: true,
+    supportsDocuments: true,
+    reasoning: true,
+    toolCall: true,
+    limit: entry.limit,
+    modalities: CLAUDE_MODEL_MODALITIES,
+  });
+}
+
+/**
+ * Static Claude Code model catalog for v1 (no provider nesting).
+ * Alias rows use current Anthropic API resolutions; pinned full IDs keep older
+ * versions selectable (e.g. Opus 4.8) after aliases move forward.
+ */
 export const CLAUDE_CODE_MODELS = Object.freeze([
-  {
-    id: 'sonnet',
-    name: 'Sonnet',
-    supportsImages: true,
-    supportsDocuments: true,
-    reasoning: true,
-    toolCall: true,
-    limit: CLAUDE_MODEL_LIMIT,
-    modalities: CLAUDE_MODEL_MODALITIES,
-  },
-  {
-    id: 'opus',
-    name: 'Opus',
-    supportsImages: true,
-    supportsDocuments: true,
-    reasoning: true,
-    toolCall: true,
-    limit: CLAUDE_MODEL_LIMIT,
-    modalities: CLAUDE_MODEL_MODALITIES,
-  },
-  {
-    id: 'haiku',
-    name: 'Haiku',
-    supportsImages: true,
-    supportsDocuments: true,
-    reasoning: true,
-    toolCall: true,
-    limit: CLAUDE_MODEL_LIMIT,
-    modalities: CLAUDE_MODEL_MODALITIES,
-  },
+  buildClaudeModel({ id: 'fable', name: 'Fable 5', limit: CLAUDE_MODEL_LIMIT_1M }),
+  buildClaudeModel({ id: 'opus', name: 'Opus 5', limit: CLAUDE_MODEL_LIMIT_1M }),
+  buildClaudeModel({ id: 'sonnet', name: 'Sonnet 5', limit: CLAUDE_MODEL_LIMIT_1M }),
+  buildClaudeModel({ id: 'haiku', name: 'Haiku 4.5', limit: CLAUDE_MODEL_LIMIT_200K }),
+  buildClaudeModel({ id: 'claude-opus-4-8', name: 'Opus 4.8', limit: CLAUDE_MODEL_LIMIT_1M }),
+  buildClaudeModel({ id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', limit: CLAUDE_MODEL_LIMIT_1M }),
+  buildClaudeModel({ id: 'claude-haiku-4-5', name: 'Haiku 4.5', limit: CLAUDE_MODEL_LIMIT_200K }),
 ]);
 
 /** Named Claude Agent SDK effort levels accepted on ExecutionTarget. */

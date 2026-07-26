@@ -25,6 +25,15 @@ describe('harness registry', () => {
     expect(claude.capabilities.goal).toBe('partial');
     expect(claude.capabilities['openchamber-tool']).toBe('none');
     expect(CLAUDE_CODE_MODELS.length).toBeGreaterThan(0);
+    const byId = Object.fromEntries(CLAUDE_CODE_MODELS.map((model) => [model.id, model]));
+    expect(byId.fable?.name).toBe('Fable 5');
+    expect(byId.opus?.name).toBe('Opus 5');
+    expect(byId.sonnet?.name).toBe('Sonnet 5');
+    expect(byId.haiku?.name).toBe('Haiku 4.5');
+    expect(byId['claude-opus-4-8']?.name).toBe('Opus 4.8');
+    expect(byId.fable?.limit?.context).toBe(1_000_000);
+    expect(byId.sonnet?.limit?.context).toBe(1_000_000);
+    expect(byId.haiku?.limit?.context).toBe(200_000);
     for (const model of CLAUDE_CODE_MODELS) {
       expect(model.limit?.context).toBeGreaterThan(0);
       expect(model.reasoning).toBe(true);

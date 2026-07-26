@@ -10,7 +10,7 @@ import { CLAUDE_FAVORITE_PROVIDER_ID } from '@/lib/harness/favorite-targets';
 export { CLAUDE_EFFORT_LEVELS, isClaudeEffort };
 export type { ClaudeEffort };
 
-/** Fallback limits when catalog entry omits them (Claude Code aliases). */
+/** Fallback limits when catalog entry omits them (unknown / older Claude refs). */
 const DEFAULT_CLAUDE_LIMIT = {
   context: 200_000,
   output: 64_000,

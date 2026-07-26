@@ -87,6 +87,16 @@ const parseDescriptor = (value: unknown): HarnessDescriptor | null => {
   };
 };
 
+const parsePositiveNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+
+const parseStringList = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .map((entry) => entry.trim());
+  return items.length > 0 ? items : undefined;
+};
+
 const parseModel = (value: unknown): EngineCatalogModel | null => {
   if (!isRecord(value)) {
     return null;
@@ -97,11 +107,32 @@ const parseModel = (value: unknown): EngineCatalogModel | null => {
   if (typeof value.name !== 'string' || value.name.trim().length === 0) {
     return null;
   }
+
+  const limitRecord = isRecord(value.limit) ? value.limit : null;
+  const context = limitRecord ? parsePositiveNumber(limitRecord.context) : undefined;
+  const output = limitRecord ? parsePositiveNumber(limitRecord.output) : undefined;
+  const modalitiesRecord = isRecord(value.modalities) ? value.modalities : null;
+  const inputModalities = modalitiesRecord ? parseStringList(modalitiesRecord.input) : undefined;
+  const outputModalities = modalitiesRecord ? parseStringList(modalitiesRecord.output) : undefined;
+
   return {
     id: value.id.trim(),
     name: value.name.trim(),
     ...(typeof value.supportsImages === 'boolean' ? { supportsImages: value.supportsImages } : {}),
     ...(typeof value.supportsDocuments === 'boolean' ? { supportsDocuments: value.supportsDocuments } : {}),
+    ...(typeof value.reasoning === 'boolean' ? { reasoning: value.reasoning } : {}),
+    ...(typeof value.toolCall === 'boolean' ? { toolCall: value.toolCall } : {}),
+    ...((context !== undefined || output !== undefined)
+      ? { limit: { ...(context !== undefined ? { context } : {}), ...(output !== undefined ? { output } : {}) } }
+      : {}),
+    ...((inputModalities || outputModalities)
+      ? {
+        modalities: {
+          ...(inputModalities ? { input: inputModalities } : {}),
+          ...(outputModalities ? { output: outputModalities } : {}),
+        },
+      }
+      : {}),
   };
 };
 
