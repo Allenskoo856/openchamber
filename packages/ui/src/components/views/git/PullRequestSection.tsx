@@ -914,6 +914,9 @@ export const PullRequestSection: React.FC<{
     );
   }, [expandedCheckStepKeys, formatTimestamp, t]);
 
+  const [isAttachingChecks, setIsAttachingChecks] = React.useState(false);
+  const [isAttachingComments, setIsAttachingComments] = React.useState(false);
+
   const sendFailedChecksToChat = React.useCallback(async () => {
     if (!github?.prContext) {
       toast.error(t('gitView.pr.toast.githubApiUnavailable'));
@@ -925,6 +928,7 @@ export const PullRequestSection: React.FC<{
       return;
     }
 
+    setIsAttachingChecks(true);
     try {
       const context = await ensurePrContext(github, directory, pr.number, { includeCheckDetails: true, sourceRepo: status?.repo ?? null });
       if (!context) {
@@ -973,6 +977,8 @@ export const PullRequestSection: React.FC<{
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       toast.error(t('gitView.pr.toast.loadChecksFailed'), { description: message });
+    } finally {
+      setIsAttachingChecks(false);
     }
   }, [directory, ensurePrContext, github, pr, resolveDraftTarget, setActiveMainTab, status?.repo, t]);
 
@@ -987,6 +993,7 @@ export const PullRequestSection: React.FC<{
       return;
     }
 
+    setIsAttachingComments(true);
     try {
       const context = await ensurePrContext(github, directory, pr.number, { sourceRepo: status?.repo ?? null });
       if (!context) {
@@ -1005,6 +1012,8 @@ export const PullRequestSection: React.FC<{
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       toast.error(t('gitView.pr.toast.loadPrCommentsFailed'), { description: message });
+    } finally {
+      setIsAttachingComments(false);
     }
   }, [attachCommentDraft, directory, ensurePrContext, github, pr, resolveDraftTarget, setActiveMainTab, status?.repo, t, timelineComments]);
 
@@ -1755,9 +1764,12 @@ export const PullRequestSection: React.FC<{
                         size="sm"
                         className="w-fit gap-1.5 border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)]"
                         onClick={sendFailedChecksToChat}
+                        disabled={isAttachingChecks}
                         aria-label={t('gitView.pr.actions.resolveFailedChecksAria')}
                       >
-                        <Icon name="ai-generate-2" className="size-4" />
+                        {isAttachingChecks
+                          ? <Icon name="loader-4" className="size-4 animate-spin" />
+                          : <Icon name="ai-generate-2" className="size-4" />}
                         {t('gitView.pr.actions.resolveFailedChecks')}
                       </Button>
                     ) : null}
@@ -1846,9 +1858,12 @@ export const PullRequestSection: React.FC<{
                           size="sm"
                           className="h-7 gap-1.5 text-[var(--status-success)] hover:bg-[var(--status-success-background)] hover:text-[var(--status-success)]"
                           onClick={sendCommentsToChat}
+                          disabled={isAttachingComments}
                           aria-label={t('gitView.pr.actions.shareCommentsAria')}
                         >
-                          <Icon name="ai-generate-2" className="size-3.5" />
+                          {isAttachingComments
+                            ? <Icon name="loader-4" className="size-3.5 animate-spin" />
+                            : <Icon name="ai-generate-2" className="size-3.5" />}
                           {t('gitView.pr.comments.addAll')}
                         </Button>
                       </div>
