@@ -2016,22 +2016,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             const textarea = composerRef.current;
             const currentMessage = messageRef.current;
             if (textarea) {
-                const pos = textarea.getSelection().start ?? cursorPosRef.current;
-                const end = textarea.getSelection().end ?? pos;
+                const { start: pos, end } = textarea.getSelection();
                 const before = currentMessage.slice(0, pos);
                 const after = currentMessage.slice(end);
                 const needSpaceBefore = before.length > 0 && !/\s$/.test(before);
                 const needSpaceAfter = after.length > 0 && !/^\s/.test(after);
                 const insert = `${needSpaceBefore ? ' ' : ''}${mention}${needSpaceAfter ? ' ' : ''}`;
-                const nextMessage = `${before}${insert}${after}`;
-                setMessage(nextMessage);
-                requestAnimationFrame(() => {
-                    const cursorPos = pos + insert.length;
-                    textarea.getSelection().start = cursorPos;
-                    textarea.getSelection().end = cursorPos;
-                    cursorPosRef.current = cursorPos;
-                    textarea.focus();
-                });
+                // Insert through the editor rather than setMessage: an editor
+                // dispatch places the caret right after the mention, while the
+                // external-rewrite path would send it to the end of the
+                // message and pin the scroll to the bottom.
+                textarea.replaceRange(pos, end, insert);
+                cursorPosRef.current = pos + insert.length;
+                textarea.focus();
             } else {
                 setMessage((prev) => appendInlineText(prev, mention));
             }
