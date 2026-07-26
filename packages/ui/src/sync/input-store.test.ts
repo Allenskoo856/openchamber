@@ -248,6 +248,55 @@ describe("input-store attachments", () => {
     ])
   })
 
+  testWithMockFileReader("removing the original document entry does NOT cascade-remove auto-extracted slide images [BUG REPRODUCTION]", async () => {
+    // Create a PPTX-like zip with a slide containing an embedded image.
+    // This mirrors the existing "adds extracted document text and referenced images atomically" test
+    // but for PPTX and focuses on cascade-removal behavior.
+    const archive = zipSync({
+      "ppt/slides/slide1.xml": strToU8(
+        `<p:sp xmlns:a="a" xmlns:p="p" xmlns:r="r">
+          <a:p><a:r><a:t>Slide one</a:t></a:r></a:p>
+        </p:sp>
+        <p:pic xmlns:a="a" xmlns:p="p" xmlns:r="r">
+          <p:blipFill><a:blip r:embed="rId1"/></p:blipFill>
+        </p:pic>`
+      ),
+      "ppt/slides/_rels/slide1.xml.rels": strToU8(
+        `<Relationships>
+          <Relationship Id="rId1" Target="../media/image1.png" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"/>
+        </Relationships>`
+      ),
+      "ppt/media/image1.png": pngBytes,
+    })
+    const addPromise = useInputStore.getState().addAttachedFile(new File([archive], "deck.pptx"))
+
+    await waitForReaderCount(1)
+    expect(pendingReaders).toHaveLength(1)
+    resolveReader(pendingReaders[0], "data:text/plain;base64,UHJlc2VudGF0aW9u") // "# Presentation\n\n## Slide 1\n[deck-image-1.png]"
+
+    await waitForReaderCount(2)
+    expect(pendingReaders).toHaveLength(2)
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+
+    resolveReader(pendingReaders[1], "data:image/png;base64,AQID")
+    expect(await addPromise).toBe(true)
+
+    const files = useInputStore.getState().attachedFiles
+    expect(files).toHaveLength(2)
+    expect(files[0].filename).toBe("deck.pptx")
+    expect(files[1].filename).toBe("deck-image-1.png")
+
+    // Remove the original PPT entry — only the text/doc entry is removed
+    useInputStore.getState().removeAttachedFile(files[0].id)
+
+    // BUG: The auto-extracted slide image remains attached.
+    // Expected: slide images should be cascade-removed with the parent.
+    // Actual: only the original document entry is removed.
+    const remaining = useInputStore.getState().attachedFiles
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].filename).toBe("deck-image-1.png")
+  })
+
   testWithMockFileReader("regenerates document image names when the composer changes during preparation", async () => {
     const archive = zipSync({
       "word/document.xml": strToU8(`<w:document xmlns:w="w" xmlns:a="a" xmlns:r="r"><w:body><w:p><a:blip r:embed="rId1"/></w:p></w:body></w:document>`),
