@@ -103,8 +103,6 @@ export const useMenuActions = (
   const setActiveMainTab = useUIStore((s) => s.setActiveMainTab);
   const setSettingsDialogOpen = useUIStore((s) => s.setSettingsDialogOpen);
   const setAboutDialogOpen = useUIStore((s) => s.setAboutDialogOpen);
-  const toggleBottomTerminal = useUIStore((s) => s.toggleBottomTerminal);
-  const setBottomTerminalExpanded = useUIStore((s) => s.setBottomTerminalExpanded);
   const checkForUpdates = useUpdateStore((state) => state.checkForUpdates);
   const { setThemeMode } = useThemeSystem();
   const checkUpdatesInFlightRef = React.useRef(false);
@@ -238,13 +236,26 @@ export const useMenuActions = (
           break;
         }
 
-        case 'toggle-terminal':
-          toggleBottomTerminal();
+        case 'toggle-terminal': {
+          const directory = useDirectoryStore.getState().currentDirectory;
+          if (!directory) break;
+          useUIStore.getState().openContextSurface(normalizeContextPanelDirectoryKey(directory), 'terminal');
           break;
+        }
 
-        case 'toggle-terminal-expanded':
-          setBottomTerminalExpanded(!useUIStore.getState().isBottomTerminalExpanded);
+        case 'toggle-terminal-expanded': {
+          const directory = useDirectoryStore.getState().currentDirectory;
+          if (!directory) break;
+          const key = normalizeContextPanelDirectoryKey(directory);
+          const uiState = useUIStore.getState();
+          const panel = uiState.contextPanelByDirectory[key];
+          const activeMode = panel?.isOpen ? panel.tabs.find((tab) => tab.id === panel.activeTabId)?.mode : null;
+          if (activeMode !== 'terminal') {
+            uiState.openContextSurface(key, 'terminal');
+          }
+          uiState.toggleContextPanelExpanded(key);
           break;
+        }
 
         case 'copy': {
           const copyEvent = new Event('openchamber:copy', { cancelable: true });
@@ -322,9 +333,7 @@ export const useMenuActions = (
       setSessionSwitcherOpen,
       setCommandPaletteOpen,
       setSettingsDialogOpen,
-      setBottomTerminalExpanded,
       setThemeMode,
-      toggleBottomTerminal,
       toggleCommandPalette,
       toggleHelpDialog,
       toggleSidebar,

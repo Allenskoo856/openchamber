@@ -9,6 +9,7 @@ import { DEFAULT_MONO_FONT, DEFAULT_UI_FONT, type MonoFontOption, type UiFontOpt
 import { getStoredMobileKeyboardMode, type MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { TerminalShell } from '@/lib/api/types';
+import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 
 export type MainTab = 'chat' | 'plan' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'working' | 'staged' | 'turn';
@@ -398,16 +399,32 @@ const closeContextPanelTab = (
   current: ContextPanelDirectoryState,
   tabID: string,
 ): ContextPanelDirectoryState => {
+  const closedTab = current.tabs.find((tab) => tab.id === tabID) ?? null;
   const nextTabs = current.tabs.filter((tab) => tab.id !== tabID);
-  const nextActiveTabId = current.activeTabId === tabID
-    ? (nextTabs[nextTabs.length - 1]?.id ?? null)
-    : resolveActiveContextPanelTabID(nextTabs, current.activeTabId);
+
+  if (current.activeTabId !== tabID) {
+    return {
+      ...current,
+      tabs: nextTabs,
+      activeTabId: resolveActiveContextPanelTabID(nextTabs, current.activeTabId),
+      isOpen: nextTabs.length > 0 ? current.isOpen : false,
+      touchedAt: Date.now(),
+    };
+  }
+
+  // Closing the active tab stays inside the active surface: activate the most
+  // recent remaining tab of the same mode, and when it was the last one just
+  // close the panel instead of jumping to another surface.
+  const sameModeTabs = closedTab ? nextTabs.filter((tab) => tab.mode === closedTab.mode) : [];
+  const nextSameModeTab = sameModeTabs.length > 0
+    ? sameModeTabs.reduce((best, tab) => (tab.touchedAt >= best.touchedAt ? tab : best))
+    : null;
 
   return {
     ...current,
     tabs: nextTabs,
-    activeTabId: nextActiveTabId,
-    isOpen: nextTabs.length > 0 ? current.isOpen : false,
+    activeTabId: nextSameModeTab?.id ?? resolveActiveContextPanelTabID(nextTabs, null),
+    isOpen: nextSameModeTab ? current.isOpen : false,
     touchedAt: Date.now(),
   };
 };
@@ -1318,6 +1335,9 @@ export const useUIStore = create<UIStore>()(
             return;
           }
 
+          const closingTab = get().contextPanelByDirectory[normalizedDirectory]?.tabs
+            .find((tab) => tab.id === normalizedTabID);
+
           set((state) => {
             const prev = state.contextPanelByDirectory[normalizedDirectory];
             const current = touchContextPanelState(prev);
@@ -1332,6 +1352,12 @@ export const useUIStore = create<UIStore>()(
 
             return { contextPanelByDirectory: clampContextPanelRoots(byDirectory, 20) };
           });
+
+          // Keep the editor's own open-file state in sync so a reopened
+          // editor surface does not resurrect the closed file.
+          if (closingTab?.mode === 'file' && closingTab.targetPath) {
+            useFilesViewTabsStore.getState().removeOpenPath(normalizedDirectory, closingTab.targetPath);
+          }
         },
 
         closeContextPanel: (directory) => {

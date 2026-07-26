@@ -877,6 +877,8 @@ export const dict = {
   'contextPanel.mode.preview': 'Aperçu',
   'contextPanel.mode.browser': 'Navigateur',
   'contextRail.aria.rail': 'Surfaces du panneau',
+  'contextPanel.editorEmpty.title': 'Aucun fichier ouvert',
+  'contextPanel.editorEmpty.description': 'Choisissez un fichier dans l’arborescence pour commencer.',
   'contextRail.surface.editor.description': 'Modifier les fichiers du projet',
   'contextRail.surface.git.description': 'Commits, branches et pull requests',
   'contextRail.surface.terminal.description': 'Terminal intégré',

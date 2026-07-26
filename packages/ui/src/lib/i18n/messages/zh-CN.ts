@@ -1047,6 +1047,8 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.preview': '预览',
   'contextPanel.mode.browser': '浏览器',
   'contextRail.aria.rail': '面板界面',
+  'contextPanel.editorEmpty.title': '未打开文件',
+  'contextPanel.editorEmpty.description': '从文件树中选择一个文件开始编辑。',
   'contextRail.surface.editor.description': '编辑项目文件',
   'contextRail.surface.git.description': '提交、分支和拉取请求',
   'contextRail.surface.terminal.description': '内置终端',

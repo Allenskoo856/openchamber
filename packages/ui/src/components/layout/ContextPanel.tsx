@@ -2707,6 +2707,10 @@ export const ContextPanel: React.FC = () => {
     () => tabs.some((tab) => tab.mode === 'file'),
     [tabs],
   );
+  const hasOpenEditorFile = React.useMemo(
+    () => tabs.some((tab) => tab.mode === 'file' && tab.targetPath),
+    [tabs],
+  );
 
   const isFileTabActive = activeTab?.mode === 'file';
 
@@ -2858,7 +2862,15 @@ export const ContextPanel: React.FC = () => {
         {hasFileTabs ? (
           <div className={cn('absolute inset-0 flex', isFileTabActive ? 'flex' : 'hidden')}>
             <div className="h-full min-w-0 flex-1">
-              <FilesView mode="editor-only" />
+              {hasOpenEditorFile ? (
+                <FilesView mode="editor-only" />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                  <Icon name="file-code" className="h-12 w-12 text-muted-foreground/50" />
+                  <div className="typography-ui-header text-foreground">{t('contextPanel.editorEmpty.title')}</div>
+                  <div className="max-w-sm typography-micro text-muted-foreground">{t('contextPanel.editorEmpty.description')}</div>
+                </div>
+              )}
             </div>
             <EditorTreeColumn visible={contextEditorTreeVisible} />
           </div>
@@ -2931,7 +2943,7 @@ export const ContextPanel: React.FC = () => {
         ))}
         {hasTerminalTab ? (
           <div className={cn('absolute inset-0', activeTab?.mode === 'terminal' ? 'block' : 'hidden')}>
-            <TerminalView />
+            <TerminalView visible={isOpen && activeTab?.mode === 'terminal'} />
           </div>
         ) : null}
         {activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeNonChatContent : null}

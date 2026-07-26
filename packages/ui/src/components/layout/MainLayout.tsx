@@ -1,7 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { animate, motion, useMotionValue } from 'motion/react';
 import { Header } from './Header';
-import { BottomTerminalDock } from './BottomTerminalDock';
 import { Sidebar } from './Sidebar';
 import { SidebarTopBar } from './SidebarTopBar';
 import { TitlebarLeftControls } from './TitlebarLeftControls';
@@ -41,11 +40,7 @@ const SettingsWindow = lazyWithChunkRecovery(() => import('@/components/views/Se
 const MultiRunWindow = lazyWithChunkRecovery(() => import('@/components/views/MultiRunWindow').then(m => ({ default: m.MultiRunWindow })));
 
 export const MainLayout: React.FC = () => {
-    const BOTTOM_TERMINAL_AUTO_CLOSE_HEIGHT = 640;
-    const BOTTOM_TERMINAL_AUTO_OPEN_HEIGHT = 700;
     const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
-    const isBottomTerminalOpen = useUIStore((state) => state.isBottomTerminalOpen);
-    const setBottomTerminalOpen = useUIStore((state) => state.setBottomTerminalOpen);
     const activeMainTab = useUIStore((state) => state.activeMainTab);
     const setIsMobile = useUIStore((state) => state.setIsMobile);
     const isSessionSwitcherOpen = useUIStore((state) => state.isSessionSwitcherOpen);
@@ -54,8 +49,7 @@ export const MainLayout: React.FC = () => {
     const isMultiRunLauncherOpen = useUIStore((state) => state.isMultiRunLauncherOpen);
     const setMultiRunLauncherOpen = useUIStore((state) => state.setMultiRunLauncherOpen);
     const multiRunLauncherPrefillPrompt = useUIStore((state) => state.multiRunLauncherPrefillPrompt);
-    const { isMobile, isTablet } = useDeviceInfo();
-    const bottomTerminalAutoClosedRef = React.useRef(false);
+    const { isMobile } = useDeviceInfo();
     const mobilePanelsResetRef = React.useRef(false);
 
     // Mobile drawer state
@@ -243,80 +237,6 @@ export const MainLayout: React.FC = () => {
             }
         };
     }, []);
-
-    React.useEffect(() => {
-        if (typeof window === 'undefined') {
-            return;
-        }
-
-        let frameId: number | undefined;
-
-        const handleResponsivePanels = () => {
-            const state = useUIStore.getState();
-            const height = window.innerHeight;
-
-            // Touch devices frequently resize when the on-screen keyboard opens.
-            // Treat panel auto-collapse/restore as desktop-only so keyboard
-            // viewport changes do not churn drawer or terminal layout state.
-            if (!isMobile && !isTablet) {
-                const shouldCloseBottomTerminal =
-                    height < BOTTOM_TERMINAL_AUTO_CLOSE_HEIGHT;
-                const canAutoOpenBottomTerminal =
-                    height >= BOTTOM_TERMINAL_AUTO_OPEN_HEIGHT;
-
-                if (shouldCloseBottomTerminal) {
-                    if (state.isBottomTerminalOpen) {
-                        setBottomTerminalOpen(false);
-                        bottomTerminalAutoClosedRef.current = true;
-                    }
-                } else if (canAutoOpenBottomTerminal && bottomTerminalAutoClosedRef.current) {
-                    setBottomTerminalOpen(true);
-                    bottomTerminalAutoClosedRef.current = false;
-                }
-            }
-        };
-
-        const handleResize = () => {
-            if (frameId !== undefined) {
-                return;
-            }
-            frameId = window.requestAnimationFrame(() => {
-                frameId = undefined;
-                handleResponsivePanels();
-            });
-        };
-
-        handleResponsivePanels();
-        window.addEventListener('resize', handleResize);
-
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            if (frameId !== undefined) {
-                window.cancelAnimationFrame(frameId);
-            }
-        };
-    }, [isMobile, isTablet, setBottomTerminalOpen]);
-
-    React.useEffect(() => {
-        if (typeof window === 'undefined') {
-            return;
-        }
-
-        const unsubscribe = useUIStore.subscribe((state, prevState) => {
-            const height = window.innerHeight;
-
-            const bottomCanAutoOpen =
-                height >= BOTTOM_TERMINAL_AUTO_OPEN_HEIGHT;
-
-            if (state.isBottomTerminalOpen !== prevState.isBottomTerminalOpen && bottomCanAutoOpen) {
-                bottomTerminalAutoClosedRef.current = false;
-            }
-        });
-
-        return () => {
-            unsubscribe();
-        };
-    }, [isMobile, isTablet, setBottomTerminalOpen]);
 
     const handleToggleMobileRightDrawer = React.useCallback(() => {
         if (mobileLeftDrawerOpen) {
@@ -514,13 +434,6 @@ export const MainLayout: React.FC = () => {
                                             <ContextPanel />
                                         </div>
                                     </div>
-                                    <BottomTerminalDock isOpen={isBottomTerminalOpen && activeMainTab !== 'terminal'} isMobile={isMobile}>
-                                        {isBottomTerminalOpen && activeMainTab !== 'terminal' ? (
-                                            <ErrorBoundary>
-                                                <TerminalView />
-                                            </ErrorBoundary>
-                                        ) : null}
-                                    </BottomTerminalDock>
                                 </div>
                                 <div className="border-t border-border/50" data-page-scroll-lock="true">
                                     <ErrorBoundary><ContextPanelRail /></ErrorBoundary>

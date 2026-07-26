@@ -98,6 +98,51 @@ describe('useUIStore openContextSurface', () => {
   });
 });
 
+describe('useUIStore closeContextPanelTab surface stability', () => {
+  const directory = '/repo';
+
+  test('closing an active file tab activates another file tab, not another surface', () => {
+    useUIStore.getState().openContextPanelTab(directory, { mode: 'terminal' });
+    useUIStore.getState().openContextFile(directory, '/repo/a.ts');
+    useUIStore.getState().openContextFile(directory, '/repo/b.ts');
+
+    const stateBefore = useUIStore.getState().contextPanelByDirectory[directory];
+    const activeTabId = stateBefore?.activeTabId as string;
+    useUIStore.getState().closeContextPanelTab(directory, activeTabId);
+
+    const state = useUIStore.getState().contextPanelByDirectory[directory];
+    const activeTab = state?.tabs.find((tab) => tab.id === state.activeTabId);
+    expect(activeTab?.mode).toBe('file');
+    expect(activeTab?.targetPath).toBe('/repo/a.ts');
+    expect(state?.isOpen).toBe(true);
+  });
+
+  test('closing the last tab of the active surface closes the panel', () => {
+    useUIStore.getState().openContextPanelTab(directory, { mode: 'terminal' });
+    useUIStore.getState().openContextFile(directory, '/repo/a.ts');
+
+    const stateBefore = useUIStore.getState().contextPanelByDirectory[directory];
+    useUIStore.getState().closeContextPanelTab(directory, stateBefore?.activeTabId as string);
+
+    const state = useUIStore.getState().contextPanelByDirectory[directory];
+    expect(state?.isOpen).toBe(false);
+    expect(state?.tabs.map((tab) => tab.mode)).toEqual(['terminal']);
+  });
+
+  test('closing an inactive tab keeps the active tab untouched', () => {
+    useUIStore.getState().openContextFile(directory, '/repo/a.ts');
+    useUIStore.getState().openContextPanelTab(directory, { mode: 'terminal' });
+
+    const state0 = useUIStore.getState().contextPanelByDirectory[directory];
+    const fileTab = state0?.tabs.find((tab) => tab.mode === 'file');
+    useUIStore.getState().closeContextPanelTab(directory, fileTab?.id as string);
+
+    const state = useUIStore.getState().contextPanelByDirectory[directory];
+    expect(state?.activeTabId).toBe('terminal');
+    expect(state?.isOpen).toBe(true);
+  });
+});
+
 describe('useUIStore per-surface panel widths', () => {
   const directory = '/repo';
 

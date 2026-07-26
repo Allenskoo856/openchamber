@@ -25,8 +25,25 @@ export const useKeyboardShortcuts = () => {
   const toggleCommandPalette = useUIStore((s) => s.toggleCommandPalette);
   const toggleHelpDialog = useUIStore((s) => s.toggleHelpDialog);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
-  const toggleBottomTerminal = useUIStore((s) => s.toggleBottomTerminal);
-  const setBottomTerminalExpanded = useUIStore((s) => s.setBottomTerminalExpanded);
+  const currentShortcutDirectory = useDirectoryStore((s) => s.currentDirectory);
+
+  // The terminal lives in the context panel; these mirror the rail behavior.
+  const toggleTerminalSurface = React.useCallback(() => {
+    if (!currentShortcutDirectory) return;
+    useUIStore.getState().openContextSurface(normalizeContextPanelDirectoryKey(currentShortcutDirectory), 'terminal');
+  }, [currentShortcutDirectory]);
+
+  const toggleTerminalSurfaceExpanded = React.useCallback(() => {
+    if (!currentShortcutDirectory) return;
+    const key = normalizeContextPanelDirectoryKey(currentShortcutDirectory);
+    const state = useUIStore.getState();
+    const panel = state.contextPanelByDirectory[key];
+    const activeMode = panel?.isOpen ? panel.tabs.find((tab) => tab.id === panel.activeTabId)?.mode : null;
+    if (activeMode !== 'terminal') {
+      state.openContextSurface(key, 'terminal');
+    }
+    state.toggleContextPanelExpanded(key);
+  }, [currentShortcutDirectory]);
   const isMobile = useUIStore((s) => s.isMobile);
   const setSessionSwitcherOpen = useUIStore((s) => s.setSessionSwitcherOpen);
   const setActiveMainTab = useUIStore((s) => s.setActiveMainTab);
@@ -94,18 +111,18 @@ export const useKeyboardShortcuts = () => {
         }
         e.preventDefault();
         e.stopPropagation();
-        toggleBottomTerminal();
+        toggleTerminalSurface();
         return;
       }
 
       if (eventMatchesShortcut(e, combo('toggle_terminal_expanded'))) {
-        const { isMobile, isBottomTerminalExpanded } = useUIStore.getState();
+        const { isMobile } = useUIStore.getState();
         if (isMobile) {
           return;
         }
         e.preventDefault();
         e.stopPropagation();
-        setBottomTerminalExpanded(!isBottomTerminalExpanded);
+        toggleTerminalSurfaceExpanded();
         return;
       }
     };
@@ -361,17 +378,17 @@ export const useKeyboardShortcuts = () => {
           return;
         }
         e.preventDefault();
-        toggleBottomTerminal();
+        toggleTerminalSurface();
         return;
       }
 
       if (eventMatchesShortcut(e, combo('toggle_terminal_expanded'))) {
-        const { isMobile, isBottomTerminalExpanded } = useUIStore.getState();
+        const { isMobile } = useUIStore.getState();
         if (isMobile) {
           return;
         }
         e.preventDefault();
-        setBottomTerminalExpanded(!isBottomTerminalExpanded);
+        toggleTerminalSurfaceExpanded();
         return;
       }
 
@@ -615,8 +632,8 @@ export const useKeyboardShortcuts = () => {
     toggleCommandPalette,
     toggleHelpDialog,
     toggleSidebar,
-    toggleBottomTerminal,
-    setBottomTerminalExpanded,
+    toggleTerminalSurface,
+    toggleTerminalSurfaceExpanded,
     isMobile,
     setSessionSwitcherOpen,
     setActiveMainTab,

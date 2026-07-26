@@ -1059,6 +1059,8 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.preview': '預覽',
   'contextPanel.mode.browser': '瀏覽器',
   'contextRail.aria.rail': '面板介面',
+  'contextPanel.editorEmpty.title': '未開啟檔案',
+  'contextPanel.editorEmpty.description': '從檔案樹選擇檔案開始編輯。',
   'contextRail.surface.editor.description': '編輯專案檔案',
   'contextRail.surface.git.description': '提交、分支與拉取請求',
   'contextRail.surface.terminal.description': '內建終端機',

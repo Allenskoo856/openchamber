@@ -721,7 +721,6 @@ export const Header: React.FC<HeaderProps> = ({
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
-  const toggleBottomTerminal = useUIStore((state) => state.toggleBottomTerminal);
   const openContextOverview = useUIStore((state) => state.openContextOverview);
   const openContextPlan = useUIStore((state) => state.openContextPlan);
   const closeContextPanel = useUIStore((state) => state.closeContextPanel);
@@ -1476,6 +1475,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const isContextPanelActive = activeContextMode === 'context';
 
+
   const handleOpenContextPlan = React.useCallback(() => {
     const directory = normalize(openDirectory || '');
     if (!directory) {
@@ -1994,12 +1994,6 @@ export const Header: React.FC<HeaderProps> = ({
         remoteUpdateError={remoteUpdateError}
         onOpenRemoteUpdate={openRemoteInstanceUpdate}
         timeFormatPreference={timeFormatPreference}
-      />
-      <HeaderIconActionButton
-        title={t('header.actions.terminalPanelWithShortcut', { shortcut: shortcutLabel('toggle_terminal') })}
-        ariaLabel={t('header.actions.toggleTerminalPanelAria')}
-        onClick={toggleBottomTerminal}
-        Icon={'terminal-box'}
       />
       <DesktopGitHubControl
         isMobile={isMobile}

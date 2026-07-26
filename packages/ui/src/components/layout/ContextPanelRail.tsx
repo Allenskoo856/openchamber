@@ -35,7 +35,7 @@ const EMPTY_TABS: never[] = [];
 type RailItemProps = {
   surface: ContextSurfaceDescriptor;
   isActive: boolean;
-  badgeCount: number | null;
+  showActivityDot: boolean;
   label: string;
   description: string;
   onSelect: (surface: ContextSurfaceDescriptor) => void;
@@ -44,7 +44,7 @@ type RailItemProps = {
 const ContextPanelRailItem: React.FC<RailItemProps> = ({
   surface,
   isActive,
-  badgeCount,
+  showActivityDot,
   label,
   description,
   onSelect,
@@ -83,13 +83,11 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
             >
               <Icon name={surface.icon} className="h-4 w-4" />
             </span>
-            {badgeCount !== null && badgeCount > 0 ? (
+            {showActivityDot ? (
               <span
                 aria-hidden="true"
-                className="absolute right-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--surface-elevated)] px-0.5 typography-micro leading-none text-muted-foreground"
-              >
-                {badgeCount > 99 ? '99+' : badgeCount}
-              </span>
+                className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--status-info)]"
+              />
             ) : null}
           </button>
         </TooltipTrigger>
@@ -172,7 +170,7 @@ export const ContextPanelRail: React.FC = () => {
               key={surface.id}
               surface={surface}
               isActive={activeMode === surface.mode}
-              badgeCount={surface.id === 'git' ? changedFilesCount : null}
+              showActivityDot={surface.id === 'git' && changedFilesCount > 0}
               label={t(surface.labelKey)}
               description={t(surface.descriptionKey)}
               onSelect={(selected) => openContextSurface(directoryKey, selected.mode)}

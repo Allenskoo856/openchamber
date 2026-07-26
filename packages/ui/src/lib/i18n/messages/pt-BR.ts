@@ -1047,6 +1047,8 @@ export const dict: Record<I18nKey, string> = {
   "contextPanel.mode.preview": "Prévia",
   "contextPanel.mode.browser": "Navegador",
   "contextRail.aria.rail": "Superfícies do painel",
+  "contextPanel.editorEmpty.title": "Nenhum arquivo aberto",
+  "contextPanel.editorEmpty.description": "Escolha um arquivo na árvore para começar a editar.",
   "contextRail.surface.editor.description": "Editar arquivos do projeto",
   "contextRail.surface.git.description": "Commits, branches e pull requests",
   "contextRail.surface.terminal.description": "Terminal integrado",

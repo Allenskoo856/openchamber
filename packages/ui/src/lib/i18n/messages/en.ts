@@ -1046,6 +1046,8 @@ export const dict = {
   'contextPanel.mode.preview': 'Preview',
   'contextPanel.mode.browser': 'Browser',
   'contextRail.aria.rail': 'Panel surfaces',
+  'contextPanel.editorEmpty.title': 'No file open',
+  'contextPanel.editorEmpty.description': 'Pick a file from the tree to start editing.',
   'contextRail.surface.editor.description': 'Edit project files',
   'contextRail.surface.git.description': 'Commits, branches, and pull requests',
   'contextRail.surface.terminal.description': 'Built-in terminal',

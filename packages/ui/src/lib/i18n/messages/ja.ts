@@ -1043,6 +1043,8 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.preview': 'プレビュー',
   'contextPanel.mode.browser': 'ブラウザ',
   'contextRail.aria.rail': 'パネルサーフェス',
+  'contextPanel.editorEmpty.title': 'ファイルが開かれていません',
+  'contextPanel.editorEmpty.description': 'ツリーからファイルを選んで編集を始めましょう。',
   'contextRail.surface.editor.description': 'プロジェクトのファイルを編集',
   'contextRail.surface.git.description': 'コミット・ブランチ・プルリクエスト',
   'contextRail.surface.terminal.description': '内蔵ターミナル',

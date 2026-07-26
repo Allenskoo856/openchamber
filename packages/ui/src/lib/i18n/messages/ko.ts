@@ -1047,6 +1047,8 @@ export const dict: Record<I18nKey, string> = {
   'contextPanel.mode.preview': '미리보기',
   'contextPanel.mode.browser': '브라우저',
   'contextRail.aria.rail': '패널 서피스',
+  'contextPanel.editorEmpty.title': '열린 파일 없음',
+  'contextPanel.editorEmpty.description': '트리에서 파일을 선택해 편집을 시작하세요.',
   'contextRail.surface.editor.description': '프로젝트 파일 편집',
   'contextRail.surface.git.description': '커밋, 브랜치, 풀 리퀘스트',
   'contextRail.surface.terminal.description': '내장 터미널',
