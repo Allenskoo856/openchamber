@@ -2729,7 +2729,7 @@ export const ContextPanel: React.FC = () => {
   const isFileTabActive = activeTab?.mode === 'file';
 
   const header = (
-    <header className="flex h-10 items-stretch border-b border-transparent">
+    <header className="flex h-10 items-stretch border-b border-border/40">
       {isMultiInstanceMode ? (
         <SortableTabsStrip
           items={tabItems}
@@ -2775,7 +2775,7 @@ export const ContextPanel: React.FC = () => {
             aria-label={t('contextRail.editorTree.toggle')}
             aria-pressed={contextEditorTreeVisible}
           >
-            <Icon name="layout-left" className="h-3.5 w-3.5" />
+            <Icon name="layout-right" className="h-3.5 w-3.5" />
           </Button>
         ) : null}
         <Button
@@ -2854,6 +2854,10 @@ export const ContextPanel: React.FC = () => {
           1px between the collapsed and expanded states. */}
       {isOpen && !isExpanded && (
         <div aria-hidden="true" className="absolute left-0 top-0 z-40 h-full w-px bg-border/40" />
+      )}
+      {/* Divider between the panel and the icon rail on its right. */}
+      {isOpen && (
+        <div aria-hidden="true" className="absolute right-0 top-0 z-40 h-full w-px bg-border/40" />
       )}
       {!isExpanded && (
         <div
