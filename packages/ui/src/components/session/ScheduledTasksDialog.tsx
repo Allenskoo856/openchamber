@@ -1,11 +1,4 @@
 import * as React from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -613,18 +606,30 @@ export function ScheduledTasksDialog() {
         >
           {tasksContent}
         </MobileOverlayPanel>
-      ) : (
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{t('sessions.scheduledTasks.dialog.title')}</DialogTitle>
-              <DialogDescription>{t('sessions.scheduledTasks.dialog.description')}</DialogDescription>
-            </DialogHeader>
-
-            {tasksContent}
-          </DialogContent>
-        </Dialog>
-      )}
+      ) : open ? (
+        // Full-page surface replacing the chat area (mounted inside <main>).
+        <div className="absolute inset-0 z-10 flex flex-col bg-background">
+          <div className="flex items-start justify-between gap-3 border-b border-border/50 px-4 py-3">
+            <div className="min-w-0">
+              <h2 className="typography-ui-label font-semibold text-foreground">{t('sessions.scheduledTasks.dialog.title')}</h2>
+              <p className="typography-micro text-muted-foreground">{t('sessions.scheduledTasks.dialog.description')}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+              aria-label={t('sessions.scheduledTasks.page.closeAria')}
+            >
+              <Icon name="close" className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div className="mx-auto w-full max-w-2xl">
+              {tasksContent}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <ScheduledTaskEditorDialog
         open={editorOpen}

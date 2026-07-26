@@ -18,7 +18,6 @@ import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import { useGitStore, useGitAllBranches, useGitRepoStatusMap } from '@/stores/useGitStore';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { NewWorktreeDialog } from './NewWorktreeDialog';
-import { ScheduledTasksDialog } from './ScheduledTasksDialog';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useArchivedAutoFolders } from './sidebar/hooks/useArchivedAutoFolders';
@@ -37,6 +36,7 @@ import { ProjectEditDialog } from '@/components/layout/ProjectEditDialog';
 import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { SessionGroupSection } from './sidebar/SessionGroupSection';
 import { SidebarHeader } from './sidebar/SidebarHeader';
+import { SidebarNav } from './sidebar/SidebarNav';
 import { SidebarActivitySections } from './sidebar/SidebarActivitySections';
 import { SidebarFooter } from './sidebar/SidebarFooter';
 import { SidebarProjectsList } from './sidebar/SidebarProjectsList';
@@ -351,6 +351,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const setAboutDialogOpen = useUIStore((state) => state.setAboutDialogOpen);
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const setScheduledTasksDialogOpen = useUIStore((state) => state.setScheduledTasksDialogOpen);
+  const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
   const openMultiRunLauncher = useUIStore((state) => state.openMultiRunLauncher);
   const notifyOnSubtasks = useUIStore((state) => state.notifyOnSubtasks);
   const showDeletionDialog = useUIStore((state) => state.showDeletionDialog);
@@ -1625,9 +1626,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         hideDirectoryControls={hideDirectoryControls}
         showRecentControls={!isVSCode}
         handleOpenDirectoryDialog={handleOpenDirectoryDialog}
-        openNewSessionDraft={handleOpenNewSessionDraftFromHeader}
-        canOpenMultiRun={projects.length > 0}
-        openMultiRunLauncher={handleOpenMultiRunFromHeader}
         headerActionIconClass={headerActionIconClass}
         headerActionButtonClass={headerActionButtonClass}
         isSessionSearchOpen={isSessionSearchOpen}
@@ -1639,10 +1637,25 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         searchMatchCount={searchMatchCount}
         collapseAllProjects={collapseAllProjects}
         expandAllProjects={expandAllProjects}
-        openScheduledTasksDialog={() => setScheduledTasksDialogOpen(true)}
         selectionModeEnabled={selectionModeEnabled}
         onToggleSelectionMode={handleToggleSelectionMode}
       />
+
+      {!hideDirectoryControls && !isVSCode ? (
+        <SidebarNav
+          onNewSession={handleOpenNewSessionDraftFromHeader}
+          onOpenScheduled={() => {
+            if (mobileVariant) setSessionSwitcherOpen(false);
+            setScheduledTasksDialogOpen(true);
+          }}
+          onOpenMultiRun={handleOpenMultiRunFromHeader}
+          canOpenMultiRun={projects.length > 0}
+          onOpenArchive={() => {
+            if (mobileVariant) setSessionSwitcherOpen(false);
+            setArchivePageOpen(true);
+          }}
+        />
+      ) : null}
 
       {isVisible ? <SidebarProjectsList
         topContent={topContent}
@@ -1743,8 +1756,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           openNewSessionDraft({ directoryOverride: worktreePath, preserveDirectoryOverride: true });
         }}
       />
-
-      <ScheduledTasksDialog />
 
       <SessionDeleteConfirmDialog
         value={deleteSessionConfirm}

@@ -172,20 +172,27 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
         }
 
         return (
-          <div key={section.key} className="space-y-1">
-            <button
-              type="button"
-              onClick={() => toggleSection(section.key)}
-              className="group flex w-full items-center gap-1 rounded-md px-0.5 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              aria-expanded={!isCollapsed}
-            >
-              <span className="inline-flex h-4 w-4 items-center justify-center text-muted-foreground">
-                {isCollapsed ? <Icon name="arrow-right-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-down-s" className="h-3.5 w-3.5" />}
-              </span>
-              <span className="text-[14px] font-normal text-foreground/95">{section.title}</span>
-            </button>
+          <div key={section.key} className="relative space-y-1">
+            {/* Zone header styled like a project header band; sticky with a
+                solid sidebar backing so rows never show through. */}
+            <div className="sticky top-0 z-10 -mx-1 rounded-md bg-sidebar">
+              <button
+                type="button"
+                onClick={() => toggleSection(section.key)}
+                className="group flex w-full items-center gap-1.5 rounded-md bg-interactive-hover/50 px-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                aria-expanded={!isCollapsed}
+              >
+                <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
+                  <Icon name="history" className={cn('h-3.5 w-3.5 text-muted-foreground/80', 'group-hover:hidden')} />
+                  <span className="hidden h-3.5 w-3.5 items-center justify-center text-muted-foreground group-hover:inline-flex">
+                    {isCollapsed ? <Icon name="arrow-right-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-down-s" className="h-3.5 w-3.5" />}
+                  </span>
+                </span>
+                <span className="text-[14px] font-normal lowercase text-foreground">{section.title}</span>
+              </button>
+            </div>
             {!isCollapsed ? (
-              <div className={cn('space-y-0.5 pl-7')}>
+              <div className={cn('space-y-0.5')}>
                 {visibleItems.map(renderItem)}
                 {remainingCount > 0 ? (
                   <button

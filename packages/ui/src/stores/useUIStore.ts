@@ -561,6 +561,7 @@ interface UIStore {
   openCodeStatusText: string;
   isSessionCreateDialogOpen: boolean;
   isScheduledTasksDialogOpen: boolean;
+  isArchivePageOpen: boolean;
   isSettingsDialogOpen: boolean;
   isNewWorktreeDialogOpen: boolean;
   isModelSelectorOpen: boolean;
@@ -726,6 +727,7 @@ interface UIStore {
   setOpenCodeStatusText: (text: string) => void;
   setSessionCreateDialogOpen: (open: boolean) => void;
   setScheduledTasksDialogOpen: (open: boolean) => void;
+  setArchivePageOpen: (open: boolean) => void;
   setSettingsDialogOpen: (open: boolean) => void;
   setNewWorktreeDialogOpen: (open: boolean) => void;
   setModelSelectorOpen: (open: boolean) => void;
@@ -885,6 +887,7 @@ export const useUIStore = create<UIStore>()(
         openCodeStatusText: '',
         isSessionCreateDialogOpen: false,
         isScheduledTasksDialogOpen: false,
+        isArchivePageOpen: false,
         isSettingsDialogOpen: false,
         isNewWorktreeDialogOpen: false,
         isModelSelectorOpen: false,
@@ -1559,7 +1562,11 @@ export const useUIStore = create<UIStore>()(
         },
 
         setScheduledTasksDialogOpen: (open) => {
-          set({ isScheduledTasksDialogOpen: open });
+          set(open ? { isScheduledTasksDialogOpen: true, isArchivePageOpen: false } : { isScheduledTasksDialogOpen: false });
+        },
+
+        setArchivePageOpen: (open) => {
+          set(open ? { isArchivePageOpen: true, isScheduledTasksDialogOpen: false } : { isArchivePageOpen: false });
         },
 
         setSettingsDialogOpen: (open) => {
