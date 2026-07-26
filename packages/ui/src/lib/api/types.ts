@@ -809,7 +809,7 @@ type GitHubRepoRef = {
   url: string;
 };
 
-type GitHubChecksSummary = {
+export type GitHubChecksSummary = {
   state: 'success' | 'failure' | 'pending' | 'unknown';
   total: number;
   success: number;

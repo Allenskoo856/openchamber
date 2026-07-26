@@ -179,6 +179,59 @@ const getSignatureFromEntry = (entry: PrStatusEntry | null | undefined): string 
   return JSON.stringify([identity.runtimeKey, identity.directory, identity.branch, identity.remoteName ?? 'auto']);
 };
 
+const parseStatusKey = (key: string): { runtimeKey: string; directory: string; branch: string; remote: string } | null => {
+  try {
+    const parsed: unknown = JSON.parse(key);
+    if (!Array.isArray(parsed) || parsed.length !== 4 || parsed.some((part) => typeof part !== 'string')) {
+      return null;
+    }
+    const [runtimeKey, directory, branch, remote] = parsed as [string, string, string, string];
+    return { runtimeKey, directory, branch, remote };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Best already-resolved entry for the same directory+branch under a different
+ * remote key. Used to seed a freshly created entry so switching remote keys
+ * (e.g. 'auto' -> 'origin') shows the known PR immediately instead of a
+ * "checking status" flash; the entry's own refresh remains authoritative.
+ */
+const findResolvedSiblingEntry = (
+  entries: Record<string, PrStatusEntry>,
+  key: string,
+): PrStatusEntry | null => {
+  const target = parseStatusKey(key);
+  if (!target) {
+    return null;
+  }
+
+  let fallback: PrStatusEntry | null = null;
+  for (const [entryKey, entry] of Object.entries(entries)) {
+    if (entryKey === key || !entry.isInitialStatusResolved || !entry.status) {
+      continue;
+    }
+    const parsed = parseStatusKey(entryKey);
+    if (!parsed
+      || parsed.runtimeKey !== target.runtimeKey
+      || parsed.directory !== target.directory
+      || parsed.branch !== target.branch) {
+      continue;
+    }
+    const resolvedRemote = entry.resolvedRemoteName ?? entry.status.resolvedRemoteName ?? null;
+    if (target.remote !== 'auto' && resolvedRemote && resolvedRemote !== target.remote) {
+      continue;
+    }
+    if (parsed.remote === 'auto') {
+      return entry;
+    }
+    fallback = fallback ?? entry;
+  }
+
+  return fallback;
+};
+
 const getKeysBySignature = (entries: Record<string, PrStatusEntry>, signature: string): string[] => {
   return Object.entries(entries)
     .filter(([, entry]) => getSignatureFromEntry(entry) === signature)
@@ -331,10 +384,19 @@ export const useGitHubPrStatusStore = create<GitHubPrStatusStore>()(
           if (state.entries[key]) {
             return state;
           }
+          const sibling = findResolvedSiblingEntry(state.entries, key);
+          const seeded: PrStatusEntry = sibling
+            ? {
+                ...createEntry(),
+                status: sibling.status,
+                isInitialStatusResolved: true,
+                resolvedRemoteName: sibling.resolvedRemoteName ?? sibling.status?.resolvedRemoteName ?? null,
+              }
+            : createEntry();
           return {
             entries: boundEntries({
               ...state.entries,
-              [key]: createEntry(),
+              [key]: seeded,
             }),
           };
         });

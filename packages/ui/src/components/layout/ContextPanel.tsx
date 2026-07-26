@@ -6,6 +6,7 @@ import { SortableTabsStrip } from '@/components/ui/sortable-tabs-strip';
 import { DiffView } from '@/components/views/DiffView';
 import { FilesView } from '@/components/views/FilesView';
 import { GitView } from '@/components/views/GitView';
+import { PullRequestView } from '@/components/views/PullRequestView';
 import { TerminalView } from '@/components/views/TerminalView';
 import { PlanView } from '@/components/views/PlanView';
 import { ProjectContextPanel } from './RightSidebarTabs';
@@ -154,6 +155,7 @@ const getModeLabel = (
   if (mode === 'preview') return t('contextPanel.mode.preview');
   if (mode === 'browser') return t('contextPanel.mode.browser');
   if (mode === 'git') return t('layout.rightSidebar.git');
+  if (mode === 'pr') return t('contextPanel.mode.pr');
   if (mode === 'notes') return t('contextRail.surface.notes');
   if (mode === 'terminal') return t('layout.mainTab.terminal');
   return t('contextPanel.mode.context');
@@ -240,6 +242,10 @@ const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }):
 
   if (tab.mode === 'git') {
     return <Icon name="git-branch" className="h-3.5 w-3.5" />;
+  }
+
+  if (tab.mode === 'pr') {
+    return <Icon name="git-pull-request" className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'notes') {
@@ -2686,6 +2692,8 @@ export const ContextPanel: React.FC = () => {
         ? <ContextPanelContent />
         : activeTab?.mode === 'git'
             ? <GitView isActive={isOpen} />
+            : activeTab?.mode === 'pr'
+                ? <PullRequestView />
             : activeTab?.mode === 'notes'
                 ? <ProjectContextPanel />
         : activeTab?.mode === 'plan'
