@@ -191,6 +191,17 @@ describe('tokenizeMarkdown — emphasis', () => {
         ]);
     });
 
+    test('triple delimiters are strong AND emphasis over the same span', () => {
+        expect(tokenize('***both***')).toEqual([
+            ['***', 'marker'],
+            ['both', 'strong'],
+            ['both', 'emphasis'],
+            ['***', 'marker'],
+        ]);
+        expect(tokenize('___both___').map(([, style]) => style))
+            .toEqual(['marker', 'strong', 'emphasis', 'marker']);
+    });
+
     test('the underscore spellings work too', () => {
         expect(tokenize('_slanted_').map(([, style]) => style))
             .toEqual(['marker', 'emphasis', 'marker']);

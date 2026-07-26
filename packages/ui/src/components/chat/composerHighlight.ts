@@ -162,7 +162,7 @@ function closesEmphasis(segment: string, index: number, runLength: number): bool
  */
 function matchEmphasis(segment: string, index: number): { end: number; runLength: number } | null {
     const char = segment[index];
-    const run = /^(\*{1,2}|_{1,2})/.exec(segment.slice(index))?.[1] ?? '';
+    const run = /^(\*{1,3}|_{1,3})/.exec(segment.slice(index))?.[1] ?? '';
     if (!run || !opensEmphasis(segment, index, run.length)) return null;
 
     let search = index + run.length;
@@ -228,15 +228,22 @@ function scanInline(segment: string, base: number, out: HighlightRange[]): void 
             }
         }
 
-        // Emphasis: **strong**, *emphasis*, and the underscore spellings.
+        // Emphasis: **strong**, *emphasis*, ***both at once***, and the
+        // underscore spellings. Strong and emphasis are additive styles, so a
+        // triple run simply emits both ranges over the same content and they
+        // compose into bold italic.
         if (ch === '*' || ch === '_') {
             const match = matchEmphasis(segment, i);
             if (match) {
-                const style = match.runLength === 2 ? 'strong' : 'emphasis';
                 const contentStart = base + i + match.runLength;
                 const contentEnd = base + match.end - match.runLength;
                 out.push({ start: base + i, end: contentStart, style: 'marker' });
-                out.push({ start: contentStart, end: contentEnd, style });
+                if (match.runLength >= 2) {
+                    out.push({ start: contentStart, end: contentEnd, style: 'strong' });
+                }
+                if (match.runLength !== 2) {
+                    out.push({ start: contentStart, end: contentEnd, style: 'emphasis' });
+                }
                 out.push({ start: contentEnd, end: base + match.end, style: 'marker' });
                 // Scan the content too, so `**bold `code`**` keeps both.
                 scanInline(
