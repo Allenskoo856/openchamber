@@ -38,22 +38,6 @@ import { composerLanguage, setLanguageContext } from './composerLanguage';
 import type { ComposerEditorViewStore } from './viewStore';
 import { composerEditorTheme, composerNativeSelectionExtension } from './theme';
 
-/**
- * `drawSelection()` hides the native selection iOS pins its drag handles to —
- * after a double-tap the word highlights and nothing shows that the range can
- * be extended. Touch-primary devices layer `composerNativeSelectionExtension`
- * on top, which shows the native selection (and, only while a range is
- * selected, the native caret whose colour the handles borrow) through the
- * drawn one. `drawSelection()` itself stays, and the native caret stays
- * transparent while typing: both a removed `drawSelection()` and a visible
- * native caret make iOS answer every keystroke with severe input lag (see the
- * theme's comment).
- */
-const prefersNativeSelection = () =>
-    typeof window !== 'undefined'
-    && typeof window.matchMedia === 'function'
-    && window.matchMedia('(pointer: coarse)').matches;
-
 export interface ComposerSelection {
     start: number;
     end: number;
@@ -223,8 +207,14 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                     doc: handlersRef.current.value,
                     extensions: [
                         history(),
+                        // `drawSelection()` must stay even though the native
+                        // selection is what actually shows (see the theme's
+                        // comment on `composerNativeSelectionExtension`):
+                        // removing it makes CodeMirror enforce cursor
+                        // association on the native selection, which iOS
+                        // answers with severe input lag.
                         drawSelection(),
-                        ...(prefersNativeSelection() ? [composerNativeSelectionExtension] : []),
+                        composerNativeSelectionExtension,
                         EditorView.lineWrapping,
                         // Highest precedence: the composer's own keys must win
                         // over CodeMirror's defaults (Enter sends, ArrowUp
@@ -310,9 +300,29 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             if (current === value) return;
             view.dispatch({
                 changes: { from: 0, to: current.length, insert: value },
-                // Keep the caret in a valid place after an external rewrite
-                // (draft restore, history navigation, dictation insert).
-                selection: { anchor: Math.min(view.state.selection.main.anchor, value.length) },
+                // An external rewrite (draft restore, history navigation,
+                // "add to chat", dictation insert) lands the caret at the END,
+                // matching what a plain textarea did when its value was
+                // replaced. Every rewrite that reaches here appends or
+                // replaces wholesale; keeping the old caret instead left it
+                // stranded before the inserted text, and the next insertion
+                // or keystroke landed inside the previous one.
+                selection: { anchor: value.length },
+            });
+            // A large insert can push the caret below the fold, and a
+            // transaction-time `scrollIntoView` cannot reach it: wrapped-line
+            // heights are still estimates during the update, and the
+            // grow-with-content effect applies the scroller's max-height cap
+            // through a ResizeObserver a frame later — at scroll time the
+            // overflow does not exist yet, so the scroller stays at the top.
+            // The caret is at the end here, so once the layout has settled
+            // (two frames: one for the cap, one after it) pin the scroller to
+            // the bottom.
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    if (viewRef.current !== view) return;
+                    view.scrollDOM.scrollTop = view.scrollDOM.scrollHeight;
+                });
             });
         }, [value]);
 

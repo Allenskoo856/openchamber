@@ -73,20 +73,29 @@ export const COMPOSER_EDITOR_THEME_SPEC = {
         background: 'color-mix(in srgb, var(--interactive-selection) 55%, transparent)',
     },
     // The native selection still shows through in places CodeMirror does not
-    // draw over, such as the placeholder.
+    // draw over, such as the placeholder. Same colour as the native-selection
+    // theme below, for the same reason: the selection token carries its own
+    // alpha and reads as nearly invisible when mixed down again.
     '& ::selection': {
-        background: 'color-mix(in srgb, var(--interactive-selection) 55%, transparent)',
+        background: 'color-mix(in srgb, var(--primary) 25%, transparent)',
     },
 };
 
 export const composerEditorTheme = EditorView.theme(COMPOSER_EDITOR_THEME_SPEC);
 
 /**
- * Touch devices keep `drawSelection()` but show the NATIVE selection through
- * it. iOS attaches its selection handles (the draggable pins after a
- * double-tap) to the *visible* native selection, and `drawSelection()` hides
- * it with `.cm-line ::selection { background: transparent !important }`, so
- * the handles never appear and range selection is undiscoverable.
+ * Every device keeps `drawSelection()` but shows the NATIVE selection through
+ * it, for two independent reasons:
+ *
+ * - iOS attaches its selection handles (the draggable pins after a
+ *   double-tap) to the *visible* native selection, and `drawSelection()`
+ *   hides it with `.cm-line ::selection { background: transparent
+ *   !important }`, so the handles never appear and range selection is
+ *   undiscoverable.
+ * - The painted selection layer sits *behind* the content, so any token with
+ *   its own background — inline code, code fences — covers it completely and
+ *   the selection is invisible inside those spans. The native selection
+ *   paints over element backgrounds.
  *
  * Dropping `drawSelection()` entirely is NOT an option: without it CodeMirror
  * clears the `nativeSelectionHidden` facet and starts enforcing cursor
@@ -102,9 +111,14 @@ export const composerEditorTheme = EditorView.theme(COMPOSER_EDITOR_THEME_SPEC);
  * two highlights would otherwise stack.
  */
 export const NATIVE_SELECTION_THEME_SPEC = {
+    // Built from `--primary`, not `--interactive-selection`: themes define the
+    // selection token with its own alpha (often under 10%), so mixing it with
+    // transparent again leaves the highlight barely perceptible. `--primary`
+    // is a full-strength colour in every theme; a low mix of it reads as a
+    // classic editor selection while the token colours stay legible through it.
     '& .cm-content .cm-line ::selection, & .cm-content .cm-line::selection': {
         backgroundColor:
-            'color-mix(in srgb, var(--interactive-selection) 55%, transparent) !important',
+            'color-mix(in srgb, var(--primary) 25%, transparent) !important',
     },
     // iOS derives the colour of its selection UI — the drag handles included —
     // from the caret colour, and `drawSelection()` sets `caret-color:
@@ -135,10 +149,11 @@ export const NATIVE_SELECTION_THEME_SPEC = {
 export const composerNativeSelectionTheme = EditorView.theme(NATIVE_SELECTION_THEME_SPEC);
 
 /**
- * The touch-device selection arrangement: the theme above plus the
- * `.oc-native-range` marker class that scopes its caret rules to the moments
- * a range is actually selected. `editorAttributes` re-evaluates on every
- * update, so the class follows the selection with no listener of its own.
+ * The native-selection arrangement, installed on every device: the theme
+ * above plus the `.oc-native-range` marker class that scopes its caret rules
+ * to the moments a range is actually selected. `editorAttributes`
+ * re-evaluates on every update, so the class follows the selection with no
+ * listener of its own.
  */
 export const composerNativeSelectionExtension = [
     composerNativeSelectionTheme,

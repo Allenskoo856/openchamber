@@ -100,8 +100,9 @@ describe('composerNativeSelectionTheme', () => {
     const nativeDeclarations = JSON.stringify(NATIVE_SELECTION_THEME_SPEC);
 
     /**
-     * Touch devices layer this over `drawSelection()` so iOS can attach its
-     * selection handles to a visible native selection. `drawSelection()` must
+     * Every device layers this over `drawSelection()`: the native selection
+     * paints over token backgrounds (the painted layer is hidden behind them)
+     * and iOS attaches its selection handles to it. `drawSelection()` must
      * NOT be removed for that: without it CodeMirror starts enforcing cursor
      * association on the native selection while typing in wrapped text, and
      * iOS answers those programmatic selection moves with severe input lag.

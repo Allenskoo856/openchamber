@@ -22,9 +22,8 @@ belongs to one of them.
 ## The prompt language
 
 `language/` is the single source of truth for composer syntax. Everything that
-needs to know what a token means — highlighting, send-time resolution, the
-backspace-deletes-the-whole-mention behavior, and the autocomplete triggers —
-goes through it.
+needs to know what a token means — highlighting, send-time resolution, and the
+autocomplete triggers — goes through it.
 
 **This is the invariant that matters most in this module.** Before it existed,
 the `@` rule was written four times with divergent cleanup and the `/` rule
@@ -32,11 +31,11 @@ three times with different valid character sets, so a token could be painted as
 a reference and then not resolve as one. Adding a construct meant finding every
 copy.
 
-- `mentions.ts` — `@` references. A mention has two spans: `start..end` is the
-  reference itself and is what gets highlighted; `start..rawEnd` covers the
-  whole whitespace-delimited token and is what gets deleted. In `see @a/b.ts,`
-  the comma is sentence punctuation, not part of the file being referenced —
-  but deleting the mention should not orphan it either.
+- `mentions.ts` — `@` references. The `start..end` span is the reference
+  itself and is what gets highlighted; in `see @a/b.ts,` the comma is sentence
+  punctuation, not part of the file being referenced. Mentions are plain
+  editable text: deleting a character edits the token and reopens the mention
+  picker, the same way `/skill` tokens behave — not an atomic delete.
 - `prefixTokens.ts` — `/command`, `/skill`, `#snippet`. Scanning is deliberately
   generous; **membership in the command, skill or snippet registry is the
   authority**, not the pattern. An unknown `/token` stays plain prose.
@@ -62,15 +61,20 @@ question of design, not of feasibility.
 Selection rendering: every device runs CodeMirror's `drawSelection()` — it
 keeps typing on the drawn-selection code path, and removing it makes
 CodeMirror enforce cursor association on the native selection, which iOS
-answers with severe input lag. Touch-primary devices additionally layer
+answers with severe input lag. Every device also layers
 `composerNativeSelectionExtension` (`editor/theme.ts`) on top: it re-shows
 the native selection, and — only while a range is selected — the native caret,
-hiding the painted layers those replace. Both halves matter to iOS's selection
-drag handles: they attach to the visible native selection, and they take their
-colour from the caret, so a transparent caret means invisible handles. The
-range-only scoping is load-bearing too — a native caret visible while typing
-makes WebKit re-render its caret UI after every keystroke, felt as severe
-input lag.
+hiding the painted layers those replace. The native selection is the one that
+shows for two reasons: the painted layer sits behind the content, so tokens
+with their own background (inline code, fences) cover it completely; and
+iOS's selection drag handles attach to the visible native selection and take
+their colour from the caret, so a transparent caret means invisible handles.
+The range-only caret scoping is load-bearing — a native caret visible while
+typing makes WebKit re-render its caret UI after every keystroke, felt as
+severe input lag. The selection tint comes from `--primary`, not the selection
+token:
+themes define `--interactive-selection` with its own alpha, so a translucent
+mix of it is nearly invisible.
 
 `composerLanguage.ts` retokenizes the whole document on every change. The
 composer holds a prompt, not a source file: it is short enough that a full pass
