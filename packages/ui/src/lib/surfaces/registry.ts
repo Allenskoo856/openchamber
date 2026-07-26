@@ -38,12 +38,12 @@ export type ContextSurfaceDescriptor = {
 
 export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
   {
-    id: 'editor',
-    descriptionKey: 'contextRail.surface.editor.description',
-    defaultWidthFraction: 3 / 5,
-    mode: 'file',
-    icon: 'file-code',
-    labelKey: 'contextPanel.mode.files',
+    id: 'context',
+    descriptionKey: 'contextRail.surface.context.description',
+    defaultWidthFraction: 0.45,
+    mode: 'context',
+    icon: 'donut-chart-fill',
+    labelKey: 'contextPanel.mode.context',
     availability: 'always',
   },
   {
@@ -65,21 +65,21 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     availability: 'always',
   },
   {
+    id: 'editor',
+    descriptionKey: 'contextRail.surface.editor.description',
+    defaultWidthFraction: 3 / 5,
+    mode: 'file',
+    icon: 'file-code',
+    labelKey: 'contextPanel.mode.files',
+    availability: 'always',
+  },
+  {
     id: 'terminal',
     descriptionKey: 'contextRail.surface.terminal.description',
     defaultWidthFraction: 3 / 5,
     mode: 'terminal',
     icon: 'terminal-box',
     labelKey: 'layout.mainTab.terminal',
-    availability: 'always',
-  },
-  {
-    id: 'plan',
-    descriptionKey: 'contextRail.surface.plan.description',
-    defaultWidthFraction: 0.45,
-    mode: 'plan',
-    icon: 'file-text',
-    labelKey: 'contextPanel.mode.plan',
     availability: 'always',
   },
   {
@@ -92,12 +92,12 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     availability: 'always',
   },
   {
-    id: 'context',
-    descriptionKey: 'contextRail.surface.context.description',
+    id: 'plan',
+    descriptionKey: 'contextRail.surface.plan.description',
     defaultWidthFraction: 0.45,
-    mode: 'context',
-    icon: 'donut-chart-fill',
-    labelKey: 'contextPanel.mode.context',
+    mode: 'plan',
+    icon: 'file-text',
+    labelKey: 'contextPanel.mode.plan',
     availability: 'always',
   },
   {
