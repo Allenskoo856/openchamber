@@ -95,6 +95,12 @@ export interface ComposerEditorProps {
     fillContainer?: boolean;
     /** Lines of text shown before the editor starts scrolling. */
     maxLines?: number;
+    /**
+     * A CSS length capping the editor's height alongside `maxLines` — the
+     * smaller of the two wins. For surfaces where the real limit is the space
+     * left by the keyboard rather than a line count.
+     */
+    maxHeightCss?: string;
     className?: string;
     contentClassName?: string;
     /**
@@ -142,6 +148,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             autoCapitalize = 'none',
             fillContainer = false,
             maxLines = 8,
+            maxHeightCss,
             className,
             contentClassName,
         } = props;
@@ -327,7 +334,10 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                     getComputedStyle(view.contentDOM).lineHeight || '',
                 );
                 if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
-                view.scrollDOM.style.maxHeight = `${lineHeight * maxLines}px`;
+                const lineCap = `${lineHeight * maxLines}px`;
+                view.scrollDOM.style.maxHeight = maxHeightCss
+                    ? `min(${lineCap}, ${maxHeightCss})`
+                    : lineCap;
             };
 
             applyLimit();
@@ -335,7 +345,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             const observer = new ResizeObserver(applyLimit);
             observer.observe(host);
             return () => observer.disconnect();
-        }, [fillContainer, maxLines]);
+        }, [fillContainer, maxHeightCss, maxLines]);
 
         React.useEffect(() => {
             const view = viewRef.current;

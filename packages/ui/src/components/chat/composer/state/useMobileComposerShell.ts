@@ -39,7 +39,6 @@ export interface MobileComposerShellOptions {
     isMobile: boolean;
     editorRef: React.RefObject<ComposerEditorHandle | null>;
     formRef: React.RefObject<HTMLFormElement | null>;
-    isExpandedInput: boolean;
     setExpandedInput: (expanded: boolean) => void;
     holders: MobileComposerHolders;
 }
@@ -61,19 +60,12 @@ export interface MobileComposerShell {
     skipNextOverlayCloseRestore: () => void;
     /** Cancel a pending keyboard restore entirely (a native picker takes over). */
     cancelOverlayCloseRestore: () => void;
-    /** Drag handle: swipe up for fullscreen, down to leave it or dismiss. */
-    handleProps: {
-        onTouchStart: (event: React.TouchEvent) => void;
-        onTouchMove: (event: React.TouchEvent) => void;
-        onTouchEnd: () => void;
-        onTouchCancel: () => void;
-    };
 }
 
 export function useMobileComposerShell(
     options: MobileComposerShellOptions,
 ): MobileComposerShell {
-    const { isMobile, editorRef, formRef, isExpandedInput, setExpandedInput, holders } = options;
+    const { isMobile, editorRef, formRef, setExpandedInput, holders } = options;
 
     const [expanded, setExpanded] = React.useState(false);
     const [focused, setFocused] = React.useState(false);
@@ -86,7 +78,6 @@ export function useMobileComposerShell(
     const lastBlurAtRef = React.useRef(0);
     const restoreKeyboardRef = React.useRef(false);
     const blurTimerRef = React.useRef<number | null>(null);
-    const touchRef = React.useRef<{ startY: number; fired: boolean } | null>(null);
 
     React.useEffect(() => () => {
         if (blurTimerRef.current !== null) window.clearTimeout(blurTimerRef.current);
@@ -429,36 +420,6 @@ export function useMobileComposerShell(
         restoreKeyboardRef.current = false;
     }, []);
 
-    // Drag handle: swipe up for fullscreen, down to leave it or dismiss the
-    // keyboard. A gesture fires once, so a long drag does not toggle twice.
-    const onTouchStart = React.useCallback((event: React.TouchEvent) => {
-        const touch = event.touches.item(0);
-        touchRef.current = touch ? { startY: touch.clientY, fired: false } : null;
-    }, []);
-
-    const onTouchMove = React.useCallback((event: React.TouchEvent) => {
-        const state = touchRef.current;
-        if (!state || state.fired) return;
-        const touch = event.touches.item(0);
-        if (!touch) return;
-        const dy = touch.clientY - state.startY;
-        if (dy <= -28) {
-            state.fired = true;
-            if (!isExpandedInput) setExpandedInput(true);
-        } else if (dy >= 28) {
-            state.fired = true;
-            if (isExpandedInput) {
-                setExpandedInput(false);
-            } else {
-                editorRef.current?.blur();
-            }
-        }
-    }, [editorRef, isExpandedInput, setExpandedInput]);
-
-    const onTouchEnd = React.useCallback(() => {
-        touchRef.current = null;
-    }, []);
-
     return {
         expanded,
         focused,
@@ -470,6 +431,5 @@ export function useMobileComposerShell(
         onEditorBlur,
         skipNextOverlayCloseRestore,
         cancelOverlayCloseRestore,
-        handleProps: { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: onTouchEnd },
     };
 }

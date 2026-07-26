@@ -143,6 +143,17 @@ import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 
 const MAX_VISIBLE_COMPOSER_LINES = 8;
+/**
+ * Mobile grows the composer with content instead of offering a fullscreen
+ * gesture: the old swipe-up handle bought barely a line of extra height, so
+ * the line cap is generous and the real ceiling is the space the keyboard
+ * leaves. --oc-keyboard-inset is the Capacitor keyboard height (0 in
+ * browsers); the constant covers the header plus the composer's own chrome
+ * (model row, footer, paddings), keeping a sliver of chat visible.
+ */
+const MAX_MOBILE_COMPOSER_LINES = 16;
+const MOBILE_COMPOSER_MAX_HEIGHT_CSS =
+    'calc(100dvh - var(--oc-keyboard-inset, 0px) - 220px)';
 const EMPTY_QUEUE: QueuedMessage[] = [];
 const COMPACT_CHAT_PLACEHOLDER_MAX_WIDTH = 560;
 const renameFileForAttachmentCitation = (file: File, filename: string): File => {
@@ -2243,7 +2254,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         isMobile,
         editorRef: composerRef,
         formRef: composerFormRef,
-        isExpandedInput,
         setExpandedInput,
         holders: {
             controlsPanelOpen: Boolean(mobileControlsPanel),
@@ -2303,31 +2313,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         formRef: composerFormRef,
         editorRef: composerRef,
     });
-
-    // Shared drag handle: rendered at the top of the full composer AND inside
-    // the dictation overlay, so swipe-expand/collapse works in Listening mode.
-    // Memoized so the always-mounted dictation instance's memo stays effective.
-    const mobileComposerHandle = React.useMemo(() => isMobile ? (
-        <div
-            // Generous hit area (~28px tall, full width); the visible bar stays
-            // slim inside it.
-            className="relative z-10 flex touch-none items-center justify-center py-2"
-            onTouchStart={mobileShell.handleProps.onTouchStart}
-            onTouchMove={mobileShell.handleProps.onTouchMove}
-            onTouchEnd={mobileShell.handleProps.onTouchEnd}
-            onTouchCancel={mobileShell.handleProps.onTouchCancel}
-            aria-hidden="true"
-        >
-            <div
-                className="h-1.5 w-12 rounded-full"
-                style={{ backgroundColor: currentTheme.colors.interactive.border }}
-            />
-        </div>
-    ) : null, [
-        isMobile,
-        mobileShell.handleProps,
-        currentTheme.colors.interactive.border,
-    ]);
 
     const footerPaddingClass = isMobile ? 'px-1.5 py-1.5' : (isVSCode ? 'px-1.5 py-1' : 'px-2.5 py-1.5');
     const buttonSizeClass = isMobile ? 'h-8 w-8' : (isVSCode ? 'h-5 w-5' : 'h-6 w-6');
@@ -2606,7 +2591,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         text area + footer exactly, excluding MobileSessionStatusBar. */}
                     <div className={cn('relative flex flex-col', isComposerExpanded && 'flex-1 min-h-0')}>
                     <div className={cn("overflow-hidden", isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
-                        {mobileComposerHandle}
                         {isMobile ? (
                             <div className="scrollbar-none relative z-10 flex items-center gap-x-2 overflow-x-auto px-3 pb-0.5 pt-1.5">
                                 <MemoMobileModelButton onOpenModel={() => handleOpenMobilePanel('model')} className="flex-shrink-0" />
@@ -2663,7 +2647,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 autoCapitalize={isMobile ? 'sentences' : 'none'}
                                 spellCheck={isMobile || inputSpellcheckEnabled}
                                 fillContainer={isComposerExpanded}
-                                maxLines={MAX_VISIBLE_COMPOSER_LINES}
+                                maxLines={isMobile ? MAX_MOBILE_COMPOSER_LINES : MAX_VISIBLE_COMPOSER_LINES}
+                                maxHeightCss={isMobile ? MOBILE_COMPOSER_MAX_HEIGHT_CSS : undefined}
                                 className={cn(
                                     'min-h-[52px] px-3 relative z-10',
                                     isComposerExpanded
@@ -2734,7 +2719,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onActiveChange={mobileShell.onDictationActiveChange}
                         onContentHeightChange={handleDictationContentHeightChange}
                         renderTrigger={false}
-                        topAccessory={mobileComposerHandle}
                     />
                 ) : null}
                 </div>
