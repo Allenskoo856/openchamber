@@ -145,15 +145,13 @@ import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 const MAX_VISIBLE_COMPOSER_LINES = 8;
 /**
  * Mobile grows the composer with content instead of offering a fullscreen
- * gesture: the old swipe-up handle bought barely a line of extra height, so
- * the line cap is generous and the real ceiling is the space the keyboard
- * leaves. --oc-keyboard-inset is the Capacitor keyboard height (0 in
- * browsers); the constant covers the header plus the composer's own chrome
- * (model row, footer, paddings), keeping a sliver of chat visible.
+ * gesture — the old swipe-up handle bought barely a line of extra height.
+ * The real ceiling is measured: the editor may grow until the composer fills
+ * its screen container (marked data-composer-bound in ChatContainer), with
+ * the chrome around the editor read from the DOM. The line cap only stops
+ * absurdly tall editors on tablets.
  */
 const MAX_MOBILE_COMPOSER_LINES = 16;
-const MOBILE_COMPOSER_MAX_HEIGHT_CSS =
-    'calc(100dvh - var(--oc-keyboard-inset, 0px) - 220px)';
 const EMPTY_QUEUE: QueuedMessage[] = [];
 const COMPACT_CHAT_PLACEHOLDER_MAX_WIDTH = 560;
 const renameFileForAttachmentCitation = (file: File, filename: string): File => {
@@ -2648,7 +2646,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 spellCheck={isMobile || inputSpellcheckEnabled}
                                 fillContainer={isComposerExpanded}
                                 maxLines={isMobile ? MAX_MOBILE_COMPOSER_LINES : MAX_VISIBLE_COMPOSER_LINES}
-                                maxHeightCss={isMobile ? MOBILE_COMPOSER_MAX_HEIGHT_CSS : undefined}
+                                boundSelector={isMobile ? '[data-composer-bound]' : undefined}
                                 className={cn(
                                     'min-h-[52px] px-3 relative z-10',
                                     isComposerExpanded

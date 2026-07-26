@@ -96,11 +96,11 @@ export interface ComposerEditorProps {
     /** Lines of text shown before the editor starts scrolling. */
     maxLines?: number;
     /**
-     * A CSS length capping the editor's height alongside `maxLines` — the
-     * smaller of the two wins. For surfaces where the real limit is the space
-     * left by the keyboard rather than a line count.
+     * Selector of the ancestor the composer must never outgrow. The cap is
+     * measured — the ancestor's height minus the chrome around the editor,
+     * both read from the DOM — and the smaller of it and `maxLines` wins.
      */
-    maxHeightCss?: string;
+    boundSelector?: string;
     className?: string;
     contentClassName?: string;
     /**
@@ -148,7 +148,7 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             autoCapitalize = 'none',
             fillContainer = false,
             maxLines = 8,
-            maxHeightCss,
+            boundSelector,
             className,
             contentClassName,
         } = props;
@@ -329,23 +329,46 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                 return;
             }
 
+            const boundEl = boundSelector ? host.closest(boundSelector) : null;
+            // The bound's direct child our editor lives in: its height minus
+            // the scroller's is exactly the chrome around the editor — form
+            // paddings, model row, footer, attachment chips — measured live,
+            // so the cap needs no estimate of what surrounds the editor.
+            let branch: HTMLElement | null = null;
+            if (boundEl) {
+                branch = host;
+                while (branch.parentElement && branch.parentElement !== boundEl) {
+                    branch = branch.parentElement;
+                }
+            }
+
             const applyLimit = () => {
                 const lineHeight = parseFloat(
                     getComputedStyle(view.contentDOM).lineHeight || '',
                 );
                 if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
-                const lineCap = `${lineHeight * maxLines}px`;
-                view.scrollDOM.style.maxHeight = maxHeightCss
-                    ? `min(${lineCap}, ${maxHeightCss})`
-                    : lineCap;
+                let cap = lineHeight * maxLines;
+                if (boundEl && branch) {
+                    const chrome = branch.offsetHeight - view.scrollDOM.offsetHeight;
+                    const available = boundEl.clientHeight - chrome;
+                    if (available > 0) cap = Math.min(cap, available);
+                }
+                const next = `${cap}px`;
+                // The scroller growing re-fires the observer with an unchanged
+                // result; writing only on change keeps that loop silent.
+                if (view.scrollDOM.style.maxHeight !== next) {
+                    view.scrollDOM.style.maxHeight = next;
+                }
             };
 
             applyLimit();
             if (typeof ResizeObserver === 'undefined') return;
             const observer = new ResizeObserver(applyLimit);
             observer.observe(host);
+            if (branch) observer.observe(branch);
+            if (boundEl) observer.observe(boundEl);
             return () => observer.disconnect();
-        }, [fillContainer, maxHeightCss, maxLines]);
+        }, [boundSelector, fillContainer, maxLines]);
 
         React.useEffect(() => {
             const view = viewRef.current;

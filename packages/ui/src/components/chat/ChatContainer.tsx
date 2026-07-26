@@ -995,7 +995,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 			// No transform on this root: it would become the containing block for
 			// the fullscreen composer's position:fixed visual-viewport pinning in
 			// mobile browsers (see ChatInput's composerFormRef effect).
-			<div className="relative flex h-full flex-col bg-background">
+			<div data-composer-bound className="relative flex h-full flex-col bg-background">
 				{useCompactDraftLayout && !isDesktopExpandedInput ? <DraftWelcome /> : null}
 				<div
 					className={cn(
@@ -1020,7 +1020,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 	if (isSessionHydrating && sessionMessages.length === 0 && !sessionIsWorking) {
 		if (sessionMessageLoadState.status === 'error') {
 			return (
-				<div className="relative flex h-full flex-col bg-background">
+				<div data-composer-bound className="relative flex h-full flex-col bg-background">
 					{returnToParentButton}
 					<div className="flex min-h-0 flex-1 items-center justify-center px-6">
 						<div className="max-w-sm text-center">
@@ -1041,7 +1041,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 			);
 		}
 		return (
-			<div className="relative flex flex-col h-full bg-background">
+			<div data-composer-bound className="relative flex flex-col h-full bg-background">
 				{returnToParentButton}
 				<div
 					className={cn(
@@ -1099,7 +1099,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 		return (
 			// No transform here either — same fixed-positioning constraint as the
 			// draft branch above.
-			<div className="relative flex flex-col h-full bg-background">
+			<div data-composer-bound className="relative flex flex-col h-full bg-background">
 				{returnToParentButton}
 				<div
 					className={cn(
@@ -1131,7 +1131,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     }
 
 	return (
-		<div className="relative flex flex-col h-full bg-background">
+		<div data-composer-bound className="relative flex flex-col h-full bg-background">
 			{returnToParentButton}
 			<ChatViewport
 				currentSessionId={currentSessionId}
