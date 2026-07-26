@@ -35,7 +35,6 @@ import {
 import { cn } from '@/lib/utils';
 import type { ComposerLanguageContext } from '../language/tokenize';
 import { composerLanguage, setLanguageContext } from './composerLanguage';
-import { kbLog } from '../debug/kbTimeline';
 import type { ComposerEditorViewStore } from './viewStore';
 import { composerEditorTheme } from './theme';
 
@@ -178,19 +177,16 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             // re-apply editable, placeholder, value and language context.
             const keptView = store?.view;
             if (keptView) {
-                kbLog('editor-reattach');
                 host.appendChild(keptView.dom);
                 // Measurements taken while detached are meaningless; the view
                 // re-reads its geometry now that it is back in the document.
                 keptView.requestMeasure();
                 viewRef.current = keptView;
                 return () => {
-                    kbLog('editor-detach');
                     keptView.dom.remove();
                     viewRef.current = null;
                 };
             }
-            kbLog('editor-create-start');
 
             const interceptKeys: KeyBinding[] = [{
                 any: (_view, event) => handlersRef.current.onKeyDown?.(event) ?? false,
@@ -261,14 +257,12 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
 
             viewRef.current = view;
             if (store) store.view = view;
-            kbLog('editor-create-done');
 
             return () => {
                 viewRef.current = null;
                 // A stored view is detached, not destroyed: the store owns its
                 // lifetime now, and whoever owns the store ends it.
                 if (store) {
-                    kbLog('editor-detach');
                     view.dom.remove();
                     return;
                 }

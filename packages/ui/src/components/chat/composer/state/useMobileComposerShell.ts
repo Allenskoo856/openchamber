@@ -19,7 +19,6 @@ import React from 'react';
 import { flushSync } from 'react-dom';
 
 import { isCapacitorApp } from '@/lib/platform';
-import { kbLog, kbLogPaints, wireKbTimeline } from '../debug/kbTimeline';
 import type { ComposerEditorHandle } from '../editor/ComposerEditor';
 
 /**
@@ -112,21 +111,13 @@ export function useMobileComposerShell(
         return () => root.classList.remove('oc-composer-expanded');
     }, [expanded, isMobile]);
 
-    // TEMPORARY diagnostic (see kbTimeline.ts).
-    React.useEffect(() => {
-        if (isMobile) wireKbTimeline();
-    }, [isMobile]);
-
     const expand = React.useCallback(() => {
-        kbLog('tap-expand');
         expandIntentRef.current = 'focus';
         // flushSync so the editor exists NOW and focus() still runs inside the
         // gesture's call stack: mobile browsers only open the soft keyboard for
         // focus calls made synchronously from the tap (an rAF here worked in
         // the Capacitor WebView but not in Safari or Chrome).
         flushSync(() => setExpanded(true));
-        kbLog('expand-committed');
-        kbLogPaints('expand');
 
         if (isCapacitorApp()) {
             // Timing tuned on device, against WKWebView pausing frame
@@ -145,7 +136,6 @@ export function useMobileComposerShell(
             // positions everything, so preventScroll stays on.
             requestAnimationFrame(() => {
                 editorRef.current?.focus({ preventScroll: true });
-                kbLog(`focus() ran focused=${String(editorRef.current?.isFocused() ?? 'no-editor')}`);
             });
             return;
         }
@@ -154,7 +144,6 @@ export function useMobileComposerShell(
         // synchronously from the tap; their native reveal is also the only
         // thing that positions the composer, so no preventScroll.
         editorRef.current?.focus({ preventScroll: false });
-        kbLog(`focus() ran focused=${String(editorRef.current?.isFocused() ?? 'no-editor')}`);
     }, [editorRef]);
 
     const onDictationActiveChange = React.useCallback((active: boolean) => {
@@ -315,7 +304,6 @@ export function useMobileComposerShell(
             // Collapsing would unmount the focused editor and kill the keyboard.
             if (editorRef.current?.isFocused()) return;
             expandIntentRef.current = null;
-            kbLog('collapse-fallback-250ms');
             setExpanded(false);
             setExpandedInput(false);
         }, 250);
@@ -370,12 +358,10 @@ export function useMobileComposerShell(
             // that closed the keyboard, a drag) — the fallback path handles it.
             if (busyRef.current) return;
             expandIntentRef.current = null;
-            kbLog('collapse-intent-flushsync');
             flushSync(() => {
                 setExpanded(false);
                 setExpandedInput(false);
             });
-            kbLogPaints('collapse');
         };
         window.addEventListener('oc:keyboard-intent', handleIntent);
         return () => window.removeEventListener('oc:keyboard-intent', handleIntent);
