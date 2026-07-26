@@ -1,7 +1,7 @@
 import React from 'react';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { cn } from '@/lib/utils';
-import { Icon } from '@/components/icon/Icon';
+import { EngineLogo } from '@/components/ui/EngineLogo';
 import { useI18n } from '@/lib/i18n';
 import { SETTINGS_PANEL_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
 import { useHarnessStore } from '@/stores/useHarnessStore';
@@ -127,8 +127,8 @@ export const EnginesSidebar: React.FC<EnginesSidebarProps> = ({ onItemSelect }) 
                 }}
                 className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
               >
-                <Icon
-                  name={id === 'claude-code' ? 'terminal-box' : 'code-box'}
+                <EngineLogo
+                  harnessId={id}
                   className="h-4 w-4 flex-shrink-0 text-muted-foreground"
                 />
                 <span className="typography-ui-label font-normal truncate flex-1 min-w-0 text-foreground">

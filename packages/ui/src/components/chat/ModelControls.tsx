@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
+import { EngineLogo } from '@/components/ui/EngineLogo';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -1989,7 +1990,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         >
                             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                                 <div className="flex min-w-0 items-center gap-1.5">
-                                    {showProviderLogo ? (
+                                    {isClaudeRow ? (
+                                        <EngineLogo harnessId="claude-code" className="size-3.5 flex-shrink-0" />
+                                    ) : showProviderLogo ? (
                                         <ProviderLogo providerId={providerId} className="size-3.5 flex-shrink-0" />
                                     ) : null}
                                     <span className="typography-meta font-medium text-foreground truncate">
@@ -2155,7 +2158,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                             size="xs"
                             aria-pressed={pickerHarnessId === 'opencode'}
                             onClick={() => handleSelectEngine('opencode')}
+                            className="gap-1.5"
                         >
+                            <EngineLogo harnessId="opencode" className="size-3.5" />
                             {t('chat.engines.opencode')}
                         </Button>
                         {enginesClaudeCodeEnabled ? (
@@ -2165,7 +2170,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 size="xs"
                                 aria-pressed={pickerHarnessId === 'claude-code'}
                                 onClick={() => handleSelectEngine('claude-code')}
+                                className="gap-1.5"
                             >
+                                <EngineLogo harnessId="claude-code" className="size-3.5" />
                                 {t('chat.engines.claudeCode')}
                                 {claudeCatalog ? (
                                     <span className="typography-micro text-muted-foreground ml-1">
@@ -2220,8 +2227,8 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
                     {pickerHarnessId === 'claude-code' && claudeMobileModels.length > 0 && (
                         <div className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
-                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                <Icon name="sparkling" className="size-3 inline-block mr-1.5" />
+                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                                <EngineLogo harnessId="claude-code" className="size-3" />
                                 {t('chat.engines.claudeCode')}
                             </div>
                             <div className="flex flex-col border-t border-border/30">
@@ -2755,7 +2762,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                             </span>
                                         </>
                                     ) : pickerHarnessId === 'claude-code' ? (
-                                        <Icon name="sparkling" className={cn(controlIconSize, 'text-muted-foreground flex-shrink-0')} />
+                                        <EngineLogo harnessId="claude-code" className={cn(controlIconSize, 'flex-shrink-0 text-muted-foreground')} />
                                     ) : currentProviderId ? (
                                         <>
                                             <ProviderLogo
@@ -2870,7 +2877,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         ) : (
                             <>
                                 {pickerHarnessId === 'claude-code' ? (
-                                    <Icon name="sparkling" className={cn(controlIconSize, 'text-muted-foreground flex-shrink-0')} />
+                                    <EngineLogo harnessId="claude-code" className={cn(controlIconSize, 'flex-shrink-0 text-muted-foreground')} />
                                 ) : currentProviderId ? (
                                     <ProviderLogo
                                         providerId={currentProviderId}

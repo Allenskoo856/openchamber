@@ -12,6 +12,7 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS as DndCSS } from '@dnd-kit/utilities';
 import { Icon } from '@/components/icon/Icon';
 import { Input } from '@/components/ui/input';
+import { EngineLogo } from '@/components/ui/EngineLogo';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -843,8 +844,8 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
                       )}>
                         <Icon name={engine.selected ? 'checkbox-circle' : 'checkbox-blank'} className="size-4" />
                       </span>
-                      <Icon
-                        name={engine.id === 'claude-code' ? 'sparkling' : 'terminal-box'}
+                      <EngineLogo
+                        harnessId={engine.id}
                         className="size-3.5 flex-shrink-0 text-muted-foreground"
                       />
                       <span className="font-medium truncate flex-1 min-w-0">{engine.name}</span>

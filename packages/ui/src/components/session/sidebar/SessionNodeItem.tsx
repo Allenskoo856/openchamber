@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { isSessionPinned, type SessionPinnedTarget } from '@/stores/useSessionPinnedStore';
 import { Icon } from "@/components/icon/Icon";
+import { EngineLogo } from '@/components/ui/EngineLogo';
 import { buildExportFilename, downloadAsMarkdown, formatSessionAsMarkdown, getExportRevealLabelKey, revealExportedMarkdown, saveAsMarkdownDesktop } from '@/lib/exportSession';
 import type { ChildSessionExport } from '@/lib/exportSession';
 import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSessionPermissions } from '@/sync/sync-context';
@@ -409,7 +410,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
       title={t('sessions.sidebar.session.engine.claudeCodeTooltip')}
       aria-label={t('sessions.sidebar.session.engine.claudeCodeAria')}
     >
-      <Icon name="sparkling" className="h-3 w-3" />
+      <EngineLogo harnessId="claude-code" className="h-3 w-3" />
     </span>
   ) : null;
   const hasChildren = node.children.length > 0;
