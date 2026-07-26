@@ -541,23 +541,25 @@ describe('/fork', () => {
     const { result } = await run('/fork', { bridgeOps: { forkSession: vi.fn() } });
     expect(result.reply).toMatch(/No session/);
   });
-  it('forks from the last user message straight away', async () => {
-    const forkSession = vi.fn(async () => ({ ok: true, threadId: 'th-2' }));
+  it('forks the full session into a new thread', async () => {
+    const forkSession = vi.fn(async () => ({ ok: true, threadId: 'th-2', loadedNote: 'Loaded 4 messages.' }));
     const { result } = await run('/fork', {
       binding,
       bridgeOps: { forkSession },
     });
     expect(forkSession).toHaveBeenCalledWith();
-    expect(result.reply).toContain('Session forked from your last message');
+    expect(result.reply).toContain('Session forked');
     expect(result.reply).toContain('<#th-2>');
+    expect(result.reply).toContain('full history');
+    expect(result.reply).toContain('Loaded 4 messages.');
   });
   it('surfaces a fork failure', async () => {
     const { result } = await run('/fork', {
       binding,
-      bridgeOps: { forkSession: async () => ({ ok: false, error: 'no user message found' }) },
+      bridgeOps: { forkSession: async () => ({ ok: false, error: 'fork failed hard' }) },
     });
     expect(result.reply).toContain('Fork failed');
-    expect(result.reply).toContain('no user message found');
+    expect(result.reply).toContain('fork failed hard');
   });
 });
 

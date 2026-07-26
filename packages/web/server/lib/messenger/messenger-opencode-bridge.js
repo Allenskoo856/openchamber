@@ -625,6 +625,14 @@ export function createMessengerOpencodeBridge({
    * OpenChamber lifecycle hook used for best-effort config reloads.
    */
   refreshOpenCodeAfterConfigChange = null,
+  /**
+   * Server-owned message queue shared with the web UI. When provided, Discord
+   * `/queue`, `/clear-queue`, `/queue-command` and the `. queue` suffix write
+   * here so both surfaces see and drain one queue. The runtime owns draining
+   * on session idle; this bridge registers a messenger sender so Discord-
+   * sourced items still post the `» queued` marker and go through routeInbound.
+   */
+  messageQueueRuntime = null,
 }) {
   const bridgeStore = store ?? new MessengerBridgeStore();
 
@@ -696,17 +704,11 @@ export function createMessengerOpencodeBridge({
   // --- /queue support ------------------------------------------------------
   // Sessions with an in-flight assistant turn. Set when a prompt is sent,
   // cleared on session.idle / session.error so `/queue` knows whether to
-  // hold a message back or send it immediately.
+  // reply "queued" vs "sent immediately". Actual queue storage + drain live
+  // in messageQueueRuntime (shared with the web UI); this Set is only the
+  // reply-semantics hint and supersede coordination.
   /** @type {Set<string>} */
   const busySessions = new Set();
-  // surfaceKey → queued prompts/commands, drained one-by-one on session.idle.
-  /** @type {Map<string, Array<{ kind?: 'prompt'|'command', text?: string, commandName?: string, args?: string, from?: object, queuedAt: number }>>} */
-  const surfaceQueues = new Map();
-  const MAX_QUEUE_LENGTH = 16;
-
-  function queueKeyFor({ type, channelId, threadId }) {
-    return `${type}:${channelId}:${threadId ?? ''}`;
-  }
 
   // --- supersede support ---------------------------------------------------
   // A plain (non-/queue) message cancels any in-flight turn and runs straight
@@ -1686,48 +1688,69 @@ export function createMessengerOpencodeBridge({
     }
   }
 
-  // --- Queue draining -------------------------------------------------------
-  async function drainSurfaceQueue(ctx) {
-    const key = queueKeyFor(ctx);
-    const queue = surfaceQueues.get(key);
-    if (!queue || queue.length === 0) return;
-    const next = queue.shift();
-    if (queue.length === 0) surfaceQueues.delete(key);
-    const who = next.from?.firstName || next.from?.username || 'queued';
-    if (next?.kind === 'command' && next.commandName) {
+  // --- Shared queue drain (messenger-sourced items) -------------------------
+  // The runtime drains on session.idle. For items Discord queued, we post the
+  // `» queued` marker and send through routeInbound / sendOpencodeCommand so
+  // the Discord surface stays the conversation owner. Both the queue and
+  // sessionContexts are in-memory, so a missing ctx means the process restarted
+  // (queue already gone) or the context was never established — fail the drain
+  // so the runtime backs off instead of silently REST-posting without a mirror.
+  if (messageQueueRuntime && typeof messageQueueRuntime.registerMessengerSender === 'function') {
+    messageQueueRuntime.registerMessengerSender(async ({ sessionId, item }) => {
+      let ctx = sessionContexts.get(sessionId);
+      if (!ctx) {
+        // Both the queue and sessionContexts are in-memory and die together on
+        // restart. A missing live ctx here is an edge case (context pruned while
+        // queue still held the item) — fail closed so the runtime backs off
+        // instead of silently REST-posting without a Discord mirror.
+        return { ok: false, error: 'no live messenger context for queued session' };
+      }
+
+      const who = item.from?.firstName || item.from?.username || 'queued';
+      if (item.kind === 'command' && item.commandName) {
+        try {
+          await postToSurface(
+            ctx,
+            `» **${escapeMd(who)} queued command:** \`/${escapeMd(item.commandName)}${item.args ? ` ${escapeMd(item.args)}` : ''}\``,
+          );
+        } catch {
+          // cosmetic echo only
+        }
+        const result = await opencodeAdapter.sendOpencodeCommand(sessionId, item.commandName, item.args ?? '');
+        if (!result.ok) {
+          await postToSurface(
+            ctx,
+            `✗ Queued command failed: ${escapeMd(clipBlock(result.error ?? 'unknown error', 300))}`,
+          ).catch(() => {});
+          return { ok: false, error: result.error ?? 'queued command failed' };
+        }
+        return { ok: true };
+      }
+
+      const text = typeof item.content === 'string' ? item.content : '';
+      if (!text) return { ok: false, error: 'queued item has no content' };
       try {
-        await postToSurface(
-          ctx,
-          `» **${escapeMd(who)} queued command:** \`/${escapeMd(next.commandName)}${next.args ? ` ${escapeMd(next.args)}` : ''}\``,
-        );
+        await postToSurface(ctx, `» **${escapeMd(who)}:** ${clipBlock(text, 500)}`);
       } catch {
         // cosmetic echo only
       }
-      const result = await opencodeAdapter.sendOpencodeCommand(ctx.sessionId, next.commandName, next.args ?? '');
-      if (!result.ok) {
-        await postToSurface(ctx, `✗ Queued command failed: ${escapeMd(clipBlock(result.error ?? 'unknown error', 300))}`).catch(() => {});
+      try {
+        const result = await routeInbound({
+          type: ctx.type,
+          token: ctx.token,
+          channelId: ctx.channelId,
+          threadId: ctx.threadId,
+          text,
+          projectPath: ctx.projectPath ?? null,
+          from: item.from ?? null,
+          fromQueue: true,
+        });
+        return result?.ok ? { ok: true } : { ok: false, error: result?.error ?? 'routeInbound failed' };
+      } catch (err) {
+        console.warn('[BRIDGE] Failed to send queued message:', err?.message ?? err);
+        return { ok: false, error: err?.message ?? 'routeInbound failed' };
       }
-      return;
-    }
-    if (!next?.text) return;
-    try {
-      await postToSurface(ctx, `» **${escapeMd(who)}:** ${clipBlock(next.text, 500)}`);
-    } catch {
-      // cosmetic echo only
-    }
-    try {
-      await routeInbound({
-        type: ctx.type,
-        token: ctx.token,
-        channelId: ctx.channelId,
-        threadId: ctx.threadId,
-        text: next.text,
-        projectPath: ctx.projectPath ?? null,
-        from: next.from ?? null,
-      });
-    } catch (err) {
-      console.warn('[BRIDGE] Failed to send queued message:', err?.message ?? err);
-    }
+    });
   }
 
   // --- Pending-approval auto-reject -------------------------------------------
@@ -2703,12 +2726,21 @@ export function createMessengerOpencodeBridge({
       // bounces straight back to me" duplication on web-created threads that are
       // later continued from Discord.
       if (consumeMessengerInbound(sessionId, text)) return;
-      // Name the thread (when one is created) after the user's first line so the
-      // Discord thread list is meaningful instead of a wall of "OpenChamber agent · web".
-      const threadName = text ? clipBlock(text.split('\n')[0], 80) : null;
-      const ctx = await ensureDefaultSessionContext(sessionId, { projectPath, threadName });
-      if (!ctx?.webMirror) return;
       if (!text) return;
+      // Prefer an existing messenger context (Discord-bound session continued
+      // from the web UI). Otherwise create/reuse the default web-mirror target.
+      // Do NOT require `webMirror`: Discord-sourced contexts still need a
+      // **Web** block when the user types in the UI, otherwise Discord only
+      // shows the assistant reply.
+      let ctx = sessionContexts.get(sessionId);
+      if (!ctx) {
+        // Name the thread (when one is created) after the user's first line so
+        // the Discord thread list is meaningful instead of a wall of
+        // "OpenChamber agent · web".
+        const threadName = clipBlock(text.split('\n')[0], 80);
+        ctx = await ensureDefaultSessionContext(sessionId, { projectPath, threadName });
+      }
+      if (!ctx) return;
       const dedupKey = part?.id ? `${part.id}:user` : null;
       if (dedupKey && ctx.sentPartIds.has(dedupKey)) return;
       const safe = clipBlock(text.replace(/```/g, "'''"), 1500);
@@ -2799,10 +2831,12 @@ export function createMessengerOpencodeBridge({
       ctx.lastPostedMarker = null;
     }
 
-    // Web-mirrored sessions must post the user's **Web** echo before any
-    // assistant output for that turn. The hub does not serialize handlers, so
-    // without this gate a completed assistant part can overtake the echo.
-    if (ctx.webMirror) {
+    // Post the user's **Web** echo before any assistant output for that turn.
+    // Applies to web-mirrored and Discord-bound sessions continued from the UI.
+    // The hub does not serialize handlers, so without this gate a completed
+    // assistant part can overtake the echo. Discord-originated turns release
+    // the gate quickly inside emitWebUserPart (consumeMessengerInbound).
+    {
       const assistantMessageId = getPartMessageId(part);
       const parentId = assistantMessageId ? messageParents.get(assistantMessageId) : null;
       if (parentId) await waitForWebUserPromptHandled(parentId);
@@ -2845,36 +2879,16 @@ export function createMessengerOpencodeBridge({
       if (role === 'user') {
         // Remember the synthetic shell-marker message so the assistant echo of
         // a user-run shell command (`/shell` / web `!cmd`) can be recognised
-        // and rendered as a clean command + output block. Done for every
-        // surface (Discord-bound too), before the web-mirror gate below skips
-        // non-web sessions.
+        // and rendered as a clean command + output block.
         if (part?.type === 'text' && isUserShellMarkerText(part.text) && partMessageId) {
           rememberShellMarkerMessage(partMessageId);
         }
-        // Mirror the user's own prompt into the messenger as a **Web** block.
-        // Only for web-originated sessions: a session already bound to a
-        // Discord surface had its prompt typed there already, so
-        // echoing it back would duplicate it.
-        const ctx = sessionContexts.get(sessionId);
-        if (!ctx) {
-          // Check the bridge store: if this session has a Discord
-          // binding, the user's prompt came from a messenger, not the web.
-          // This handles edge cases where the in-memory context was lost
-          // (e.g. server restart while a session was actively streaming).
-          const messengerBindings = bridgeStore
-            .lookupBySessionId(sessionId)
-            .filter((b) => b.type === 'discord');
-          if (messengerBindings.length === 0) {
-            await emitWebUserPart(sessionId, part, { projectPath: envelopeDirectory });
-          } else {
-            // Not mirrored as **Web** — release any waiters armed by message.updated.
-            markWebUserPromptHandled(partMessageId);
-          }
-        } else if (ctx.source === 'web' || ctx.webMirror) {
-          await emitWebUserPart(sessionId, part, { projectPath: envelopeDirectory });
-        } else {
-          markWebUserPromptHandled(partMessageId);
-        }
+        // Mirror UI prompts into the bound messenger surface as a **Web** block.
+        // Do NOT gate on `source`/`webMirror`: Discord-bound sessions continued
+        // from the web UI still need the echo, otherwise Discord only shows the
+        // assistant reply. Discord-originated prompts are filtered inside
+        // emitWebUserPart via consumeMessengerInbound.
+        await emitWebUserPart(sessionId, part, { projectPath: envelopeDirectory });
         return;
       }
       if (!sessionContexts.has(sessionId)) {
@@ -2960,15 +2974,15 @@ export function createMessengerOpencodeBridge({
       ctx.idleSettled = true;
       // The turn already surfaced an error — OpenCode still emits idle (often
       // more than once) afterwards. Skip the misleading "done · 1ms" footer but
-      // still settle the turn (clear busy, flush todos, drain the queue). The
-      // errored flag stays set until the next turn produces output.
+      // still settle the turn (clear busy, flush todos). Queue drain is owned
+      // by messageQueueRuntime via the global event hub idle event.
+      // The errored flag stays set until the next turn produces output.
       if (ctx.errored) {
         stopTypingPulse(ctx);
         finishTodoMessageForSession(ctx, sessionId);
         ctx.sentPartIds.clear();
         ctx.startedAt = Date.now();
         busySessions.delete(sessionId);
-        void drainSurfaceQueue(ctx);
         return;
       }
       stopTypingPulse(ctx);
@@ -3062,9 +3076,7 @@ export function createMessengerOpencodeBridge({
         channelId: ctx.channelId,
         threadId: ctx.threadId,
       });
-      // Drain one queued message for this surface: /queue'd
-      // follow-ups send automatically after each response completes.
-      void drainSurfaceQueue(ctx);
+      // Queue drain is owned by messageQueueRuntime (hub session.idle).
       return;
     }
     if (type === 'session.error') {
@@ -4156,25 +4168,15 @@ export function createMessengerOpencodeBridge({
 
       async forkSession() {
         if (!stored?.sessionId) return { ok: false, error: 'no session bound to this conversation.' };
-        const messages = await opencodeAdapter.listMessages(stored.sessionId, stored?.projectPath ?? undefined);
-        // Branch from the most recent genuine user message — synthetic
-        // injections (memory / scheduling / discord blocks) are skipped.
-        // Legacy sessions may still have those blocks prepended into the
-        // visible user text; newer sessions keep them on synthetic parts.
-        const lastUserMessage = [...(messages ?? [])].reverse().find((m) => {
-          if ((m?.info?.role ?? m?.role) !== 'user') return false;
-          const preview = firstTextOfMessage(m);
-          return !preview.startsWith('<project-memory>')
-            && !preview.startsWith('<scheduling>')
-            && !preview.startsWith('<discord>')
-            && !preview.startsWith('<diffs>');
-        });
-        const messageId = lastUserMessage?.info?.id ?? lastUserMessage?.id ?? null;
-        if (!messageId) return { ok: false, error: 'no user message found in this session to fork from.' };
-
+        // Fork with NO messageID. OpenCode's Session.fork copies messages
+        // strictly BEFORE the given messageID (`if (p.id >= messageID) break`),
+        // so passing the last message id drops the most recent turn — and on
+        // short conversations produces an empty session whose agent sees none
+        // of the previous messages. With no messageID the entire session is
+        // cloned, matching OpenCode's "Full session" fork.
         const forked = await opencodeAdapter.forkSession(
           stored.sessionId,
-          messageId,
+          null,
           stored?.projectPath ?? undefined,
         );
         if (!forked.ok) return forked;
@@ -4188,47 +4190,108 @@ export function createMessengerOpencodeBridge({
           projectLabel: stored?.projectLabel ?? null,
         });
         if (!thread.ok) return thread;
-        return { ok: true, threadId: thread.threadId };
+
+        // Show the most recent assistant response so the fork thread opens
+        // with context instead of looking like a blank session.
+        const messages = await opencodeAdapter.listMessages(forked.sessionId, stored?.projectPath ?? undefined);
+        const lastText = lastAssistantTextOfMessages(messages ?? []);
+        if (lastText) {
+          await postMessengerSurface(
+            { type, token, channelId: thread.threadId, threadId: null },
+            `_Last assistant response:_\n${clipBlock(lastText, 1500)}`,
+          );
+        }
+        return {
+          ok: true,
+          threadId: thread.threadId,
+          loadedNote: messages?.length ? `Loaded ${messages.length} messages.` : '',
+        };
       },
 
       async queueMessage({ text }) {
-        const busy = stored?.sessionId ? busySessions.has(stored.sessionId) : false;
-        if (busy) {
-          const key = queueKeyFor(surface);
-          const queue = surfaceQueues.get(key) ?? [];
-          if (queue.length >= MAX_QUEUE_LENGTH) {
-            return { ok: false, error: `queue is full (${MAX_QUEUE_LENGTH} messages).` };
+        const sessionId = stored?.sessionId ?? null;
+        const busy = sessionId ? busySessions.has(sessionId) : false;
+
+        // Shared queue needs directory+sessionId. Without a bound session (or
+        // without the runtime), fall back to an immediate routeInbound send —
+        // same as the old idle path when nothing was bound yet.
+        if (!messageQueueRuntime || !sessionId) {
+          if (busy) {
+            return {
+              ok: false,
+              error: !messageQueueRuntime
+                ? 'message queue is unavailable while a response is running.'
+                : 'no session bound to queue against; send a message first.',
+            };
           }
-          queue.push({ text, from, queuedAt: Date.now() });
-          surfaceQueues.set(key, queue);
-          return { ok: true, queued: true, position: queue.length };
+          const result = await routeInbound({
+            type,
+            token,
+            channelId,
+            threadId: threadId ?? null,
+            text,
+            from,
+          });
+          return result.ok
+            ? { ok: true, queued: false }
+            : { ok: false, error: result.error ?? 'send failed' };
         }
-        // Nothing running — send straight away through the normal pipeline.
-        const result = await routeInbound({
-          type,
-          token,
-          channelId,
-          threadId: threadId ?? null,
-          text,
-          from,
+
+        const directory = (await resolveSurfaceProjectPath()) ?? stored?.projectPath ?? null;
+        if (!directory) {
+          return { ok: false, error: 'no project bound to this conversation; cannot queue.' };
+        }
+
+        // Ensure a live ctx so the messenger drain sender can post the marker
+        // and routeInbound into this surface (not a web-mirror fallback).
+        ensureSubscribed();
+        if (!sessionContexts.has(sessionId)) {
+          sessionContexts.set(sessionId, {
+            sessionId,
+            type,
+            token,
+            channelId,
+            threadId: threadId ?? null,
+            projectPath: directory,
+            sentPartIds: new Set(),
+            startedAt: Date.now(),
+            lastError: null,
+            verbosity: resolveVerbosity(surface),
+            from,
+            source: type,
+          });
+        }
+
+        const result = await messageQueueRuntime.enqueue({
+          directory,
+          sessionId,
+          item: {
+            kind: 'prompt',
+            content: text,
+            source: type,
+            from: from ?? undefined,
+          },
         });
-        return result.ok
-          ? { ok: true, queued: false }
-          : { ok: false, error: result.error ?? 'send failed' };
+        if (!result?.ok) {
+          return { ok: false, error: result?.error ?? 'enqueue failed' };
+        }
+        // Idle → runtime tryDrain kicks immediately → reply "sent immediately".
+        // Busy → stays queued until hub idle drains it.
+        return busy
+          ? { ok: true, queued: true, position: result.position, truncated: result.truncated === true }
+          : { ok: true, queued: false, truncated: result.truncated === true };
       },
 
       async clearQueue({ position } = {}) {
-        const key = queueKeyFor(surface);
-        const queue = surfaceQueues.get(key);
+        if (!messageQueueRuntime) return 0;
+        const sessionId = stored?.sessionId ?? null;
+        if (!sessionId) return 0;
+        const directory = (await resolveSurfaceProjectPath()) ?? stored?.projectPath ?? null;
+        if (!directory) return 0;
         if (position != null) {
-          if (!queue || position < 1 || position > queue.length) return 0;
-          queue.splice(position - 1, 1);
-          if (queue.length === 0) surfaceQueues.delete(key);
-          return 1;
+          return messageQueueRuntime.removeAt({ directory, sessionId, position }) ? 1 : 0;
         }
-        const cleared = queue?.length ?? 0;
-        surfaceQueues.delete(key);
-        return cleared;
+        return messageQueueRuntime.clear({ directory, sessionId });
       },
 
       async listWorktrees() {
@@ -4312,21 +4375,13 @@ export function createMessengerOpencodeBridge({
 
       async queueCommand({ name, args }) {
         if (!stored?.sessionId) return { ok: false, error: 'no session bound to this conversation.' };
-        const busy = busySessions.has(stored.sessionId);
-        if (busy) {
-          const key = queueKeyFor(surface);
-          const queue = surfaceQueues.get(key) ?? [];
-          if (queue.length >= MAX_QUEUE_LENGTH) {
-            return { ok: false, error: `queue is full (${MAX_QUEUE_LENGTH} messages).` };
-          }
-          queue.push({ kind: 'command', commandName: name, args: args ?? '', from, queuedAt: Date.now() });
-          surfaceQueues.set(key, queue);
-          return { ok: true, queued: true, position: queue.length };
-        }
+        const sessionId = stored.sessionId;
+        const busy = busySessions.has(sessionId);
+
         ensureSubscribed();
-        if (!sessionContexts.has(stored.sessionId)) {
-          sessionContexts.set(stored.sessionId, {
-            sessionId: stored.sessionId,
+        if (!sessionContexts.has(sessionId)) {
+          sessionContexts.set(sessionId, {
+            sessionId,
             type,
             token,
             channelId,
@@ -4340,7 +4395,38 @@ export function createMessengerOpencodeBridge({
             source: type,
           });
         }
-        return opencodeAdapter.sendOpencodeCommand(stored.sessionId, name, args ?? '');
+
+        if (!messageQueueRuntime) {
+          // Runtime unavailable — preserve old idle-path send; reject when busy
+          // because there is nowhere to hold the command.
+          if (busy) {
+            return { ok: false, error: 'message queue is unavailable while a response is running.' };
+          }
+          return opencodeAdapter.sendOpencodeCommand(sessionId, name, args ?? '');
+        }
+
+        const directory = (await resolveSurfaceProjectPath()) ?? stored?.projectPath ?? null;
+        if (!directory) {
+          return { ok: false, error: 'no project bound to this conversation; cannot queue.' };
+        }
+
+        const result = await messageQueueRuntime.enqueue({
+          directory,
+          sessionId,
+          item: {
+            kind: 'command',
+            commandName: name,
+            args: args ?? '',
+            source: type,
+            from: from ?? undefined,
+          },
+        });
+        if (!result?.ok) {
+          return { ok: false, error: result?.error ?? 'enqueue failed' };
+        }
+        return busy
+          ? { ok: true, queued: true, position: result.position, truncated: result.truncated === true }
+          : { ok: true, queued: false, truncated: result.truncated === true };
       },
 
       async restartOpencodeServer() {
@@ -4564,6 +4650,11 @@ export function createMessengerOpencodeBridge({
    * @param {string|null} [args.projectPath]
    * @param {string|null} [args.projectLabel]
    * @param {object} [args.from]
+   * @param {boolean} [args.fromQueue] - when true, skip the plain-message
+   *   supersede path. Used by the shared-queue drain sender: the session is
+   *   already idle (that's why we're draining), but the bridge's busySessions
+   *   set may not have been cleared yet if the runtime handled the hub idle
+   *   event before this bridge's handler.
    */
   async function routeInbound({
     type,
@@ -4580,6 +4671,7 @@ export function createMessengerOpencodeBridge({
     // above surface overrides, project defaults and global defaults.
     modelOverride: pinnedModel = null,
     agentOverride: pinnedAgent = null,
+    fromQueue = false,
   }) {
     // Attachments: text files inline as <attachment> blocks,
     // images/PDFs forwarded as file parts, voice messages transcribed via the
@@ -5079,7 +5171,8 @@ export function createMessengerOpencodeBridge({
     // A plain message (not /queue'd) supersedes any in-flight turn: cancel the
     // current work and run this one as soon as the aborted turn settles. /queue
     // is the opt-in path for "wait for the current response to finish".
-    if (busySessions.has(sessionId)) {
+    // fromQueue drains already waited for idle — never abort/supersede them.
+    if (!fromQueue && busySessions.has(sessionId)) {
       // Broadcast the incoming message IMMEDIATELY so the UI can show it
       // before the current turn is aborted — avoids the "stuck" gap.
       broadcastEvent?.('messenger.discord.supersede_incoming', {

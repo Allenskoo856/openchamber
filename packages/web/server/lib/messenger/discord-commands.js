@@ -78,7 +78,7 @@ export function buildSlashCommandDefinitions() {
         { type: STRING_OPTION, name: 'session', description: 'List number or session id (leave empty to list)', required: false },
       ],
     },
-    { name: 'fork', description: 'Branch this session from your last message' },
+    { name: 'fork', description: 'Clone this session with its full history into a new thread' },
     {
       name: 'queue',
       description: 'Queue a message to send after the current response finishes',

@@ -11,6 +11,10 @@ import {
   normalizeDiscordAccessSettings,
 } from './discord-access.js';
 import {
+  formatChannelHistoryPrompt,
+  parseMentionHistoryRequest,
+} from './discord-mention-history.js';
+import {
   normalizeLegacyDiscordCustomId,
   normalizeLegacyDiscordSelectValue,
 } from './discord-wizard-shared.js';
@@ -80,6 +84,30 @@ async function restCall(token, method, path, body) {
   }
   const r = await fetch(url, init);
   return { ok: r.ok, status: r.status, body: r.ok ? await r.json().catch(() => null) : await r.text() };
+}
+
+/**
+ * Fetch up to `limit` messages strictly before `beforeMessageId` (newest-first).
+ * Used when an @mention asks OpenChamber to read recent channel context.
+ */
+async function fetchChannelMessagesBefore({ token, channelId, beforeMessageId, limit }) {
+  const n = Math.max(1, Math.min(100, Number(limit) || 1));
+  const params = new URLSearchParams({ limit: String(n) });
+  if (beforeMessageId) params.set('before', String(beforeMessageId));
+  try {
+    const r = await restCall(
+      token,
+      'GET',
+      `/channels/${encodeURIComponent(channelId)}/messages?${params.toString()}`,
+    );
+    if (!r.ok) {
+      const detail = typeof r.body === 'string' ? r.body.slice(0, 180) : `HTTP ${r.status}`;
+      return { ok: false, error: detail, messages: [] };
+    }
+    return { ok: true, messages: Array.isArray(r.body) ? r.body : [] };
+  } catch (err) {
+    return { ok: false, error: err?.message ?? 'channel history fetch failed', messages: [] };
+  }
 }
 
 function buildAutoReply(message) {
@@ -302,20 +330,25 @@ async function dispatchMessageCreate(state, message, broadcastEvent, bridge) {
     bridge.getMentionMode({ type: 'discord', token: state.token, channelId: message.channel_id });
   const guildReplyMode = effectiveGuildReplyMode(state, guildId);
   const mentionRequired = text.length > 0 && (Boolean(channelMentionMode) || guildReplyMode === 'mention');
-  if (mentionRequired) {
-    let mentionsBot =
-      (state.botId && (Array.isArray(message.mentions) ? message.mentions : []).some((u) => u?.id === state.botId)) ||
-      (state.botId && text.includes(`<@${state.botId}>`)) ||
-      (state.botId && text.includes(`<@!${state.botId}>`));
-    // A mention of the bot's own role (`<@&roleId>`) counts too — Discord puts
-    // role ids in `mention_roles`, not the `mentions` user array, so the
-    // user-mention check alone silently drops "hey @BotRole …" in
-    // mention-only mode.
-    const mentionRoles = Array.isArray(message.mention_roles) ? message.mention_roles : [];
-    if (!mentionsBot && mentionRoles.length > 0 && guildId) {
-      const botRoleIds = await lookupBotRoleIds(state, guildId);
+
+  let mentionsBot =
+    (state.botId && (Array.isArray(message.mentions) ? message.mentions : []).some((u) => u?.id === state.botId)) ||
+    (state.botId && text.includes(`<@${state.botId}>`)) ||
+    (state.botId && text.includes(`<@!${state.botId}>`));
+  // A mention of the bot's own role (`<@&roleId>`) counts too — Discord puts
+  // role ids in `mention_roles`, not the `mentions` user array, so the
+  // user-mention check alone silently drops "hey @BotRole …" in
+  // mention-only mode.
+  const mentionRoles = Array.isArray(message.mention_roles) ? message.mention_roles : [];
+  let botRoleIds = null;
+  if (mentionRoles.length > 0 && guildId && state.botId) {
+    botRoleIds = await lookupBotRoleIds(state, guildId);
+    if (!mentionsBot) {
       mentionsBot = mentionRoles.some((roleId) => botRoleIds.has(String(roleId)));
     }
+  }
+
+  if (mentionRequired) {
     const hasBinding = bridge.hasSurfaceBinding?.({
       type: 'discord',
       token: state.token,
@@ -340,9 +373,71 @@ async function dispatchMessageCreate(state, message, broadcastEvent, bridge) {
       });
       return; // ignored by design — user must @mention the bot here
     }
-    // Strip the bot mention from the prompt so the model doesn't see it.
-    if (state.botId) {
-      text = text.replaceAll(`<@${state.botId}>`, '').replaceAll(`<@!${state.botId}>`, '').trim();
+  }
+
+  // Strip the bot mention whenever present so "@OpenChamber 5 summarize"
+  // can opt into reading recent channel messages as context.
+  if (mentionsBot && state.botId) {
+    text = text.replaceAll(`<@${state.botId}>`, '').replaceAll(`<@!${state.botId}>`, '').trim();
+    if (!botRoleIds && mentionRoles.length > 0 && guildId) {
+      botRoleIds = await lookupBotRoleIds(state, guildId);
+    }
+    if (botRoleIds) {
+      for (const roleId of botRoleIds) {
+        text = text.replaceAll(`<@&${roleId}>`, '');
+      }
+      text = text.trim();
+    }
+  }
+
+  if (mentionsBot) {
+    const historyRequest = parseMentionHistoryRequest(text);
+    if (historyRequest.historyCount != null) {
+      const history = await fetchChannelMessagesBefore({
+        token: state.token,
+        channelId: message.channel_id,
+        beforeMessageId: message.id,
+        limit: historyRequest.historyCount,
+      });
+      if (!history.ok) {
+        state.lastError = history.error ?? 'channel history fetch failed';
+        try {
+          await restCall(state.token, 'POST', `/channels/${encodeURIComponent(message.channel_id)}/messages`, {
+            content: `⚠ Could not read recent channel messages: ${String(history.error ?? 'unknown error').slice(0, 180)}`,
+            message_reference: {
+              message_id: message.id,
+              channel_id: message.channel_id,
+              guild_id: message.guild_id,
+              fail_if_not_exists: false,
+            },
+          });
+        } catch {
+          // best-effort notice
+        }
+        return;
+      }
+      text = formatChannelHistoryPrompt({
+        messages: history.messages,
+        userPrompt: historyRequest.prompt,
+      });
+      if (!text) {
+        try {
+          await restCall(state.token, 'POST', `/channels/${encodeURIComponent(message.channel_id)}/messages`, {
+            content: '⚠ No previous channel messages to read.',
+            message_reference: {
+              message_id: message.id,
+              channel_id: message.channel_id,
+              guild_id: message.guild_id,
+              fail_if_not_exists: false,
+            },
+          });
+        } catch {
+          // best-effort notice
+        }
+        return;
+      }
+    } else {
+      text = historyRequest.prompt;
     }
   }
 
@@ -374,6 +469,7 @@ async function dispatchMessageCreate(state, message, broadcastEvent, bridge) {
   // back into the same channel/thread. This is what makes Discord a real
   // OpenChamber chat surface. Attachment-only messages (e.g. "send message
   // as file", screenshots, voice messages) are bridged too.
+  // Empty @mentions become bridgeable after channel-history injection above.
   const isBridgeable =
     bridge && state.bridgeEnabled !== false &&
     (text.length > 0 || attachments.length > 0) &&

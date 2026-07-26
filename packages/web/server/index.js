@@ -76,6 +76,7 @@ import { createSessionAssistRuntime } from './lib/session-assist/runtime.js';
 import { createSessionGoalRuntime } from './lib/session-goal/runtime.js';
 import { createContextObligatoryRuntime } from './lib/context-obligatory/runtime.js';
 import { createScheduledTasksRuntime } from './lib/scheduled-tasks/runtime.js';
+import { createMessageQueueRuntime, MESSAGE_QUEUE_CHANGED_EVENT } from './lib/message-queue/runtime.js';
 import { createServerStartupRuntime } from './lib/opencode/server-startup-runtime.js';
 import { createTunnelWiringRuntime } from './lib/opencode/tunnel-wiring-runtime.js';
 import { createStartupPipelineRuntime } from './lib/opencode/startup-pipeline-runtime.js';
@@ -1095,6 +1096,29 @@ const scheduledTasksRuntime = createScheduledTasksRuntime({
   logger: console,
 });
 
+const messageQueueRuntime = createMessageQueueRuntime({
+  buildOpenCodeUrl,
+  getOpenCodeAuthHeaders,
+  globalEventHub: globalMessageStreamHub,
+  emitQueueChanged: (event) => {
+    for (const client of uiOpenChamberEventClients) {
+      try {
+        writeSseEvent(client, {
+          type: MESSAGE_QUEUE_CHANGED_EVENT,
+          properties: {
+            directory: event.directory,
+            sessionId: event.sessionId,
+            items: event.items,
+          },
+        });
+      } catch {
+        uiOpenChamberEventClients.delete(client);
+      }
+    }
+  },
+  logger: console,
+});
+
 const ensureGlobalWatcherStarted = async () => {
   if (globalWatcherStartPromise) {
     return globalWatcherStartPromise;
@@ -1543,6 +1567,7 @@ async function main(options = {}) {
     buildAugmentedPath,
     projectConfigRuntime,
     scheduledTasksRuntime,
+    messageQueueRuntime,
     getOpenChamberEventClients: () => uiOpenChamberEventClients,
     writeSseEvent,
     permissionAutoAcceptRuntime,
@@ -1575,6 +1600,10 @@ async function main(options = {}) {
     // UI's Scheduled-tasks dialog manages, so both stay in sync.
     projectConfigRuntime,
     scheduledTasksRuntime,
+    // Discord `/queue` (and the `. queue` suffix) write into the SAME
+    // server-owned message queue the web UI's queue chips manage, so both
+    // surfaces see and drain one queue.
+    messageQueueRuntime,
     startTunnelWithNormalizedRequest,
     refreshOpenCodeAfterConfigChange,
     // Mirroring (parts, permissions, questions, todos, title fallback) rides

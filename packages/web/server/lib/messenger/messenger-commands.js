@@ -164,7 +164,7 @@ const COMMAND_HELP = [
   {
     name: 'fork',
     usage: '/fork',
-    summary: 'Branch this session from your last message into a new thread',
+    summary: 'Clone this session with its full history into a new thread',
   },
   { name: 'share', usage: '/share', summary: 'Generate a public URL for the current session' },
   { name: 'unshare', usage: '/unshare', summary: 'Revoke the public URL for the current session' },
@@ -1075,7 +1075,7 @@ export async function executeMessengerCommand({
       const r = await bridgeOps.forkSession();
       if (!r.ok) return { reply: `✗ Fork failed: ${r.error ?? 'unknown error'}` };
       return {
-        reply: `✓ Session forked from your last message${r.threadId ? ` — continue in <#${r.threadId}>` : ''}.`,
+        reply: `✓ Session forked${r.threadId ? ` — continue in <#${r.threadId}>` : ''}. The fork keeps the full history, so the agent sees every previous message.${r.loadedNote ? ` ${r.loadedNote}` : ''}`,
       };
     }
 

@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { createMessengerOpencodeBridge, questionContexts, approvalContexts } from './messenger-opencode-bridge.js';
 import { createMessengerSyncRouter, resolveMessengerTarget } from './messenger-sync.js';
+import { createMessageQueueRuntime } from '../message-queue/runtime.js';
 
 /**
  * Regression coverage for the Discord approval flow: a button click must reply
@@ -711,29 +712,51 @@ describe('discord inbound mirroring', () => {
   });
 
   it('does not echo a Discord user part when role is nested on the message', async () => {
-    globalThis.fetch = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ id: 'msg-1' }),
-      text: async () => '',
-    }));
+    const calls = [];
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      calls.push([String(url), init]);
+      const u = String(url);
+      if (u.includes('/messages/source-msg/threads')) {
+        return { ok: true, status: 200, json: async () => ({ id: 'thread-1', name: 'hello' }), text: async () => '' };
+      }
+      if (u.includes('/thread-members/user-1')) {
+        return { ok: true, status: 204, json: async () => null, text: async () => '' };
+      }
+      if (u === 'http://opencode/session?directory=%2Fproject') {
+        return { ok: true, status: 200, json: async () => ({ id: 'discord-ses-1' }), text: async () => '' };
+      }
+      if (u.includes('/session/discord-ses-1/prompt_async')) {
+        return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
+      }
+      return { ok: true, status: 200, json: async () => ({ id: 'msg-1' }), text: async () => '' };
+    });
 
     const bridge = makeBridge({
       store: {
         ...makeFakeStore(),
-        lookupBySessionId: (sessionId) =>
-          sessionId === 'discord-ses-1'
-            ? [{ type: 'discord', botTokenHash: 'hash', targetKey: 'thread-1', sessionId }]
-            : [],
+        lookup: () => null,
+        bind: () => {},
       },
-      getDefaultMessengerTarget: async () => ({
-        type: 'discord',
-        token: 'bot-token',
-        channelId: 'fallback-channel',
-        threadId: null,
-        projectPath: '/project',
-      }),
+      // Avoid creating a fallback web-mirror thread if inbound filtering fails.
+      lookupMessengerTarget: () => null,
+      getDefaultMessengerTarget: async () => null,
     });
+
+    // Discord inbound remembers the prompt so the OpenCode user-part echo is
+    // not mirrored back into the same thread.
+    await bridge.routeInbound({
+      type: 'discord',
+      token: 'bot-token',
+      channelId: 'channel-1',
+      threadId: null,
+      sourceMessageId: 'source-msg',
+      text: 'message typed in discord',
+      projectPath: '/project',
+      projectLabel: 'Project',
+      from: { id: 'user-1', username: 'alice' },
+    });
+
+    const beforeEcho = calls.filter(([url]) => url.includes('/channels/thread-1/messages')).length;
 
     await bridge._handleGlobalEvent({
       directory: '/project',
@@ -752,7 +775,88 @@ describe('discord inbound mirroring', () => {
       },
     });
 
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    const afterEcho = calls.filter(([url]) => url.includes('/channels/thread-1/messages')).length;
+    expect(afterEcho).toBe(beforeEcho);
+  });
+
+  it('echoes a web UI prompt into a Discord-bound session thread', async () => {
+    // Regression: continuing a Discord session from the web UI must post a
+    // **Web** block. Previously only webMirror/source=web sessions echoed, so
+    // Discord showed the assistant reply without the user's UI prompt.
+    const calls = [];
+    globalThis.fetch = vi.fn(async (url, init = {}) => {
+      calls.push([String(url), init]);
+      const u = String(url);
+      if (u.includes('/messages/source-msg/threads')) {
+        return { ok: true, status: 200, json: async () => ({ id: 'thread-ui', name: 'hello' }), text: async () => '' };
+      }
+      if (u.includes('/thread-members/user-1')) {
+        return { ok: true, status: 204, json: async () => null, text: async () => '' };
+      }
+      if (u === 'http://opencode/session?directory=%2Fproject') {
+        return { ok: true, status: 200, json: async () => ({ id: 'discord-ses-ui' }), text: async () => '' };
+      }
+      if (u.includes('/session/discord-ses-ui/prompt_async')) {
+        return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
+      }
+      if (u.includes('/channels/thread-ui/messages')) {
+        return { ok: true, status: 200, json: async () => ({ id: 'posted' }), text: async () => '' };
+      }
+      return { ok: false, status: 404, json: async () => ({}), text: async () => 'not found' };
+    });
+
+    const bridge = makeBridge({
+      store: {
+        ...makeFakeStore(),
+        lookup: () => null,
+        bind: () => {},
+      },
+      lookupMessengerTarget: () => null,
+      getDefaultMessengerTarget: async () => null,
+    });
+
+    const routed = await bridge.routeInbound({
+      type: 'discord',
+      token: 'bot-token',
+      channelId: 'channel-1',
+      threadId: null,
+      sourceMessageId: 'source-msg',
+      text: 'started in discord',
+      projectPath: '/project',
+      projectLabel: 'Project',
+      from: { id: 'user-1', username: 'alice' },
+    });
+    expect(routed.ok).toBe(true);
+
+    // User continues the same session from the web UI.
+    await bridge._handleGlobalEvent({
+      directory: '/project',
+      payload: {
+        type: 'message.updated',
+        properties: { info: { id: 'm-ui', role: 'user', sessionID: 'discord-ses-ui' } },
+      },
+    });
+    await bridge._handleGlobalEvent({
+      directory: '/project',
+      payload: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'p-ui',
+            type: 'text',
+            messageID: 'm-ui',
+            sessionID: 'discord-ses-ui',
+            text: 'sounds nice',
+            time: { end: Date.now() },
+          },
+        },
+      },
+    });
+
+    const threadMessages = calls
+      .filter(([url]) => url.includes('/channels/thread-ui/messages'))
+      .map(([, init]) => JSON.parse(init.body).content);
+    expect(threadMessages.some((c) => c.includes('**Web**') && c.includes('sounds nice'))).toBe(true);
   });
 
   it('adds the Discord author to the thread via REST and replies without echoing them', async () => {
@@ -2393,7 +2497,26 @@ describe('plain message supersedes an in-flight turn', () => {
       return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
     });
 
+    // Shared hub so the bridge footer path and the central queue drain both
+    // see session.idle — production wires the same globalEventHub to both.
+    const subscribers = new Set();
+    const hub = {
+      subscribeEvent(fn) {
+        subscribers.add(fn);
+        return () => subscribers.delete(fn);
+      },
+      publishEvent() {},
+    };
+    const messageQueueRuntime = createMessageQueueRuntime({
+      buildOpenCodeUrl: (p) => `http://opencode${p}`,
+      getOpenCodeAuthHeaders: () => ({}),
+      globalEventHub: hub,
+      fetchImpl: (...args) => globalThis.fetch(...args),
+    });
+
     const bridge = makeBridge({
+      globalEventHub: hub,
+      messageQueueRuntime,
       store: {
         ...makeFakeStore(),
         lookup: ({ targetKey }) =>
@@ -2419,23 +2542,31 @@ describe('plain message supersedes an in-flight turn', () => {
     expect(queued).toMatchObject({ ok: true, handledCommand: 'queue' });
     expect(abortCalls()).toHaveLength(0);
     expect(promptCalls()).toHaveLength(1);
+    expect(messageQueueRuntime.getQueue('/p', 'ses-queue')).toHaveLength(1);
 
-    await bridge._handleGlobalEvent({
+    const idleEvent = {
       directory: '/p',
       payload: { type: 'session.idle', properties: { sessionID: 'ses-queue' } },
-    });
+    };
+    for (const fn of [...subscribers]) {
+      // eslint-disable-next-line no-await-in-loop
+      await fn(idleEvent);
+    }
     await flush();
+    await vi.waitFor(() => {
+      expect(promptCalls().length).toBeGreaterThanOrEqual(2);
+    });
 
     const sentBodies = promptCalls().map((c) => JSON.parse(c.body).parts[0].text);
     expect(sentBodies).toEqual(['first', 'second']);
   });
 
-  it('forks at the last user message into a new thread', async () => {
+  it('forks the full session into a new thread with its history', async () => {
     const calls = [];
     globalThis.fetch = vi.fn(async (url, init = {}) => {
       calls.push({ url: String(url), method: init.method ?? 'GET', body: init.body });
       const u = String(url);
-      if (u.includes('/session/ses-fork/message')) {
+      if (u.includes('/session/ses-forked/message')) {
         return {
           ok: true,
           status: 200,
@@ -2487,18 +2618,26 @@ describe('plain message supersedes an in-flight turn', () => {
       from: { id: 'user-1', username: 'alice' },
     });
 
-    expect(result.reply).toContain('Session forked from your last message');
+    expect(result.reply).toContain('Session forked');
     expect(result.reply).toContain('<#thread-fork>');
+    expect(result.reply).toContain('Loaded 4 messages.');
 
+    // No messageID — OpenCode forks the entire session (a messageID would
+    // fork strictly *before* that message and drop history).
     const forkCall = calls.find((c) => c.method === 'POST' && c.url.includes('/session/ses-fork/fork'));
     expect(forkCall).toBeTruthy();
-    expect(JSON.parse(forkCall.body)).toEqual({ messageID: 'msg-3' });
+    expect(JSON.parse(forkCall.body)).toEqual({});
 
     expect(binds).toContainEqual(expect.objectContaining({
       targetKey: 'thread-fork',
       sessionId: 'ses-forked',
       projectPath: '/p',
     }));
+
+    // The fork thread opens with the last assistant response for context.
+    const contextPost = calls.find((c) => c.method === 'POST' && c.url.includes('/channels/thread-fork/messages'));
+    expect(contextPost).toBeTruthy();
+    expect(JSON.parse(contextPost.body).content).toContain('Last assistant response');
   });
 
   it('suppresses a trailing abort error from the superseded turn (no false failure)', async () => {

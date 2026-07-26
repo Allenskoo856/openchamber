@@ -20,11 +20,127 @@ import {
   MESSENGER_INTERRUPT_TIMEOUT_MIN_MS,
   normalizeMessengerInterruptTimeoutMs,
 } from './messenger-bridge-store.js';
+import { resolvePrimaryWorktreeRoot } from '../git/service.js';
 
 /**
  * Messenger sync routes for Discord.
  * Handles project↔channel mapping, message format adaptation, and onboarding.
  */
+
+/** Normalize a filesystem path for project↔channel matching. */
+export function normalizeMessengerPath(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim().replace(/\\/g, '/');
+  if (!trimmed) return '';
+  // Keep root `/` intact; strip trailing slashes from everything else.
+  return trimmed === '/' ? trimmed : trimmed.replace(/\/+$/, '');
+}
+
+/**
+ * Pick the best project binding for a session directory.
+ * Prefer exact matches, then the longest project path that contains the
+ * directory (so `/proj/subdir` still lands in `/proj`'s channel). Worktree
+ * directories that live outside the project tree are handled by the caller via
+ * primary-root resolution before/after this lookup.
+ *
+ * Exported for testing.
+ */
+export function findBindingForPath(bindings, projectPath) {
+  const nd = normalizeMessengerPath(projectPath);
+  if (!nd) return null;
+  let best = null;
+  let bestLen = -1;
+  for (const binding of Array.isArray(bindings) ? bindings : []) {
+    if (!binding?.channelId || !binding?.projectPath) continue;
+    const pp = normalizeMessengerPath(binding.projectPath);
+    if (!pp) continue;
+    if (nd !== pp && !nd.startsWith(`${pp}/`)) continue;
+    if (pp.length > bestLen) {
+      bestLen = pp.length;
+      best = binding;
+    }
+  }
+  return best;
+}
+
+/**
+ * Find the Discord channel a project's web conversations should mirror into.
+ * Resolution order:
+ *   1. exact / longest-prefix match against settings.discord.projectBindings
+ *   2. same match against the git primary worktree root (linked worktrees live
+ *      under OpenCode's worktree data dir, not under the project path)
+ *   3. a channel binding recorded in the bridge store for those candidates
+ *   4. null (caller falls back to the guild/default channel / #general)
+ *
+ * Exported for testing.
+ */
+export async function resolveProjectChannel({
+  discord,
+  projectPath,
+  bridgeStore = null,
+  resolvePrimaryRoot = null,
+} = {}) {
+  if (!projectPath) return null;
+  const bindings = Array.isArray(discord?.projectBindings) ? discord.projectBindings : [];
+  const candidates = [projectPath];
+
+  const resolveRoot =
+    typeof resolvePrimaryRoot === 'function'
+      ? resolvePrimaryRoot
+      : async (directory) => {
+          try {
+            const result = await resolvePrimaryWorktreeRoot(directory);
+            return result?.root ?? null;
+          } catch {
+            return null;
+          }
+        };
+
+  try {
+    const primary = await resolveRoot(projectPath);
+    const normalizedPrimary = normalizeMessengerPath(primary);
+    const normalizedPath = normalizeMessengerPath(projectPath);
+    if (normalizedPrimary && normalizedPrimary !== normalizedPath) {
+      candidates.push(primary);
+    }
+  } catch {
+    // best-effort — keep the original path candidate
+  }
+
+  for (const candidate of candidates) {
+    const match = findBindingForPath(bindings, candidate);
+    if (match?.channelId) {
+      return { channelId: String(match.channelId), projectLabel: match.projectLabel ?? null };
+    }
+  }
+
+  // Fallback: the bridge store may already hold a channel↔project binding
+  // (e.g. created by /bridge/project-added). Match against the same candidates.
+  try {
+    if (bridgeStore?.list) {
+      const rows = bridgeStore
+        .list({ type: 'discord' })
+        .filter((r) => r?.targetKey && r.sessionId === '');
+      for (const candidate of candidates) {
+        const match = findBindingForPath(
+          rows.map((r) => ({
+            channelId: r.targetKey,
+            projectPath: r.projectPath,
+            projectLabel: r.projectLabel,
+          })),
+          candidate,
+        );
+        if (match?.channelId) {
+          return { channelId: String(match.channelId), projectLabel: match.projectLabel ?? null };
+        }
+      }
+    }
+  } catch {
+    // best-effort
+  }
+
+  return null;
+}
 /** Map a Discord HTTP failure into a short, human-friendly message. */
 function friendlyDiscordError(status, rawText) {
   const trimmed = (rawText ?? '').slice(0, 300);
@@ -189,6 +305,10 @@ export function createMessengerSyncRouter({
   // with the web UI's Scheduled-tasks dialog.
   projectConfigRuntime = null,
   scheduledTasksRuntime = null,
+  // Server-owned message queue shared with the web UI. Discord `/queue`,
+  // `/clear-queue`, `/queue-command` and the `. queue` suffix write here so
+  // both surfaces see and drain one queue.
+  messageQueueRuntime = null,
   startTunnelWithNormalizedRequest = null,
   refreshOpenCodeAfterConfigChange = null,
   // Optional async hook that starts the shared global event stream (the
@@ -239,41 +359,6 @@ export function createMessengerSyncRouter({
   };
 
   /**
-   * Find the Discord channel a project's web conversations should mirror into.
-   * Resolution order:
-   *   1. persisted per-project binding (settings.discord.projectBindings) — the
-   *      authoritative project→channel map the Settings UI sends at start.
-   *   2. a channel binding recorded in the bridge store for this project path.
-   *   3. null (caller falls back to the guild/default channel).
-   * Returns { channelId, projectLabel } or null.
-   */
-  function resolveProjectChannel({ discord, projectPath }) {
-    if (!projectPath) return null;
-    const bindings = Array.isArray(discord?.projectBindings) ? discord.projectBindings : [];
-    const match = bindings.find(
-      (b) => b && b.channelId && b.projectPath && b.projectPath === projectPath,
-    );
-    if (match?.channelId) {
-      return { channelId: String(match.channelId), projectLabel: match.projectLabel ?? null };
-    }
-    // Fallback: the bridge store may already hold a channel↔project binding
-    // (e.g. created by /bridge/project-added). Pick the most-recently-used one.
-    try {
-      if (bridge?.store?.list) {
-        const rows = bridge.store
-          .list({ type: 'discord' })
-          .filter((r) => r.projectPath === projectPath && r.targetKey && r.sessionId === '');
-        if (rows[0]?.targetKey) {
-          return { channelId: String(rows[0].targetKey), projectLabel: rows[0].projectLabel ?? null };
-        }
-      }
-    } catch {
-      // best-effort
-    }
-    return null;
-  }
-
-  /**
    * Build the channel→project resolver the Discord listener uses to route an
    * inbound message to the right OpenChamber project. Keyed by the persisted
    * `projectBindings` (channel id → project). Shared by the manual
@@ -316,7 +401,13 @@ export function createMessengerSyncRouter({
 
     // Prefer the project's own channel so web conversations land in the right
     // place (and in a per-session thread) instead of dumping into #general.
-    const projectChannel = resolveProjectChannel({ discord, projectPath });
+    // Linked worktrees live outside the project path, so resolve via primary
+    // root as well — otherwise sessions fall through to defaultChannelId.
+    const projectChannel = await resolveProjectChannel({
+      discord,
+      projectPath,
+      bridgeStore: bridge?.store ?? null,
+    });
     if (projectChannel?.channelId) {
       return {
         type: 'discord',
@@ -413,6 +504,7 @@ export function createMessengerSyncRouter({
           getLocalApiBaseUrl,
           projectConfigRuntime,
           scheduledTasksRuntime,
+          messageQueueRuntime,
           startTunnelWithNormalizedRequest,
           refreshOpenCodeAfterConfigChange,
           // Powers the Discord `/skill` picker — list skills available to the
