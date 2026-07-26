@@ -813,12 +813,12 @@ export const PullRequestSection: React.FC<{
           <div className="typography-micro text-foreground">{run.output.title}</div>
         ) : null}
         {run.output?.summary ? (
-          <div className="typography-micro text-muted-foreground whitespace-pre-wrap">
+          <div className="typography-micro text-muted-foreground whitespace-pre-wrap break-words">
             {run.output.summary}
           </div>
         ) : null}
         {run.output?.text ? (
-          <div className="rounded border border-border/40 bg-transparent px-2 py-2 typography-micro text-muted-foreground whitespace-pre-wrap max-h-48 overflow-y-auto">
+          <div className="rounded border border-border/40 bg-transparent px-2 py-2 typography-micro text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
             {run.output.text}
           </div>
         ) : null}
@@ -831,17 +831,17 @@ export const PullRequestSection: React.FC<{
             <div className="space-y-1">
               {run.annotations.slice(0, 20).map((annotation, idx) => (
                 <div key={`${annotation.path || 'file'}:${annotation.startLine || idx}:${idx}`} className="rounded border border-[var(--status-error-border)] bg-[var(--status-error-background)]/40 px-2 py-2">
-                  <div className="typography-micro text-[var(--status-error)]">
+                  <div className="typography-micro break-words text-[var(--status-error)]">
                     {annotation.title || annotation.level || 'Issue'}
                     {annotation.path ? ` · ${annotation.path}` : ''}
                     {typeof annotation.startLine === 'number' ? `:${annotation.startLine}` : ''}
                     {typeof annotation.endLine === 'number' && annotation.endLine !== annotation.startLine ? `-${annotation.endLine}` : ''}
                   </div>
-                  <div className="typography-micro text-foreground whitespace-pre-wrap mt-1">
+                  <div className="typography-micro text-foreground whitespace-pre-wrap break-words mt-1">
                     {annotation.message}
                   </div>
                   {annotation.rawDetails ? (
-                    <div className="typography-micro text-muted-foreground whitespace-pre-wrap mt-1">
+                    <div className="typography-micro text-muted-foreground whitespace-pre-wrap break-words mt-1">
                       {annotation.rawDetails}
                     </div>
                   ) : null}
@@ -1818,7 +1818,7 @@ export const PullRequestSection: React.FC<{
                                 ) : null}
                               </button>
                               {expanded && hasDetails ? (
-                                <div className="border-t border-border/40 p-2.5">
+                                <div className="min-w-0 overflow-hidden border-t border-border/40 p-2.5">
                                   {renderCheckRunSummary(run, { hideHeader: true })}
                                 </div>
                               ) : null}
