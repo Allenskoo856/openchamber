@@ -574,10 +574,6 @@ interface UIStore {
   contextRailOrder: string[];
   contextEditorTreeVisible: boolean;
   contextEditorTreeWidth: number;
-  isBottomTerminalOpen: boolean;
-  isBottomTerminalExpanded: boolean;
-  bottomTerminalHeight: number;
-  hasManuallyResizedBottomTerminal: boolean;
   notesPanelHeight: number;
   todoPanelHeight: number;
   isSessionSwitcherOpen: boolean;
@@ -734,10 +730,6 @@ interface UIStore {
   closeContextPanel: (directory: string) => void;
   toggleContextPanelExpanded: (directory: string) => void;
   setContextPanelWidth: (directory: string, mode: ContextPanelMode, width: number) => void;
-  toggleBottomTerminal: () => void;
-  setBottomTerminalOpen: (open: boolean) => void;
-  setBottomTerminalExpanded: (expanded: boolean) => void;
-  setBottomTerminalHeight: (height: number) => void;
   setNotesPanelHeight: (height: number) => void;
   setTodoPanelHeight: (height: number) => void;
   setSessionSwitcherOpen: (open: boolean) => void;
@@ -803,7 +795,6 @@ interface UIStore {
   setMobileKeyboardMode: (mode: MobileKeyboardMode) => void;
   applyTypography: () => void;
   applyPadding: () => void;
-  updateProportionalSidebarWidths: () => void;
   toggleFavoriteModel: (providerID: string, modelID: string) => void;
   reorderFavoriteModel: (
     activeProviderID: string,
@@ -897,10 +888,6 @@ export const useUIStore = create<UIStore>()(
         contextRailOrder: [],
         contextEditorTreeVisible: true,
         contextEditorTreeWidth: 240,
-        isBottomTerminalOpen: false,
-        isBottomTerminalExpanded: false,
-        bottomTerminalHeight: 300,
-        hasManuallyResizedBottomTerminal: false,
         notesPanelHeight: 112,
         todoPanelHeight: 259,
         isSessionSwitcherOpen: false,
@@ -1427,64 +1414,6 @@ export const useUIStore = create<UIStore>()(
 
             return { contextPanelByDirectory: clampContextPanelRoots(byDirectory, 20) };
           });
-        },
-
-        toggleBottomTerminal: () => {
-          set((state) => {
-            const newOpen = !state.isBottomTerminalOpen;
-
-            if (newOpen && typeof window !== 'undefined') {
-              const proportionalHeight = Math.floor(window.innerHeight * 0.32);
-              return {
-                isBottomTerminalOpen: newOpen,
-                bottomTerminalHeight: proportionalHeight,
-                hasManuallyResizedBottomTerminal: false,
-              };
-            }
-
-            return { isBottomTerminalOpen: newOpen };
-          });
-        },
-
-        setBottomTerminalOpen: (open) => {
-          set((state) => {
-            if (state.isBottomTerminalOpen === open) {
-              if (!open) {
-                return state;
-              }
-              if (!state.hasManuallyResizedBottomTerminal && typeof window !== 'undefined') {
-                const proportionalHeight = Math.floor(window.innerHeight * 0.32);
-                if (state.bottomTerminalHeight === proportionalHeight && state.hasManuallyResizedBottomTerminal === false) {
-                  return state;
-                }
-                return {
-                  isBottomTerminalOpen: open,
-                  bottomTerminalHeight: proportionalHeight,
-                  hasManuallyResizedBottomTerminal: false,
-                };
-              }
-              return state;
-            }
-
-            if (open && typeof window !== 'undefined') {
-              const proportionalHeight = Math.floor(window.innerHeight * 0.32);
-              return {
-                isBottomTerminalOpen: open,
-                bottomTerminalHeight: proportionalHeight,
-                hasManuallyResizedBottomTerminal: false,
-              };
-            }
-
-            return { isBottomTerminalOpen: open };
-          });
-        },
-
-        setBottomTerminalExpanded: (expanded) => {
-          set({ isBottomTerminalExpanded: expanded });
-        },
-
-        setBottomTerminalHeight: (height) => {
-          set({ bottomTerminalHeight: height, hasManuallyResizedBottomTerminal: true });
         },
 
         setNotesPanelHeight: (height) => {
@@ -2073,25 +2002,6 @@ export const useUIStore = create<UIStore>()(
           });
         },
 
-        updateProportionalSidebarWidths: () => {
-          if (typeof window === 'undefined') {
-            return;
-          }
-
-          set((state) => {
-            const updates: Partial<UIStore> = {};
-
-            if (state.isBottomTerminalOpen && !state.hasManuallyResizedBottomTerminal) {
-              const nextHeight = Math.floor(window.innerHeight * 0.32);
-              if (state.bottomTerminalHeight !== nextHeight) {
-                updates.bottomTerminalHeight = nextHeight;
-              }
-            }
-
-            return Object.keys(updates).length > 0 ? updates : state;
-          });
-        },
-
         applyTheme: () => {
           const { theme } = get();
           const root = document.documentElement;
@@ -2405,9 +2315,6 @@ export const useUIStore = create<UIStore>()(
           contextRailOrder: state.contextRailOrder,
           contextEditorTreeVisible: state.contextEditorTreeVisible,
           contextEditorTreeWidth: state.contextEditorTreeWidth,
-          isBottomTerminalOpen: state.isBottomTerminalOpen,
-          isBottomTerminalExpanded: state.isBottomTerminalExpanded,
-          bottomTerminalHeight: state.bottomTerminalHeight,
           notesPanelHeight: state.notesPanelHeight,
           todoPanelHeight: state.todoPanelHeight,
           isSessionSwitcherOpen: state.isSessionSwitcherOpen,
