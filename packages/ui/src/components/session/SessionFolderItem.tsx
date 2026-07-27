@@ -161,7 +161,10 @@ const SessionFolderItemBase = <TSessionNode,>({
           'cursor-pointer',
           isDropTarget && 'bg-primary/10 ring-1 ring-inset ring-primary/30',
         )}
-        onClick={renaming ? undefined : onToggle}
+        onClick={renaming ? undefined : (event) => {
+          (event.currentTarget as HTMLElement).blur();
+          onToggle();
+        }}
         role={renaming ? undefined : 'button'}
         tabIndex={renaming ? undefined : 0}
         onKeyDown={

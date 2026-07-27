@@ -145,7 +145,12 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
     }
   }, []);
 
-  const handleToggleClick = React.useCallback(() => {
+  const handleToggleClick = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    // Drop mouse-click focus so hover-revealed chrome (chevron, actions)
+    // hides again on mouse-leave instead of sticking via :focus-within.
+    // Keyboard users keep their focus-visible ring (blur only fires here
+    // for pointer interactions that produced a click).
+    event.currentTarget.blur();
     if (suppressNextToggleRef.current) {
       suppressNextToggleRef.current = false;
       return;

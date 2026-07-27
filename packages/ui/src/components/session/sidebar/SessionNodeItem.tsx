@@ -691,6 +691,9 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
       tabIndex={0}
       onClick={(event) => {
         event.stopPropagation();
+        // Blur mouse-click focus so the hover-only chevron/indicator swap
+        // resets on mouse-leave instead of sticking via :focus-within.
+        event.currentTarget.blur();
         toggleParent(expansionKey);
       }}
       onKeyDown={(event) => {
