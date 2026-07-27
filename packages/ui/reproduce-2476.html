@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Issue #2476 Reproduction - White on White Hover</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 32px;
+      background: #111;
+      color: #eee;
+    }
+    h1 { font-size: 18px; margin-bottom: 8px; }
+    p { color: #999; margin-bottom: 24px; }
+    
+    /* Simulated model picker dropdown */
+    .dropdown {
+      width: 340px;
+      background: #1E1E1E;  /* --surface-elevated in Dark High Contrast */
+      border: 1px solid #444;
+      border-radius: 8px;
+      padding: 8px 4px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    }
+
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: #FFFFFF;  /* --surface-elevated-foreground (white) */
+      font-size: 13px;
+      line-height: 1.4;
+      transition: none;
+    }
+
+    /* Current broken behavior: hover bg is 50% white, no text color change */
+    .dropdown-item.broken:hover {
+      background-color: color-mix(in srgb, #FFFFFF 50%, transparent);
+      /* color stays inherited: #FFFFFF (white) */
+    }
+
+    /* Fixed behavior: hover also changes text color */
+    .dropdown-item.fixed:hover {
+      background-color: color-mix(in srgb, #FFFFFF 50%, transparent);
+      color: #000000;  /* explicit dark text on hover */
+    }
+
+    .section-header {
+      color: #999;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 8px 12px 4px;
+    }
+
+    .model-name {
+      font-weight: 500;
+    }
+
+    .model-provider {
+      color: #888;
+      margin-left: auto;
+      font-size: 12px;
+    }
+
+    .badge {
+      border: 1px solid #888;
+      border-radius: 4px;
+      padding: 0 6px;
+      font-size: 10px;
+      margin-left: auto;
+      color: #ccc;
+    }
+
+    .reproduction-note {
+      margin-top: 24px;
+      padding: 12px 16px;
+      background: #1a1a2e;
+      border-left: 3px solid #e74c3c;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    .reproduction-note.ok {
+      border-left-color: #2ecc71;
+    }
+
+    table {
+      margin-top: 16px;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 6px 12px;
+      text-align: left;
+      border-bottom: 1px solid #333;
+    }
+    th {
+      color: #999;
+      font-weight: 600;
+    }
+    
+    .contrast-pass { color: #2ecc71; }
+    .contrast-fail { color: #e74c3c; }
+    .contrast-borderline { color: #f39c12; }
+  </style>
+</head>
+<body>
+  <h1>Reproduction of Issue #2476</h1>
+  <p>Model selection menu hover - illegible text in Dark High Contrast theme</p>
+
+  <div style="display: flex; gap: 32px; flex-wrap: wrap;">
+
+    <!-- Broken: current behavior -->
+    <div>
+      <h2 style="font-size: 14px; margin-bottom: 8px; color: #e74c3c;">❌ Broken (current behavior)</h2>
+      <p style="font-size: 12px; color: #888; margin-bottom: 8px;">Hover bg: <code>color-mix(in srgb, #FFFFFF 50%, transparent)</code><br>Text color: <code>#FFFFFF</code> (unchanged)</p>
+      <div class="dropdown" style="color: #FFFFFF;">
+        <div class="section-header">Favorites</div>
+        <div class="dropdown-item broken">
+          <span class="model-name">GPT-4o</span>
+          <span class="badge">tool calling</span>
+        </div>
+        <div class="dropdown-item broken">
+          <span class="model-name">Claude 3.5 Sonnet</span>
+          <span class="badge">reasoning</span>
+        </div>
+        <div class="section-header">All Models</div>
+        <div class="dropdown-item broken">
+          <span class="model-name">GPT-4o-mini</span>
+          <span class="model-provider">OpenAI</span>
+        </div>
+        <div class="dropdown-item broken">
+          <span class="model-name">Claude 3 Haiku</span>
+          <span class="model-provider">Anthropic</span>
+        </div>
+        <div class="dropdown-item broken" style="background: #333;">
+          <span class="model-name">Hover over the items above ☝️</span>
+        </div>
+      </div>
+      <p style="font-size: 12px; color: #888; margin-top: 8px;">Hover over any item above — the text becomes hard to read.</p>
+    </div>
+
+    <!-- Fixed: with text color change -->
+    <div>
+      <h2 style="font-size: 14px; margin-bottom: 8px; color: #2ecc71;">✅ Fixed (proposed)</h2>
+      <p style="font-size: 12px; color: #888; margin-bottom: 8px;">Hover bg: <code>color-mix(in srgb, #FFFFFF 50%, transparent)</code><br>Text color: <code>#000000</code> (explicit on hover)</p>
+      <div class="dropdown" style="color: #FFFFFF;">
+        <div class="section-header">Favorites</div>
+        <div class="dropdown-item fixed">
+          <span class="model-name">GPT-4o</span>
+          <span class="badge">tool calling</span>
+        </div>
+        <div class="dropdown-item fixed">
+          <span class="model-name">Claude 3.5 Sonnet</span>
+          <span class="badge">reasoning</span>
+        </div>
+        <div class="section-header">All Models</div>
+        <div class="dropdown-item fixed">
+          <span class="model-name">GPT-4o-mini</span>
+          <span class="model-provider">OpenAI</span>
+        </div>
+        <div class="dropdown-item fixed">
+          <span class="model-name">Claude 3 Haiku</span>
+          <span class="model-provider">Anthropic</span>
+        </div>
+        <div class="dropdown-item fixed" style="background: #333;">
+          <span class="model-name">Hover over the items above ☝️</span>
+        </div>
+      </div>
+      <p style="font-size: 12px; color: #888; margin-top: 8px;">With explicit text color on hover, text remains legible.</p>
+    </div>
+  </div>
+
+  <div class="reproduction-note">
+    <strong>Reproduction steps:</strong>
+    <ol style="margin: 8px 0 0 16px; padding: 0;">
+      <li>Use VS Code with "Dark High Contrast" theme (or any theme where <code>toolbar.hoverBackground</code> or <code>list.hoverBackground</code> is white/light).</li>
+      <li>Open the model selection dropdown (e.g., in Agent settings).</li>
+      <li>Hover over any model in the list.</li>
+      <li>The text becomes difficult to read because the hover background is white/light while the text remains white.</li>
+    </ol>
+  </div>
+
+  <div class="reproduction-note ok" style="margin-top: 12px;">
+    <strong>Root cause:</strong>
+    <code>ModelPickerList.tsx:609</code> applies <code>hover:bg-interactive-hover/50</code> but does not set a hover text color.
+    In high-contrast themes, <code>--interactive-hover</code> resolves to a light/white color,
+    while the text remains <code>--surface-elevated-foreground</code> (also white). The resulting contrast
+    between white text and the blended hover background (~#8F8F8F) is only ~3.2:1, failing WCAG AA (4.5:1).
+    <br><br>
+    <strong>Fix:</strong> Add <code>hover:text-foreground</code> (or better, a dedicated hover foreground token)
+    to the model picker row styling, so text color adapts on hover.
+  </div>
+
+  <table>
+    <tr>
+      <th>Scenario</th>
+      <th>Text color</th>
+      <th>Hover bg</th>
+      <th>Contrast ratio</th>
+      <th>WCAG AA (4.5:1)</th>
+    </tr>
+    <tr>
+      <td>Broken - dark elevated bg</td>
+      <td><code>#FFFFFF</code></td>
+      <td><code>#8F8F8F</code></td>
+      <td>3.23:1</td>
+      <td class="contrast-fail">FAIL</td>
+    </tr>
+    <tr>
+      <td>Fixed - with hover text color</td>
+      <td><code>#000000</code></td>
+      <td><code>#8F8F8F</code></td>
+      <td>6.26:1</td>
+      <td class="contrast-pass">PASS</td>
+    </tr>
+  </table>
+</body>
+</html>
