@@ -569,7 +569,13 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   React.useEffect(() => {
     if (editingId !== session.id) return;
     const handleDocMouseDown = (e: MouseEvent) => {
-      if (formRef.current && !formRef.current.contains(e.target as Node)) {
+      // The same session can be rendered twice (recent + project), each with
+      // its own rename form. A click inside ANY rename form for this session
+      // must not count as "outside", or the sibling instance would save and
+      // exit the rename mid-edit.
+      const target = e.target as HTMLElement | null;
+      const withinRenameForm = target?.closest?.(`[data-session-rename-form="${CSS.escape(session.id)}"]`);
+      if (formRef.current && !withinRenameForm) {
         handleSaveEditRef.current(renameDraftRef.current);
       }
     };
@@ -594,11 +600,14 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
       <div
         key={session.id}
         style={{ paddingLeft: ROW_TEXT_LEFT_PX + depth * ROW_DEPTH_STEP_PX }}
-        className="group relative flex items-center rounded-sm py-1 pr-1.5"
+        // my-0.5 matches the normal row box so entering rename mode does not
+        // shift the row vertically.
+        className="group relative my-0.5 flex items-center rounded-sm py-1 pr-1.5"
       >
         <div className="flex min-w-0 flex-1 flex-col gap-0">
           <form
             ref={formRef}
+            data-session-rename-form={session.id}
             className="flex w-full items-center gap-2"
             onSubmit={(event) => {
               event.preventDefault();
