@@ -315,7 +315,12 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         : showQuickArchiveAction || showOpenInEditorAction
           ? 'group-hover:pr-14'
           : 'group-hover:pr-8')
-    : 'group-hover:pr-2 group-focus-within:pr-2';
+    // Reserve room for the hover-revealed actions (quick archive + menu, both
+    // h-4) so they never overlap the title. Without an inline date there is no
+    // longer any in-flow right-side content absorbing them.
+    : (showQuickArchiveAction
+        ? 'group-hover:pr-10 group-focus-within:pr-10'
+        : 'group-hover:pr-6 group-focus-within:pr-6');
   const alwaysActionPaddingClass = showQuickArchiveAction ? 'pr-13' : 'pr-7';
   const suppressNextSelectRef = React.useRef(false);
   const [isTouchPressed, setIsTouchPressed] = React.useState(false);
