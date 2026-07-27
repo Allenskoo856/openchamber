@@ -1136,7 +1136,10 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                     )}
                   >
                     <div className="flex w-full items-center min-w-0 flex-1 gap-1 overflow-hidden">
-                      <div className={cn('block min-w-0 flex-1 truncate typography-ui-label', needsAttention && !isActive ? 'font-medium' : 'font-normal', isActive ? 'text-primary' : 'text-foreground')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
+                      {/* Unread emphasis is color-only: a font-weight change
+                          would reflow the truncated title and cause a micro
+                          horizontal shift when the status flips. */}
+                      <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', isActive ? 'text-primary' : needsAttention ? 'text-foreground' : 'text-foreground/80')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
                       {alwaysShowActions ? (
                         // Touch runtimes have no hover tooltip, so the compact
                         // date stays inline there.
