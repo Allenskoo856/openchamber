@@ -1114,7 +1114,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           {subsessionChevron}
           <div className="flex min-w-0 flex-1 items-center">
             {(
-              <Tooltip delayDuration={0}>
+              <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"

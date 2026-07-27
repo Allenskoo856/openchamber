@@ -18,6 +18,7 @@ import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import { useGitStore, useGitAllBranches, useGitRepoStatusMap } from '@/stores/useGitStore';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { Icon } from '@/components/icon/Icon';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { NewWorktreeDialog } from './NewWorktreeDialog';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -1685,6 +1686,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }, [mobileVariant, openNewSessionDraft, setActiveMainTab, setSessionSwitcherOpen]);
 
   return (
+    // One shared tooltip provider for the whole sidebar: session tooltips open
+    // instantly, and moving between rows hands the tooltip over (grouping)
+    // instead of replaying the exit/enter animation for each row.
+    <TooltipProvider delay={0} timeout={600}>
     <div
       ref={sessionSearchContainerRef}
       className={cn(
@@ -1879,6 +1884,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         onConfirm={confirmBulkDelete}
       />
     </div>
+    </TooltipProvider>
   );
 };
 
