@@ -242,7 +242,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.header.grouping.label': 'Grupowanie sesji',
   'sessions.sidebar.header.grouping.byWorktree': 'Według worktree',
   'sessions.sidebar.header.grouping.flat': 'Płaska lista',
-  'sessions.sidebar.project.actions.manageWorktrees': 'Zarządzaj worktree…',
+  'sessions.sidebar.project.actions.manageWorktrees': 'Zarządzaj worktree',
   'sessions.worktreesPage.title': 'Worktree — {project}',
   'sessions.worktreesPage.description': 'Twórz, przeglądaj i usuwaj worktree gita tego projektu.',
   'sessions.worktreesPage.closeAria': 'Zamknij worktree',

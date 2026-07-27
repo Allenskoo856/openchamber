@@ -426,7 +426,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.header.grouping.label': '세션 그룹화',
   'sessions.sidebar.header.grouping.byWorktree': '워크트리별',
   'sessions.sidebar.header.grouping.flat': '평면 목록',
-  'sessions.sidebar.project.actions.manageWorktrees': '워크트리 관리…',
+  'sessions.sidebar.project.actions.manageWorktrees': '워크트리 관리',
   'sessions.worktreesPage.title': '워크트리 — {project}',
   'sessions.worktreesPage.description': '이 프로젝트의 git 워크트리를 생성, 확인, 삭제합니다.',
   'sessions.worktreesPage.closeAria': '워크트리 닫기',

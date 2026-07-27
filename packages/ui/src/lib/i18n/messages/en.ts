@@ -425,7 +425,7 @@ export const dict = {
   'sessions.sidebar.header.grouping.label': 'Group sessions',
   'sessions.sidebar.header.grouping.byWorktree': 'By worktree',
   'sessions.sidebar.header.grouping.flat': 'Flat list',
-  'sessions.sidebar.project.actions.manageWorktrees': 'Manage worktrees…',
+  'sessions.sidebar.project.actions.manageWorktrees': 'Manage worktrees',
   'sessions.worktreesPage.title': 'Worktrees — {project}',
   'sessions.worktreesPage.description': 'Create, inspect, and remove git worktrees for this project.',
   'sessions.worktreesPage.closeAria': 'Close worktrees',

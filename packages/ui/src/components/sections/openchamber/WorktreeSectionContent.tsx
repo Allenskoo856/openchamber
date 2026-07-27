@@ -31,11 +31,17 @@ import { useI18n } from '@/lib/i18n';
 
 export interface WorktreeSectionContentProps {
   projectRef?: { id: string; path: string } | null;
+  /**
+   * 'all' renders setup commands + the worktree list (settings panel);
+   * 'list-only' renders just the list (the Worktrees page — setup commands
+   * stay a settings concern).
+   */
+  sections?: 'all' | 'list-only';
 }
 
 const SETUP_COMMANDS_SAVE_DELAY_MS = 450;
 
-export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ projectRef: projectRefProp = null }) => {
+export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ projectRef: projectRefProp = null, sections = 'all' }) => {
   const { t } = useI18n();
   const { isMobile, isTablet } = useDeviceInfo();
   const alwaysShowActions = isMobile || isTablet;
@@ -369,6 +375,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
 
   return (
     <>
+      {sections === 'all' ? (
       <ProjectSettingsSubsection
         title={t('settings.projects.page.section.worktree')}
         settingsItem="projects.worktree"
@@ -428,6 +435,7 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
           </div>
         )}
       </ProjectSettingsSubsection>
+      ) : null}
 
       <ProjectSettingsSubsection
         title={t('settings.openchamber.worktrees.list.title')}

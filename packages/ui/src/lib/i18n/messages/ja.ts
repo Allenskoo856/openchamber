@@ -426,7 +426,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.header.grouping.label': 'セッションのグループ化',
   'sessions.sidebar.header.grouping.byWorktree': 'ワークツリー別',
   'sessions.sidebar.header.grouping.flat': 'フラットリスト',
-  'sessions.sidebar.project.actions.manageWorktrees': 'ワークツリーを管理…',
+  'sessions.sidebar.project.actions.manageWorktrees': 'ワークツリーを管理',
   'sessions.worktreesPage.title': 'ワークツリー — {project}',
   'sessions.worktreesPage.description': 'このプロジェクトの git ワークツリーを作成・確認・削除します。',
   'sessions.worktreesPage.closeAria': 'ワークツリーを閉じる',

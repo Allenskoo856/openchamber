@@ -439,7 +439,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.header.grouping.label': '工作階段分組',
   'sessions.sidebar.header.grouping.byWorktree': '依工作樹',
   'sessions.sidebar.header.grouping.flat': '平面清單',
-  'sessions.sidebar.project.actions.manageWorktrees': '管理工作樹…',
+  'sessions.sidebar.project.actions.manageWorktrees': '管理工作樹',
   'sessions.worktreesPage.title': '工作樹 — {project}',
   'sessions.worktreesPage.description': '建立、檢視及移除此專案的 git 工作樹。',
   'sessions.worktreesPage.closeAria': '關閉工作樹',
