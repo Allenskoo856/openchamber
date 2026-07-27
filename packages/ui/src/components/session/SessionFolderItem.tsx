@@ -152,10 +152,10 @@ const SessionFolderItemBase = <TSessionNode,>({
   }, [isRenaming]);
 
   const folderIconName = isCollapsed ? 'folder' : 'folder-open';
-  const isSubFolder = depth > 0;
+  void depth;
 
   return (
-    <div className={cn('oc-folder', isSubFolder && 'ml-3')}>
+    <div className="oc-folder">
       {/* Folder header – also acts as a drop zone when droppableRef is provided */}
       <div
         ref={droppableRef}
@@ -333,7 +333,7 @@ const SessionFolderItemBase = <TSessionNode,>({
 
       {/* Folder body */}
       {!isCollapsed ? (
-        <div className="pb-1 pl-2">
+        <div className="pb-1">
           {/* Sub-folders first */}
           {subFolderItems}
           {/* Then sessions */}

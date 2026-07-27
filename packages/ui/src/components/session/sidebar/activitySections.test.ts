@@ -30,10 +30,29 @@ describe('deriveRecentSessions', () => {
     )).toEqual([]);
   });
 
-  test('keeps inactive membership timestamp-based', () => {
+  test('backfills below the minimum count with the latest roots outside the window', () => {
     const oldSession = session('old');
     const recentSession = session('recent', { updated: RECENT });
 
-    expect(deriveRecentSessions([oldSession, recentSession], new Set(), NOW)).toEqual([recentSession]);
+    // Window members come first; old roots backfill up to the minimum count.
+    expect(deriveRecentSessions([oldSession, recentSession], new Set(), NOW)).toEqual([recentSession, oldSession]);
+  });
+
+  test('does not backfill once the window already meets the minimum count', () => {
+    const windowSessions = Array.from({ length: 7 }, (_, index) => session(`w${index}`, { updated: RECENT + index }));
+    const oldSession = session('old');
+
+    const result = deriveRecentSessions([...windowSessions, oldSession], new Set(), NOW);
+
+    expect(result).toEqual(windowSessions);
+  });
+
+  test('backfill orders old roots by most recent update and respects the cap', () => {
+    const older = session('older', { updated: OLD - 1000 });
+    const newer = session('newer', { updated: OLD });
+
+    const result = deriveRecentSessions([older, newer], new Set(), NOW);
+
+    expect(result).toEqual([newer, older]);
   });
 });

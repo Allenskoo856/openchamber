@@ -897,7 +897,10 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     </SessionFolderDndScope>
   );
 
-  const groupBodyPaddingClass = compactBodyPadding ? 'pb-2 pl-1' : 'pb-3 pl-4';
+  // Rows own their left gutter (aligned with the zone-header text), so the
+  // group body adds no extra indentation.
+  void compactBodyPadding;
+  const groupBodyPaddingClass = 'pb-2';
 
   if (hideGroupLabel) {
     return <div className="oc-group"><div className={cn('oc-group-body', groupBodyPaddingClass)}>{body}</div></div>;

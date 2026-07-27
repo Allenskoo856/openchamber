@@ -17,6 +17,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import { useGitStore, useGitAllBranches, useGitRepoStatusMap } from '@/stores/useGitStore';
 import { isVSCodeRuntime } from '@/lib/desktop';
+import { Icon } from '@/components/icon/Icon';
 import { NewWorktreeDialog } from './NewWorktreeDialog';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -230,17 +231,17 @@ const ProjectAggregateStatusIndicator: React.FC<{ directories: Array<string | nu
 
   if (hasBusySession) {
     return (
-      <span
-        className="h-2 w-2 rounded-full bg-primary animate-busy-pulse ring-[3px] ring-primary/20"
+      <Icon
+        name="loader-4"
+        className="h-3 w-3 animate-spin text-primary"
         aria-label={t('sessions.sidebar.session.status.active')}
-        title={t('sessions.sidebar.session.status.active')}
       />
     );
   }
   if (hasUnseenNotification) {
     return (
       <span
-        className="h-2 w-2 rounded-full bg-[var(--status-info)]"
+        className="h-1.5 w-1.5 rounded-full bg-[var(--status-info)]"
         aria-label={t('sessions.sidebar.session.status.unread')}
         title={t('sessions.sidebar.session.status.unread')}
       />

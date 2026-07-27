@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { dropdownMenuItemClass, dropdownMenuPopupClass, dropdownMenuSeparatorClass, dropdownMenuSubTriggerClass } from '@/components/ui/dropdown-menu.styles';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
+import { cn, formatDirectoryName } from '@/lib/utils';
 import { canUseElectronDesktopIPC, invokeDesktop, isVSCodeRuntime } from '@/lib/desktop';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
@@ -29,7 +29,8 @@ import { DraggableSessionRow } from './sessionFolderDnd';
 import { nodeContainsSessionId, nodeHasPinnedMembershipChange } from './sessionNodeItemUtils';
 import type { SessionNodeChildRenderExtras, SessionNodeRenderExtras } from './sessionNodeItemUtils';
 import type { SessionNode } from './types';
-import { formatSessionCompactDateLabel, formatSessionDateLabel, normalizePath, renderHighlightedText } from './utils';
+import { formatProjectLabel, formatSessionCompactDateLabel, formatSessionDateLabel, normalizePath, renderHighlightedText } from './utils';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
 import { useI18n } from '@/lib/i18n';
@@ -127,6 +128,14 @@ type Props = {
    */
   childRenderExtrasFor?: (child: SessionNode) => SessionNodeChildRenderExtras;
 };
+
+// Shared row geometry: the gutter edge matches the zone-header band padding
+// (px-1.5 = 6px), the marker slot is icon-wide (14px) with a 6px gap, so row
+// text starts exactly where the zone-header label starts. Nested children
+// shift by one gutter step per depth level.
+const ROW_GUTTER_LEFT_PX = 6;
+const ROW_DEPTH_STEP_PX = 14;
+const ROW_TEXT_LEFT_PX = ROW_GUTTER_LEFT_PX + 14 + 6;
 
 const cancelScrollAnchorByContainer = new WeakMap<HTMLElement, () => void>();
 
@@ -283,7 +292,6 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     menuOpenSessionId,
     childRenderExtrasFor,
   } = props;
-  const hasSecondaryBranchLabel = Boolean(secondaryMeta?.branchLabel);
 
   const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
   const isElectron = React.useMemo(() => canUseElectronDesktopIPC(), []);
@@ -323,6 +331,19 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
 
   const session = node.session;
   const resolvedSession = session;
+  // Tooltip context: recent rows receive project/branch via secondaryMeta;
+  // project rows resolve them from the row's own props/node instead.
+  const projectLabelFromStore = useProjectsStore(
+    React.useCallback((state) => {
+      if (secondaryMeta?.projectLabel || !projectId) return null;
+      const project = state.projects.find((entry) => entry.id === projectId);
+      if (!project) return null;
+      return project.label?.trim() || formatDirectoryName(normalizePath(project.path) ?? project.path, null) || project.path;
+    }, [projectId, secondaryMeta?.projectLabel]),
+  );
+  const tooltipProjectLabel = secondaryMeta?.projectLabel
+    ?? (projectLabelFromStore ? formatProjectLabel(projectLabelFromStore) : null);
+  const tooltipBranchLabel = secondaryMeta?.branchLabel ?? node.worktree?.branch ?? null;
   const isActive = useSessionUIStore((state) => state.currentSessionId === session.id);
 
   const sessionDirectory =
@@ -533,7 +554,8 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
     return (
       <div
         key={session.id}
-        className={cn('group relative flex items-center rounded-sm px-1.5 py-1', depth > 0 && 'pl-[20px]')}
+        style={{ paddingLeft: ROW_TEXT_LEFT_PX + depth * ROW_DEPTH_STEP_PX }}
+        className="group relative flex items-center rounded-sm py-1 pr-1.5"
       >
         <div className="flex min-w-0 flex-1 flex-col gap-0">
           <form
@@ -588,15 +610,15 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const showStatusMarker = isStreaming || showUnreadStatus;
   const statusMarkerContent = isStreaming
     ? (
-        <span
-          className="h-2 w-2 rounded-full bg-primary animate-busy-pulse ring-[3px] ring-primary/20"
+        <Icon
+          name="loader-4"
+          className="h-3 w-3 animate-spin text-primary"
           aria-label={t('sessions.sidebar.session.status.active')}
-          title={t('sessions.sidebar.session.status.active')}
         />
       )
     : (
         <span
-          className="h-2 w-2 rounded-full bg-[var(--status-info)]"
+          className="h-1.5 w-1.5 rounded-full bg-[var(--status-info)]"
           aria-label={t('sessions.sidebar.session.status.unread')}
           title={t('sessions.sidebar.session.status.unread')}
         />
@@ -612,8 +634,9 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   );
   const leadingIndicators = isMovingToWorktree || showStatusMarker || showPinnedMarker ? (
     <span
+      style={{ left: ROW_GUTTER_LEFT_PX + depth * ROW_DEPTH_STEP_PX }}
       className={cn(
-        'pointer-events-none absolute left-0.5 top-1/2 inline-flex h-3.5 w-3.5 -translate-y-1/2 items-center justify-center transition-opacity',
+        'pointer-events-none absolute top-1/2 inline-flex h-3.5 w-3.5 -translate-y-1/2 items-center justify-center transition-opacity',
         hideLeadingIndicatorOnHover ? 'opacity-100 group-hover:opacity-0 group-focus-within:opacity-0' : '',
       )}
     >
@@ -642,9 +665,9 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           toggleParent(expansionKey);
         }
       }}
-      style={{ minWidth: 14, minHeight: 14 }}
+      style={{ minWidth: 14, minHeight: 14, left: ROW_GUTTER_LEFT_PX + depth * ROW_DEPTH_STEP_PX }}
       className={cn(
-        'absolute left-0.5 top-1/2 inline-flex h-3.5 w-3.5 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
+        'absolute top-1/2 inline-flex h-3.5 w-3.5 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
         hideChevronUntilHover
           ? 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto'
           : '',
@@ -1037,14 +1060,13 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 data-session-scope={sessionDirectory ?? ''}
                 data-session-archived={archivedBucket ? '1' : '0'}
                 onClick={handleRowBackgroundClick}
+                // Row geometry mirrors the zone-header band: full container
+                // width, px-1.5 inner edge, a 14px icon-wide gutter (status
+                // marker / chevron) plus a 6px gap, so the title starts at the
+                // same x as the header text. Children indent one gutter step.
+                style={{ paddingLeft: ROW_TEXT_LEFT_PX + depth * ROW_DEPTH_STEP_PX }}
                 className={cn(
                   'group relative my-0.5 flex cursor-pointer items-center rounded-md py-1 pr-1.5',
-                  // Pull the row box left into the container gutter so the
-                  // selection highlight covers the chevron/status markers
-                  // (which sit in that gutter), then re-pad so the title text
-                  // stays put.
-                  '-ml-3',
-                  depth > 0 ? 'pl-[32px]' : 'pl-[18px]',
                   // Active (currently open) session gets a subtle primary tint;
                   // multi-select highlight takes precedence when both apply.
                   isActive && !isRowSelected && 'bg-primary/10',
@@ -1080,10 +1102,10 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                   >
                     <div className="flex w-full items-center min-w-0 flex-1 gap-1 overflow-hidden">
                       <div className={cn('block min-w-0 flex-1 truncate typography-ui-label', needsAttention && !isActive ? 'font-medium' : 'font-normal', isActive ? 'text-primary' : 'text-foreground')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
-                      {hasSecondaryBranchLabel ? (
+                      {tooltipBranchLabel ? (
                         <span className="ml-1 inline-flex min-w-0 max-w-[45%] flex-shrink items-center gap-0.5 text-[0.72rem] text-muted-foreground/70">
                           <Icon name="git-branch" className="h-3 w-3 flex-shrink-0" />
-                          <span className="truncate">{secondaryMeta?.branchLabel}</span>
+                          <span className="truncate">{tooltipBranchLabel}</span>
                         </span>
                       ) : null}
                       {alwaysShowActions ? (
@@ -1119,14 +1141,14 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                 {!isVSCode ? (
                 <TooltipContent side="right" sideOffset={8} className="max-w-xs text-left">
                   <div className="flex flex-col gap-1 text-left text-xs">
-                    <div className={cn('flex items-center gap-3 text-left text-muted-foreground', secondaryMeta?.projectLabel ? 'justify-between' : 'justify-start')}>
-                      {secondaryMeta?.projectLabel ? <div className="min-w-0 truncate">{secondaryMeta.projectLabel}</div> : null}
+                    <div className={cn('flex items-center gap-3 text-left text-muted-foreground', tooltipProjectLabel ? 'justify-between' : 'justify-start')}>
+                      {tooltipProjectLabel ? <div className="min-w-0 truncate">{tooltipProjectLabel}</div> : null}
                       <div className="flex-shrink-0">{sessionUpdatedLabel}</div>
                     </div>
-                    {secondaryMeta?.branchLabel ? (
+                    {tooltipBranchLabel ? (
                       <div className="flex items-center gap-3 text-left text-muted-foreground justify-start">
                         <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-                          <span className="inline-flex min-w-0 items-center gap-0.5"><Icon name="git-branch" className="h-3 w-3 flex-shrink-0" /><span className="truncate">{secondaryMeta.branchLabel}</span></span>
+                          <span className="inline-flex min-w-0 items-center gap-0.5"><Icon name="git-branch" className="h-3 w-3 flex-shrink-0" /><span className="truncate">{tooltipBranchLabel}</span></span>
                         </div>
                       </div>
                     ) : null}

@@ -22,19 +22,35 @@ const getSessionUpdatedAt = (session: Session): number => {
   return 0;
 };
 
+// Quiet periods should not empty the section: when the window yields fewer
+// than this many sessions, backfill with the most recently updated roots.
+const RECENT_SESSION_MIN_COUNT = 7;
+
 // Recent contains non-archived root sessions that are active now or were
-// updated within the retention window. The caller applies shared lifecycle
-// ordering after this membership filter.
+// updated within the retention window, backfilled to a minimum count with the
+// latest remaining roots. The caller applies shared lifecycle ordering after
+// this membership filter.
 export const deriveRecentSessions = (
   sessions: Session[],
   activeSessionIds: ReadonlySet<string>,
   now = Date.now(),
 ): Session[] => {
   const minUpdatedAt = now - RECENT_SESSION_MAX_AGE_MS;
-  return sessions.filter((session) => {
-    if (isArchivedSession(session) || isSubtaskSession(session)) {
-      return false;
+  const candidates = sessions.filter((session) => !isArchivedSession(session) && !isSubtaskSession(session));
+  const inWindow: Session[] = [];
+  const outsideWindow: Session[] = [];
+  for (const session of candidates) {
+    if (activeSessionIds.has(session.id) || getSessionUpdatedAt(session) >= minUpdatedAt) {
+      inWindow.push(session);
+    } else {
+      outsideWindow.push(session);
     }
-    return activeSessionIds.has(session.id) || getSessionUpdatedAt(session) >= minUpdatedAt;
-  });
+  }
+  if (inWindow.length >= RECENT_SESSION_MIN_COUNT) {
+    return inWindow;
+  }
+  const backfill = outsideWindow
+    .sort((a, b) => getSessionUpdatedAt(b) - getSessionUpdatedAt(a))
+    .slice(0, RECENT_SESSION_MIN_COUNT - inWindow.length);
+  return [...inWindow, ...backfill];
 };

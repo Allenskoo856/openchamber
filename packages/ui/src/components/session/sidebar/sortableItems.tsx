@@ -187,7 +187,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
             >
             {/* Sticky zone header: the solid sidebar backing keeps scrolled
                 session rows from showing through the translucent band. */}
-            <div className="sticky top-0 z-10 -mx-1 rounded-md bg-sidebar">
+            <div className="sticky top-0 z-10 rounded-md bg-sidebar">
             <div className="relative flex items-center gap-1 rounded-md bg-interactive-hover/50 px-1.5 py-1" {...attributes}>
               <Tooltip>
                 <TooltipTrigger asChild>
