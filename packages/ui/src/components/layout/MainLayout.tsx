@@ -441,7 +441,10 @@ export const MainLayout: React.FC = () => {
                                                 {isMultiRunLauncherOpen && (
                                                     <div className="absolute inset-0 z-10 bg-background">
                                                         <ErrorBoundary>
+                                                            {/* isWindowed: the app Header already shows the surface
+                                                                title, so skip the launcher's own title bar. */}
                                                             <MultiRunLauncher
+                                                                isWindowed
                                                                 initialPrompt={multiRunLauncherPrefillPrompt}
                                                                 onCreated={() => setMultiRunLauncherOpen(false)}
                                                                 onCancel={() => setMultiRunLauncherOpen(false)}

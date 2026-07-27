@@ -413,19 +413,16 @@ export function ScheduledTasksDialog() {
     setEditorOpen(true);
   };
 
-  const tasksContent = (
-    <div className="space-y-4">
-      {!isMobile ? (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          {projectSelector}
-          <Button onClick={openNewTaskEditor} disabled={!selectedProjectID}>
-            <Icon name="add" className="mr-1 h-4 w-4" /> {t('sessions.scheduledTasks.dialog.actions.newTask')}
-          </Button>
-        </div>
-      ) : (
-        projectSelector
-      )}
+  const selectProject = (nextProjectID: string) => {
+    setSelectedProjectID(nextProjectID);
+    if (nextProjectID) {
+      void reloadTasks(nextProjectID);
+    } else {
+      setTasks([]);
+    }
+  };
 
+  const tasksList = (
       <div className="min-h-[280px]">
       {loading ? (
         <div className="flex items-center gap-2 typography-meta text-muted-foreground">
@@ -580,6 +577,12 @@ export function ScheduledTasksDialog() {
         </div>
       )}
       </div>
+  );
+
+  const tasksContent = (
+    <div className="space-y-4">
+      {projectSelector}
+      {tasksList}
     </div>
   );
 
@@ -616,22 +619,53 @@ export function ScheduledTasksDialog() {
         </MobileOverlayPanel>
       ) : open ? (
         // Full-page surface replacing the chat area (mounted inside <main>).
-        // The app Header shows the surface title, so the page itself only
-        // carries a slim close affordance.
+        // Master-detail: a scrollable project filter panel at the left, the
+        // selected project's tasks at the right. The app Header shows the
+        // surface title, so the page itself only carries the close affordance.
         <div className="absolute inset-0 z-10 flex flex-col bg-background">
-          <div className="flex items-center justify-end px-4 pt-2">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              aria-label={t('sessions.scheduledTasks.page.closeAria')}
-            >
-              <Icon name="close" className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto px-4 pb-4">
-            <div className="mx-auto w-full max-w-2xl">
-              {tasksContent}
+          <div className="flex min-h-0 flex-1">
+            <div className="flex w-60 flex-shrink-0 flex-col border-r border-border/50">
+              <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
+                {projects.length === 0 ? (
+                  <div className="px-2 py-2 typography-meta text-muted-foreground">
+                    {t('sessions.scheduledTasks.dialog.project.empty')}
+                  </div>
+                ) : projects.map((project) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    onClick={() => selectProject(project.id)}
+                    className={cn(
+                      'flex w-full min-w-0 items-center rounded-md px-2 py-1.5 text-left typography-ui-label focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                      selectedProjectID === project.id
+                        ? 'bg-interactive-selection text-foreground'
+                        : 'text-muted-foreground hover:bg-interactive-hover/50 hover:text-foreground',
+                    )}
+                  >
+                    {renderProjectLabel(project)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-center justify-between gap-2 px-6 pt-3">
+                <Button size="sm" onClick={openNewTaskEditor} disabled={!selectedProjectID}>
+                  <Icon name="add" className="mr-1 h-4 w-4" /> {t('sessions.scheduledTasks.dialog.actions.newTask')}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  aria-label={t('sessions.scheduledTasks.page.closeAria')}
+                >
+                  <Icon name="close" className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+                <div className="mx-auto w-full max-w-3xl">
+                  {tasksList}
+                </div>
+              </div>
             </div>
           </div>
         </div>
