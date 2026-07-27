@@ -8,11 +8,12 @@ export const DISCORD_GUILDS_PAGE_LIMIT = 200;
 export const DISCORD_GUILDS_MAX_PAGES = 5;
 
 /**
- * Map raw Discord guild objects (or already-normalized pages) to `{ id, name }`.
- * Accepts either a single page array or an array of page arrays.
+ * Map raw Discord guild objects (or already-normalized pages) to
+ * `{ id, name, icon }`. Accepts either a single page array or an array of
+ * page arrays. `icon` is the Discord icon hash (or null when unset).
  *
  * @param {unknown} pages
- * @returns {{ id: string; name: string }[]}
+ * @returns {{ id: string; name: string; icon: string | null }[]}
  */
 export function normalizeDiscordGuildList(pages) {
   if (!Array.isArray(pages)) return [];
@@ -38,7 +39,13 @@ export function normalizeDiscordGuildList(pages) {
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const name = typeof g.name === 'string' ? g.name : id;
-    out.push({ id, name });
+    const icon =
+      typeof g.icon === 'string' && g.icon
+        ? g.icon
+        : typeof g.iconHash === 'string' && g.iconHash
+          ? g.iconHash
+          : null;
+    out.push({ id, name, icon });
   }
   return out;
 }

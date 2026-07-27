@@ -1,11 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  RiDiscordLine,
   RiCheckLine,
   RiLoader4Line,
-  RiAddLine,
-  RiSendPlaneLine,
-  RiRefreshLine,
   RiAlertLine,
   RiPlayCircleLine,
   RiStopCircleLine,
@@ -41,15 +37,34 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useI18n, type I18nKey } from '@/lib/i18n';
 import { Icon } from '@/components/icon/Icon';
 import { DiscordOnboardingWizard } from './DiscordOnboardingWizard';
 import { DiscordCommandsButton } from './DiscordCommandPalette';
 
+/** Discord brand mark — intentional product color, not a theme token. */
+const DISCORD_BRAND_CLASS = 'text-[#5865F2]';
+
+type DiscordGuildListItem = {
+  id: string;
+  name: string;
+  icon?: string | null;
+};
+
 interface MessengerMeta {
   name: string;
-  icon: typeof RiDiscordLine;
   color: string;
   targetLabel: string;
   targetPlaceholder: string;
@@ -59,8 +74,7 @@ interface MessengerMeta {
 const MESSENGER_META: Record<MessengerType, MessengerMeta> = {
   discord: {
     name: 'Discord',
-    icon: RiDiscordLine,
-    color: 'text-[#5865F2]',
+    color: DISCORD_BRAND_CLASS,
     targetLabel: 'Channel ID',
     targetPlaceholder: 'e.g. 1234567890123456789',
     targetHelp: (
@@ -70,6 +84,59 @@ const MESSENGER_META: Record<MessengerType, MessengerMeta> = {
     ),
   },
 };
+
+/** Public Discord CDN guild icon URL, or null when the guild has no icon. */
+function discordGuildIconUrl(
+  guildId: string,
+  iconHash: string | null | undefined,
+  size = 64,
+): string | null {
+  if (!iconHash) return null;
+  const ext = iconHash.startsWith('a_') ? 'gif' : 'png';
+  return `https://cdn.discordapp.com/icons/${encodeURIComponent(guildId)}/${encodeURIComponent(iconHash)}.${ext}?size=${size}`;
+}
+
+function guildInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+}
+
+function DiscordGuildIcon({
+  guild,
+  className,
+}: {
+  guild: DiscordGuildListItem;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  const src = discordGuildIconUrl(guild.id, guild.icon);
+  const [failed, setFailed] = useState(false);
+
+  if (src && !failed) {
+    return (
+      <img
+        src={src}
+        alt={t('settings.integrations.discord.servers.iconAlt', { name: guild.name })}
+        className={cn('size-8 shrink-0 rounded-full object-cover', className)}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--surface-muted)] text-[10px] font-semibold text-muted-foreground',
+        className,
+      )}
+    >
+      {guildInitials(guild.name)}
+    </span>
+  );
+}
 
 const VERBOSITY_OPTIONS: {
   id: MessengerVerbosity;
@@ -116,18 +183,36 @@ const PERMISSION_MODE_OPTIONS: {
 ];
 
 function StatusBadge({ status }: { status: MessengerConnection['status'] }) {
+  const { t } = useI18n();
   const styles: Record<string, string> = {
-    connected: 'bg-green-500/20 text-green-600 dark:text-green-400',
-    connecting: 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400',
-    error: 'bg-red-500/20 text-red-600 dark:text-red-400',
+    connected:
+      'bg-[var(--status-success)]/15 text-[var(--status-success)]',
+    connecting:
+      'bg-[var(--status-warning)]/15 text-[var(--status-warning)]',
+    error: 'bg-[var(--status-error)]/15 text-[var(--status-error)]',
     disconnected: 'bg-muted text-muted-foreground',
   };
+  const labelKey: I18nKey =
+    status === 'connected'
+      ? 'settings.integrations.discord.status.connected'
+      : status === 'connecting'
+        ? 'settings.integrations.discord.status.connecting'
+        : status === 'error'
+          ? 'settings.integrations.discord.status.error'
+          : 'settings.integrations.discord.status.disconnected';
   return (
-    <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium', styles[status])}>
-      {status === 'connecting' && (
-        <RiLoader4Line className="inline size-3 animate-spin mr-0.5" />
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+        styles[status],
       )}
-      {status}
+    >
+      {status === 'connecting' ? (
+        <Icon name="loader-4" className="size-3 animate-spin" />
+      ) : status === 'connected' ? (
+        <Icon name="check" className="size-3" />
+      ) : null}
+      {t(labelKey)}
     </span>
   );
 }
@@ -1124,15 +1209,17 @@ function DiscordServerRow({
   guild,
 }: {
   conn: MessengerConnection;
-  guild: { id: string; name: string };
+  guild: DiscordGuildListItem;
 }) {
   const { t } = useI18n();
   const setDiscordGuildPolicy = useMessengerStore((s) => s.setDiscordGuildPolicy);
+  const setDiscordDefaultReplyMode = useMessengerStore((s) => s.setDiscordDefaultReplyMode);
   const resolveDiscordGuild = useMessengerStore((s) => s.resolveDiscordGuild);
   const sendTestMessage = useMessengerStore((s) => s.sendTestMessage);
   const syncDiscordGuildProjects = useMessengerStore((s) => s.syncDiscordGuildProjects);
   const projects = useProjectsStore((s) => s.projects);
   const [rowAction, setRowAction] = useState<null | 'test' | 'sync'>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const policy = conn.discordGuildPolicies?.[guild.id];
   const respond = policy?.enabled !== false;
@@ -1145,6 +1232,7 @@ function DiscordServerRow({
     policy?.parentCategoryId ?? (isLegacyPrimary ? conn.discordParentCategoryId : undefined) ?? '';
   const createThreads =
     policy?.createThreads ?? (isLegacyPrimary ? conn.discordCreateThreads !== false : true);
+  const defaultReplyMode = conn.discordDefaultReplyMode ?? 'always';
 
   // A live server gateway can report "connected" while this browser holds no
   // token; the server falls back to the saved token, so gate the per-server
@@ -1153,164 +1241,271 @@ function DiscordServerRow({
   const busy = conn.lastSyncStatus === 'sending';
 
   // Fetch the server's channel/category topology so the category picker can
-  // render once "Sync projects here" is on and we don't have it cached yet.
+  // render once expanded/sync is on and we don't have it cached yet.
   useEffect(() => {
-    if (syncing && !resolved && configured) {
+    if ((expanded || syncing) && !resolved && configured) {
       void resolveDiscordGuild(guild.id);
     }
-  }, [syncing, resolved, configured, guild.id, resolveDiscordGuild]);
+  }, [expanded, syncing, resolved, configured, guild.id, resolveDiscordGuild]);
+
+  // Keep sync settings visible when the user enables project sync.
+  useEffect(() => {
+    if (syncing) setExpanded(true);
+  }, [syncing]);
 
   return (
-    <div className="space-y-2 rounded-md border border-border/40 px-2.5 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
-          {guild.name}
-        </span>
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-3 py-2.5">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-label={
+            expanded
+              ? t('settings.integrations.discord.servers.collapseSettings')
+              : t('settings.integrations.discord.servers.expandSettings')
+          }
+        >
+          <DiscordGuildIcon guild={guild} />
+          <span className="min-w-0 truncate text-sm font-semibold text-foreground">
+            {guild.name}
+          </span>
+        </button>
+
         <label className="flex shrink-0 cursor-pointer items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">
-            {t('settings.integrations.discord.servers.enabled.label')}
-          </span>
-          <Checkbox
+          <Switch
             checked={respond}
-            onChange={(checked) => setDiscordGuildPolicy(guild.id, { enabled: checked })}
-            ariaLabel={t('settings.integrations.discord.servers.enabled.label')}
+            onCheckedChange={(checked) => setDiscordGuildPolicy(guild.id, { enabled: checked })}
+            aria-label={t('settings.integrations.discord.servers.enabled.label')}
+            className="data-[checked]:bg-[var(--status-success)]"
           />
-        </label>
-      </div>
-
-      {/* Per-server actions: choose exactly which server a test / sync targets. */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Button
-          type="button"
-          variant="outline"
-          size="xs"
-          className="!font-normal"
-          disabled={!configured || busy}
-          onClick={() => {
-            setRowAction('test');
-            void sendTestMessage('discord', { guildId: guild.id }).finally(() =>
-              setRowAction(null),
-            );
-          }}
-        >
-          {rowAction === 'test' ? (
-            <RiLoader4Line className="size-3.5 animate-spin" />
-          ) : (
-            <RiSendPlaneLine className="size-3.5" />
-          )}
-          {t('settings.integrations.discord.servers.sendTest')}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="xs"
-          className="!font-normal"
-          disabled={!configured || busy}
-          onClick={() => {
-            setRowAction('sync');
-            void syncDiscordGuildProjects(
-              buildProjectSyncPayloads(projects),
-              buildProjectSyncSummary(projects),
-              { guildIds: [guild.id] },
-            ).finally(() => setRowAction(null));
-          }}
-        >
-          {rowAction === 'sync' ? (
-            <RiLoader4Line className="size-3.5 animate-spin" />
-          ) : (
-            <RiRefreshLine className="size-3.5" />
-          )}
-          {t('settings.integrations.discord.servers.syncNow')}
-        </Button>
-      </div>
-
-      {respond && (
-        <div className="flex flex-wrap items-center gap-1">
-          {DISCORD_GUILD_REPLY_MODES.map((mode) => (
-            <Button
-              key={mode}
-              type="button"
-              variant="outline"
-              size="xs"
-              className={cn(
-                '!font-normal',
-                replyMode === mode
-                  ? 'border-[var(--primary-base)] text-[var(--primary-base)] bg-[var(--primary-base)]/10'
-                  : 'text-foreground',
-              )}
-              onClick={() => setDiscordGuildPolicy(guild.id, { replyMode: mode })}
-            >
-              {t(discordReplyModeLabelKey(mode))}
-            </Button>
-          ))}
-        </div>
-      )}
-
-      <div className="space-y-2 border-t border-border/40 pt-2">
-        <label className="flex cursor-pointer items-start gap-2">
-          <Checkbox
-            checked={syncing}
-            onChange={(checked) => setDiscordGuildPolicy(guild.id, { syncProjects: checked })}
-            ariaLabel={t('settings.integrations.discord.servers.syncProjects.label')}
-          />
-          <span className="min-w-0">
-            <span className="block text-[11px] text-foreground">
-              {t('settings.integrations.discord.servers.syncProjects.label')}
-            </span>
-            <span className="block text-[10px] text-muted-foreground leading-snug">
-              {t('settings.integrations.discord.servers.syncProjects.hint')}
-            </span>
+          <span className="text-xs text-muted-foreground">
+            {respond
+              ? t('settings.integrations.discord.servers.enabled.on')
+              : t('settings.integrations.discord.servers.enabled.off')}
           </span>
         </label>
 
-        {syncing && (
-          <div className="space-y-2 pl-6">
-            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <label htmlFor={`sync-cat-${guild.id}`} className="text-muted-foreground">
-                {t('settings.integrations.discord.servers.syncProjects.category')}
-              </label>
-              <select
-                id={`sync-cat-${guild.id}`}
-                value={parentCategoryId}
-                onChange={(e) =>
-                  setDiscordGuildPolicy(guild.id, {
-                    parentCategoryId: e.target.value || undefined,
-                  })
-                }
-                className="rounded border border-border bg-background px-2 py-0.5 text-[11px] text-foreground"
-              >
-                <option value="">
-                  {t('settings.integrations.discord.servers.syncProjects.categoryRoot')}
-                </option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => void resolveDiscordGuild(guild.id)}
-                className="text-[10px] text-primary hover:underline"
-              >
-                {t('settings.integrations.discord.advanced.primarySyncGuild.rescan')}
-              </button>
-            </div>
-            <label className="flex cursor-pointer items-center gap-2 text-[11px]">
-              <Checkbox
-                checked={createThreads}
-                onChange={(checked) =>
-                  setDiscordGuildPolicy(guild.id, { createThreads: checked })
-                }
-                ariaLabel={t('settings.integrations.discord.servers.syncProjects.threads')}
-              />
-              <span className="text-muted-foreground">
-                {t('settings.integrations.discord.servers.syncProjects.threads')}
-              </span>
-            </label>
+        {respond && (
+          <div
+            className="inline-flex max-w-full flex-wrap items-stretch overflow-hidden rounded-md border border-[var(--interactive-border)]"
+            role="group"
+            aria-label={t('settings.integrations.discord.servers.defaultReplyMode.label')}
+          >
+            {DISCORD_GUILD_REPLY_MODES.map((mode) => {
+              const selected = replyMode === mode;
+              if (mode === 'inherit') {
+                return (
+                  <div key={mode} className="flex items-stretch">
+                    <button
+                      type="button"
+                      onClick={() => setDiscordGuildPolicy(guild.id, { replyMode: mode })}
+                      className={cn(
+                        'px-2.5 py-1.5 text-[11px] font-medium transition-colors',
+                        selected
+                          ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
+                          : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
+                      )}
+                    >
+                      {t(discordReplyModeLabelKey(mode))}
+                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className={cn(
+                            'inline-flex items-center border-l border-[var(--interactive-border)] px-1.5 text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
+                            selected &&
+                              'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]',
+                          )}
+                          aria-label={t(
+                            'settings.integrations.discord.servers.defaultReplyMode.label',
+                          )}
+                        >
+                          <Icon name="arrow-down-s" className="size-3.5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="min-w-[12rem]">
+                        <DropdownMenuLabel>
+                          {t('settings.integrations.discord.servers.defaultReplyMode.label')}
+                        </DropdownMenuLabel>
+                        <DropdownMenuRadioGroup
+                          value={defaultReplyMode}
+                          onValueChange={(value) => {
+                            if (value === 'always' || value === 'mention') {
+                              setDiscordDefaultReplyMode(value);
+                              setDiscordGuildPolicy(guild.id, { replyMode: 'inherit' });
+                            }
+                          }}
+                        >
+                          {DISCORD_DEFAULT_REPLY_MODES.map((modeOption) => (
+                            <DropdownMenuRadioItem key={modeOption} value={modeOption}>
+                              {t(discordReplyModeLabelKey(modeOption))}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                );
+              }
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setDiscordGuildPolicy(guild.id, { replyMode: mode })}
+                  className={cn(
+                    'border-r border-[var(--interactive-border)] px-2.5 py-1.5 text-[11px] font-medium transition-colors',
+                    selected
+                      ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
+                      : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
+                  )}
+                >
+                  {t(discordReplyModeLabelKey(mode))}
+                </button>
+              );
+            })}
           </div>
         )}
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              aria-label={t('settings.integrations.discord.servers.menu.aria')}
+            >
+              <Icon name="more-2" className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[10rem]">
+            <DropdownMenuItem
+              disabled={!configured || busy}
+              onClick={() => {
+                setRowAction('test');
+                void sendTestMessage('discord', { guildId: guild.id }).finally(() =>
+                  setRowAction(null),
+                );
+              }}
+            >
+              {rowAction === 'test' ? (
+                <Icon name="loader-4" className="size-3.5 animate-spin" />
+              ) : (
+                <Icon name="send-plane" className="size-3.5" />
+              )}
+              {t('settings.integrations.discord.servers.sendTest')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!configured || busy}
+              onClick={() => {
+                setRowAction('sync');
+                void syncDiscordGuildProjects(
+                  buildProjectSyncPayloads(projects),
+                  buildProjectSyncSummary(projects),
+                  { guildIds: [guild.id] },
+                ).finally(() => setRowAction(null));
+              }}
+            >
+              {rowAction === 'sync' ? (
+                <Icon name="loader-4" className="size-3.5 animate-spin" />
+              ) : (
+                <Icon name="refresh" className="size-3.5" />
+              )}
+              {t('settings.integrations.discord.servers.syncNow')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setExpanded((v) => !v)}>
+              <Icon name={expanded ? 'arrow-up-s' : 'arrow-down-s'} className="size-3.5" />
+              {expanded
+                ? t('settings.integrations.discord.servers.collapseSettings')
+                : t('settings.integrations.discord.servers.expandSettings')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+
+      {expanded && (
+        <div className="relative ml-4 space-y-3 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-3 py-3">
+          <button
+            type="button"
+            className="absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
+            onClick={() => setExpanded(false)}
+            aria-label={t('settings.integrations.discord.servers.collapseSettings')}
+          >
+            <Icon name="arrow-up-s" className="size-4" />
+          </button>
+
+          <label className="flex cursor-pointer items-start gap-2.5 pr-8">
+            <Checkbox
+              checked={syncing}
+              onChange={(checked) => setDiscordGuildPolicy(guild.id, { syncProjects: checked })}
+              ariaLabel={t('settings.integrations.discord.servers.syncProjects.label')}
+            />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">
+                {t('settings.integrations.discord.servers.syncProjects.label')}
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                {t('settings.integrations.discord.servers.syncProjects.hint')}
+              </span>
+            </span>
+          </label>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <label htmlFor={`sync-cat-${guild.id}`} className="text-muted-foreground">
+              {t('settings.integrations.discord.servers.syncProjects.category')}
+            </label>
+            <select
+              id={`sync-cat-${guild.id}`}
+              value={parentCategoryId}
+              disabled={!syncing}
+              onChange={(e) =>
+                setDiscordGuildPolicy(guild.id, {
+                  parentCategoryId: e.target.value || undefined,
+                })
+              }
+              className="h-8 min-w-[12rem] rounded-md border border-[var(--interactive-border)] bg-background px-2 text-xs text-foreground disabled:opacity-50"
+            >
+              <option value="">
+                {t('settings.integrations.discord.servers.syncProjects.categoryRoot')}
+              </option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void resolveDiscordGuild(guild.id)}
+              disabled={!configured}
+              className="text-xs font-medium text-[var(--primary-base)] hover:underline disabled:opacity-50"
+            >
+              {t('settings.integrations.discord.advanced.primarySyncGuild.rescan')}
+            </button>
+          </div>
+
+          <label
+            className={cn(
+              'flex cursor-pointer items-center gap-2.5 text-xs',
+              !syncing && 'opacity-50',
+            )}
+          >
+            <Checkbox
+              checked={createThreads}
+              disabled={!syncing}
+              onChange={(checked) => setDiscordGuildPolicy(guild.id, { createThreads: checked })}
+              ariaLabel={t('settings.integrations.discord.servers.syncProjects.threads')}
+            />
+            <span className="text-muted-foreground">
+              {t('settings.integrations.discord.servers.syncProjects.threads')}
+            </span>
+          </label>
+        </div>
+      )}
     </div>
   );
 }
@@ -1318,62 +1513,84 @@ function DiscordServerRow({
 function DiscordServersAndInviteBlock({ conn }: { conn: MessengerConnection }) {
   const { t } = useI18n();
   const fetchDiscordInviteUrl = useMessengerStore((s) => s.fetchDiscordInviteUrl);
-  const setDiscordDefaultReplyMode = useMessengerStore((s) => s.setDiscordDefaultReplyMode);
   const refreshDiscordGuilds = useMessengerStore((s) => s.refreshDiscordGuilds);
   const refreshing = useMessengerStore((s) => s.discordGuildsRefreshing);
   const guildsError = useMessengerStore((s) => s.discordGuildsError);
 
   const guildCount = conn.discordGuilds?.length ?? 0;
   const hasGuilds = guildCount > 0;
-  const defaultReplyMode = conn.discordDefaultReplyMode ?? 'always';
 
   // Poll while empty so joining a server updates the list automatically.
   useDiscordGuildMembershipPoll(!hasGuilds && Boolean(conn.botToken));
 
+  const openInvite = async () => {
+    if (conn.discordInviteUrl) {
+      window.open(conn.discordInviteUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    const url = await fetchDiscordInviteUrl();
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   return (
-    <div
-      data-settings-item="integrations.discord.servers"
-      className="space-y-3 rounded-md border border-border/60 bg-muted/20 p-3"
-    >
+    <div data-settings-item="integrations.discord.servers" className="space-y-3">
       <div>
-        <div className="text-xs font-medium text-foreground">
+        <div className="text-base font-semibold text-foreground">
           {t('settings.integrations.discord.servers.title')}
         </div>
-        <p className="mt-1 text-[11px] text-muted-foreground leading-snug">
+        <p className="mt-1 text-xs text-muted-foreground leading-snug">
           {t('settings.integrations.discord.servers.description')}
         </p>
       </div>
 
+      {!hasGuilds && (
+        <div className="space-y-2 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-muted)]/40 px-3 py-2.5">
+          <p className="text-xs text-muted-foreground leading-snug">
+            {t('settings.integrations.discord.servers.empty')}
+          </p>
+          {refreshing && (
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Icon name="loader-4" className="size-3 animate-spin" />
+              {t('settings.integrations.discord.servers.refreshing')}
+            </p>
+          )}
+          {guildsError && (
+            <p className="text-xs text-[var(--status-error)] leading-snug">{guildsError}</p>
+          )}
+          <p className="text-[11px] text-muted-foreground leading-snug">
+            {t('settings.integrations.discord.servers.inviteHint')}
+          </p>
+        </div>
+      )}
+
+      {hasGuilds && guildsError && (
+        <p className="text-xs text-[var(--status-error)] leading-snug">{guildsError}</p>
+      )}
+
+      {hasGuilds && (
+        <div className="space-y-2">
+          {(conn.discordGuilds ?? []).map((g) => (
+            <DiscordServerRow key={g.id} conn={conn} guild={g} />
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
-        {conn.discordInviteUrl ? (
-          <Button
-            type="button"
-            variant={hasGuilds ? 'outline' : 'default'}
-            size="xs"
-            className="!font-normal"
-            onClick={() =>
-              window.open(conn.discordInviteUrl!, '_blank', 'noopener,noreferrer')
-            }
-          >
-            <Icon name="external-link" className="size-3.5" />
-            {t('settings.integrations.discord.servers.inviteButton')}
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="default"
-            size="xs"
-            className="!font-normal"
-            onClick={() => void fetchDiscordInviteUrl()}
-          >
-            {t('settings.integrations.discord.servers.generateInvite')}
-          </Button>
-        )}
         <Button
           type="button"
           variant="outline"
-          size="xs"
+          size="sm"
           className="!font-normal"
+          onClick={() => void openInvite()}
+        >
+          <Icon name="add" className="size-3.5" />
+          {t('settings.integrations.discord.servers.inviteButton')}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="!font-normal text-muted-foreground"
           disabled={refreshing || (!conn.botToken && !conn.discordServerConfigured)}
           onClick={() => void refreshDiscordGuilds()}
         >
@@ -1387,79 +1604,6 @@ function DiscordServersAndInviteBlock({ conn }: { conn: MessengerConnection }) {
             : t('settings.integrations.discord.servers.refresh')}
         </Button>
       </div>
-
-      <div className="text-[11px] text-muted-foreground">
-        {hasGuilds
-          ? t('settings.integrations.discord.wizard.step2.botInServers', { count: guildCount })
-          : t('settings.integrations.discord.wizard.step2.botNotInServers')}
-      </div>
-
-      {!hasGuilds && (
-        <div className="rounded-md border border-border/50 bg-background/60 px-2.5 py-2 space-y-1">
-          <p className="text-[11px] text-muted-foreground leading-snug">
-            {t('settings.integrations.discord.servers.empty')}
-          </p>
-          {refreshing && (
-            <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-              <Icon name="loader-4" className="size-3 animate-spin" />
-              {t('settings.integrations.discord.servers.refreshing')}
-            </p>
-          )}
-          {guildsError && (
-            <p className="text-[11px] text-[var(--status-error)] leading-snug">{guildsError}</p>
-          )}
-        </div>
-      )}
-
-      {hasGuilds && guildsError && (
-        <p className="text-[11px] text-[var(--status-error)] leading-snug">{guildsError}</p>
-      )}
-
-      <p className="text-[10px] text-muted-foreground leading-snug">
-        {t('settings.integrations.discord.servers.inviteHint')}
-      </p>
-
-      {hasGuilds && (
-        <>
-          <div className="space-y-1.5 border-t border-border/60 pt-2">
-            <div className="text-[11px] font-medium text-foreground">
-              {t('settings.integrations.discord.servers.defaultReplyMode.label')}
-            </div>
-            <p className="text-[10px] text-muted-foreground leading-snug">
-              {t('settings.integrations.discord.servers.defaultReplyMode.hint')}
-            </p>
-            <div className="mt-1 flex flex-wrap items-center gap-1">
-              {DISCORD_DEFAULT_REPLY_MODES.map((mode) => (
-                <Button
-                  key={mode}
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  className={cn(
-                    '!font-normal',
-                    defaultReplyMode === mode
-                      ? 'border-[var(--primary-base)] text-[var(--primary-base)] bg-[var(--primary-base)]/10'
-                      : 'text-foreground',
-                  )}
-                  onClick={() => setDiscordDefaultReplyMode(mode)}
-                >
-                  {t(discordReplyModeLabelKey(mode))}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2 border-t border-border/60 pt-2">
-            {(conn.discordGuilds ?? []).map((g) => (
-              <DiscordServerRow key={g.id} conn={conn} guild={g} />
-            ))}
-          </div>
-
-          <p className="text-[10px] text-muted-foreground leading-snug">
-            {t('settings.integrations.discord.servers.mentionHint')}
-          </p>
-        </>
-      )}
     </div>
   );
 }
@@ -1475,35 +1619,33 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
   const saveDiscordConfig = useMessengerStore((s) => s.saveDiscordConfig);
   const [disconnecting, setDisconnecting] = useState(false);
 
-  const tokenSectionRef = useRef<HTMLDivElement>(null);
   const advancedSectionRef = useRef<HTMLDivElement>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
 
   const scrollToSection = (section: 'token' | 'guild' | 'channel' | 'test' | 'advanced') => {
     // The per-server sync/channel/test controls now live under Advanced and on
     // the server rows, so the wizard's legacy targets resolve to the advanced
-    // panel.
+    // panel. Token change also lives inside Advanced.
     const resolved =
-      section === 'guild' || section === 'channel' || section === 'test' ? 'advanced' : section;
+      section === 'guild' || section === 'channel' || section === 'test' || section === 'token'
+        ? 'advanced'
+        : section;
     if (resolved === 'advanced') {
       setAdvancedOpen(true);
+      if (section === 'token') {
+        setShowToken(true);
+      }
     }
-    if (resolved === 'token') {
-      setShowToken(true);
-    }
-    const ref = resolved === 'token' ? tokenSectionRef : advancedSectionRef;
     window.requestAnimationFrame(() => {
-      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      advancedSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
   };
 
   const meta = MESSENGER_META[conn.type];
-  const Icon = meta.icon;
   const displayStatus = deriveDiscordDisplayStatus(conn);
-
-  const [showToken, setShowToken] = useState(false);
-  const [tokenInput, setTokenInput] = useState('');
-  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
 
   const token = conn.botToken;
 
@@ -1544,15 +1686,15 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
     'w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring';
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Icon className={cn('size-5', meta.color)} />
-          <span className="text-sm font-medium text-foreground">{meta.name}</span>
+    <div className="rounded-xl border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-5 shadow-sm space-y-5">
+      {/* Header — Discord mark + status + Disconnect / Advanced */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Icon name="discord-fill" className={cn('size-5 shrink-0', meta.color)} />
+          <span className="text-sm font-semibold text-foreground">{meta.name}</span>
           <StatusBadge status={displayStatus} />
           {conn.discordBotUsername && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="truncate text-xs text-muted-foreground">
               {conn.discordBotUsername}
               {conn.discordBotDiscriminator && conn.discordBotDiscriminator !== '0'
                 ? `#${conn.discordBotDiscriminator}`
@@ -1561,20 +1703,37 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div data-settings-item="integrations.discord.commands">
-            <DiscordCommandsButton />
-          </div>
-          {/* Disconnect lives top-right of the card for both onboarding and the
-              configured view. */}
           {configured && (
             <Button
               type="button"
               variant="outline"
-              size="xs"
-              className="!font-normal text-[var(--status-error)] hover:text-[var(--status-error)]"
+              size="sm"
+              className="!font-normal text-[var(--status-error)] hover:text-[var(--status-error)] border-[var(--status-error)]/40"
               onClick={() => setDisconnectConfirmOpen(true)}
             >
               {t('settings.integrations.discord.disconnect.button')}
+            </Button>
+          )}
+          {!showWizard && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="!font-normal"
+              onClick={() => {
+                setAdvancedOpen((open) => !open);
+                if (!advancedOpen) {
+                  window.requestAnimationFrame(() => {
+                    advancedSectionRef.current?.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'nearest',
+                    });
+                  });
+                }
+              }}
+            >
+              <Icon name="settings-3" className="size-3.5" />
+              {t('settings.integrations.discord.actions.advancedSettings')}
             </Button>
           )}
         </div>
@@ -1594,47 +1753,13 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
         <DiscordOnboardingWizard conn={conn} onScrollToSection={scrollToSection} />
       ) : (
         <>
-          {/* Configured: change token + verify. Disconnect sits top-right;
-              Advanced settings sits at the bottom-left of the card. */}
-          <div ref={tokenSectionRef} className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="xs"
-              className="!font-normal"
-              onClick={() => setShowToken((v) => !v)}
-            >
-              {showToken
-                ? t('settings.common.actions.cancel')
-                : t('settings.integrations.discord.actions.changeToken')}
-            </Button>
-            {displayStatus !== 'connected' && (
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                className="!font-normal"
-                onClick={() => testConnection(conn.type)}
-                disabled={!configured || conn.status === 'connecting'}
-              >
-                {conn.status === 'connecting'
-                  ? t('settings.integrations.discord.wizard.step1.verifying')
-                  : t('settings.integrations.discord.wizard.step1.verify')}
-              </Button>
-            )}
-          </div>
+          <DiscordServersAndInviteBlock conn={conn} />
 
-          {/* Servers & invite — visually separated from the token/verify row. */}
-          <div className="border-t border-border/40 pt-4">
-            <DiscordServersAndInviteBlock conn={conn} />
-          </div>
-
-          {/* Auto-managed gateway: the bot listens whenever a server is set to
-              respond, so there is no manual start/stop here — just live status. */}
+          {/* Auto-managed gateway status — matches the mock Listening pill. */}
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium',
+                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium',
                 conn.discordListenerConnected
                   ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]'
                   : conn.discordListenerRunning
@@ -1658,51 +1783,72 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
                   ? t('settings.integrations.discord.listener.status.connecting')
                   : t('settings.integrations.discord.listener.status.off')}
             </span>
-            <span className="typography-meta text-muted-foreground">
-              {t('settings.integrations.discord.listener.autoManaged')}
-            </span>
           </div>
 
-          {showToken && (
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <input
-                type="password"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                placeholder={t('settings.integrations.discord.wizard.step1.tokenLabel')}
-                className={cn(inputClass, 'min-w-[12rem] flex-1')}
-              />
-              <Button
-                type="button"
-                variant="default"
-                size="xs"
-                className="!font-normal shrink-0"
-                onClick={handleSaveToken}
-                disabled={!tokenInput.trim()}
-              >
-                {t('settings.integrations.discord.actions.updateToken')}
-              </Button>
-            </div>
-          )}
-
-          {/* Advanced settings — bottom-left of the card. */}
-          <div ref={advancedSectionRef} className="border-t border-border/60 pt-3">
-            <Button
-              type="button"
-              variant={advancedOpen ? 'secondary' : 'outline'}
-              size="xs"
-              className="!font-normal"
-              onClick={() => setAdvancedOpen((open) => !open)}
-            >
-              {t('settings.integrations.discord.actions.advancedSettings')}
-            </Button>
+          {/* Advanced settings — opened from the header control. */}
+          <div ref={advancedSectionRef}>
             {advancedOpen && (
-              <DiscordAdvancedSettings
-                conn={conn}
-                open={advancedOpen}
-                onOpenChange={setAdvancedOpen}
-                hideTrigger
-              />
+              <div className="space-y-4 border-t border-[var(--interactive-border)] pt-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div data-settings-item="integrations.discord.commands">
+                    <DiscordCommandsButton />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    className="!font-normal"
+                    onClick={() => setShowToken((v) => !v)}
+                  >
+                    {showToken
+                      ? t('settings.common.actions.cancel')
+                      : t('settings.integrations.discord.actions.changeToken')}
+                  </Button>
+                  {displayStatus !== 'connected' && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      className="!font-normal"
+                      onClick={() => testConnection(conn.type)}
+                      disabled={!configured || conn.status === 'connecting'}
+                    >
+                      {conn.status === 'connecting'
+                        ? t('settings.integrations.discord.wizard.step1.verifying')
+                        : t('settings.integrations.discord.wizard.step1.verify')}
+                    </Button>
+                  )}
+                </div>
+
+                {showToken && (
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <input
+                      type="password"
+                      value={tokenInput}
+                      onChange={(e) => setTokenInput(e.target.value)}
+                      placeholder={t('settings.integrations.discord.wizard.step1.tokenLabel')}
+                      className={cn(inputClass, 'min-w-[12rem] flex-1')}
+                    />
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="xs"
+                      className="!font-normal shrink-0"
+                      onClick={handleSaveToken}
+                      disabled={!tokenInput.trim()}
+                    >
+                      {t('settings.integrations.discord.actions.updateToken')}
+                    </Button>
+                  </div>
+                )}
+
+                <DiscordAdvancedSettings
+                  conn={conn}
+                  open={advancedOpen}
+                  onOpenChange={setAdvancedOpen}
+                  hideTrigger
+                />
+              </div>
             )}
           </div>
         </>
@@ -1754,7 +1900,6 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
 function DiscordConnectCard({ onConnect }: { onConnect: () => void }) {
   const { t } = useI18n();
   const meta = MESSENGER_META.discord;
-  const Icon = meta.icon;
   return (
     <button
       type="button"
@@ -1762,9 +1907,9 @@ function DiscordConnectCard({ onConnect }: { onConnect: () => void }) {
       data-settings-item="integrations.discord.connect"
       className="flex size-40 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border p-4 text-center text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
     >
-      <Icon className={cn('size-9', meta.color)} />
+      <Icon name="discord-fill" className={cn('size-9', meta.color)} />
       <span className="flex items-center gap-1 text-xs font-medium">
-        <RiAddLine className="size-3.5" />
+        <Icon name="add" className="size-3.5" />
         {t('settings.integrations.discord.connect')}
       </span>
       <span className="text-[10px] font-normal leading-snug text-muted-foreground/80">
