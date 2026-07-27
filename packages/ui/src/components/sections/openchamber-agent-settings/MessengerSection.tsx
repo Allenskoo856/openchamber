@@ -40,11 +40,9 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Switch } from '@/components/ui/switch';
@@ -200,19 +198,34 @@ function StatusBadge({ status }: { status: MessengerConnection['status'] }) {
         : status === 'error'
           ? 'settings.integrations.discord.status.error'
           : 'settings.integrations.discord.status.disconnected';
+  const label = t(labelKey);
+  // Connected: checkmark only (label stays for accessibility). Other states keep text.
+  if (status === 'connected') {
+    return (
+      <span
+        className={cn(
+          'inline-flex size-5 items-center justify-center rounded-full',
+          styles.connected,
+        )}
+        title={label}
+        aria-label={label}
+      >
+        <Icon name="check" className="size-3" />
+      </span>
+    );
+  }
   return (
     <span
       className={cn(
         'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
         styles[status],
       )}
+      aria-label={label}
     >
       {status === 'connecting' ? (
         <Icon name="loader-4" className="size-3 animate-spin" />
-      ) : status === 'connected' ? (
-        <Icon name="check" className="size-3" />
       ) : null}
-      {t(labelKey)}
+      {label}
     </span>
   );
 }
@@ -1219,6 +1232,7 @@ function DiscordServerRow({
   const syncDiscordGuildProjects = useMessengerStore((s) => s.syncDiscordGuildProjects);
   const projects = useProjectsStore((s) => s.projects);
   const [rowAction, setRowAction] = useState<null | 'test' | 'sync'>(null);
+  // Panel opens only from the ⋮ control — never from the row itself; default closed.
   const [expanded, setExpanded] = useState(false);
 
   const policy = conn.discordGuildPolicies?.[guild.id];
@@ -1240,38 +1254,22 @@ function DiscordServerRow({
   const configured = Boolean(conn.botToken || conn.discordServerConfigured);
   const busy = conn.lastSyncStatus === 'sending';
 
-  // Fetch the server's channel/category topology so the category picker can
-  // render once expanded/sync is on and we don't have it cached yet.
+  // Fetch the server's channel/category topology once the panel is open.
   useEffect(() => {
-    if ((expanded || syncing) && !resolved && configured) {
+    if (expanded && !resolved && configured) {
       void resolveDiscordGuild(guild.id);
     }
-  }, [expanded, syncing, resolved, configured, guild.id, resolveDiscordGuild]);
-
-  // Keep sync settings visible when the user enables project sync.
-  useEffect(() => {
-    if (syncing) setExpanded(true);
-  }, [syncing]);
+  }, [expanded, resolved, configured, guild.id, resolveDiscordGuild]);
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-3 py-2.5">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          aria-label={
-            expanded
-              ? t('settings.integrations.discord.servers.collapseSettings')
-              : t('settings.integrations.discord.servers.expandSettings')
-          }
-        >
+      <div className="flex items-center gap-3 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-3 py-2.5">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <DiscordGuildIcon guild={guild} />
-          <span className="min-w-0 truncate text-sm font-semibold text-foreground">
+          <span className="min-w-0 break-words text-sm font-semibold leading-snug text-foreground">
             {guild.name}
           </span>
-        </button>
+        </div>
 
         <label className="flex shrink-0 cursor-pointer items-center gap-2">
           <Switch
@@ -1280,149 +1278,26 @@ function DiscordServerRow({
             aria-label={t('settings.integrations.discord.servers.enabled.label')}
             className="data-[checked]:bg-[var(--status-success)]"
           />
-          <span className="text-xs text-muted-foreground">
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
             {t('settings.integrations.discord.servers.enabled.label')}
           </span>
         </label>
 
-        {respond && (
-          <div
-            className="inline-flex max-w-full flex-wrap items-stretch overflow-hidden rounded-md border border-[var(--interactive-border)]"
-            role="group"
-            aria-label={t('settings.integrations.discord.servers.defaultReplyMode.label')}
-          >
-            {DISCORD_GUILD_REPLY_MODES.map((mode) => {
-              const selected = replyMode === mode;
-              if (mode === 'inherit') {
-                return (
-                  <div key={mode} className="flex items-stretch">
-                    <button
-                      type="button"
-                      onClick={() => setDiscordGuildPolicy(guild.id, { replyMode: mode })}
-                      className={cn(
-                        'px-2.5 py-1.5 text-[11px] font-medium transition-colors',
-                        selected
-                          ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
-                          : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
-                      )}
-                    >
-                      {t(discordReplyModeLabelKey(mode))}
-                    </button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className={cn(
-                            'inline-flex items-center border-l border-[var(--interactive-border)] px-1.5 text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
-                            selected &&
-                              'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]',
-                          )}
-                          aria-label={t(
-                            'settings.integrations.discord.servers.defaultReplyMode.label',
-                          )}
-                        >
-                          <Icon name="arrow-down-s" className="size-3.5" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="min-w-[12rem]">
-                        <DropdownMenuLabel>
-                          {t('settings.integrations.discord.servers.defaultReplyMode.label')}
-                        </DropdownMenuLabel>
-                        <DropdownMenuRadioGroup
-                          value={defaultReplyMode}
-                          onValueChange={(value) => {
-                            if (value === 'always' || value === 'mention') {
-                              setDiscordDefaultReplyMode(value);
-                              setDiscordGuildPolicy(guild.id, { replyMode: 'inherit' });
-                            }
-                          }}
-                        >
-                          {DISCORD_DEFAULT_REPLY_MODES.map((modeOption) => (
-                            <DropdownMenuRadioItem key={modeOption} value={modeOption}>
-                              {t(discordReplyModeLabelKey(modeOption))}
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                );
-              }
-              return (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setDiscordGuildPolicy(guild.id, { replyMode: mode })}
-                  className={cn(
-                    'border-r border-[var(--interactive-border)] px-2.5 py-1.5 text-[11px] font-medium transition-colors',
-                    selected
-                      ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
-                      : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
-                  )}
-                >
-                  {t(discordReplyModeLabelKey(mode))}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0"
-              aria-label={t('settings.integrations.discord.servers.menu.aria')}
-            >
-              <Icon name="more-2" className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[10rem]">
-            <DropdownMenuItem
-              disabled={!configured || busy}
-              onClick={() => {
-                setRowAction('test');
-                void sendTestMessage('discord', { guildId: guild.id }).finally(() =>
-                  setRowAction(null),
-                );
-              }}
-            >
-              {rowAction === 'test' ? (
-                <Icon name="loader-4" className="size-3.5 animate-spin" />
-              ) : (
-                <Icon name="send-plane" className="size-3.5" />
-              )}
-              {t('settings.integrations.discord.servers.sendTest')}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!configured || busy}
-              onClick={() => {
-                setRowAction('sync');
-                void syncDiscordGuildProjects(
-                  buildProjectSyncPayloads(projects),
-                  buildProjectSyncSummary(projects),
-                  { guildIds: [guild.id] },
-                ).finally(() => setRowAction(null));
-              }}
-            >
-              {rowAction === 'sync' ? (
-                <Icon name="loader-4" className="size-3.5 animate-spin" />
-              ) : (
-                <Icon name="refresh" className="size-3.5" />
-              )}
-              {t('settings.integrations.discord.servers.syncNow')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setExpanded((v) => !v)}>
-              <Icon name={expanded ? 'arrow-up-s' : 'arrow-down-s'} className="size-3.5" />
-              {expanded
-                ? t('settings.integrations.discord.servers.collapseSettings')
-                : t('settings.integrations.discord.servers.expandSettings')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button
+          type="button"
+          variant={expanded ? 'secondary' : 'ghost'}
+          size="icon"
+          className="size-8 shrink-0"
+          aria-expanded={expanded}
+          aria-label={
+            expanded
+              ? t('settings.integrations.discord.servers.collapseSettings')
+              : t('settings.integrations.discord.servers.expandSettings')
+          }
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <Icon name="more-2" className="size-4" />
+        </Button>
       </div>
 
       {expanded && (
@@ -1436,21 +1311,155 @@ function DiscordServerRow({
             <Icon name="arrow-up-s" className="size-4" />
           </button>
 
-          <label className="flex cursor-pointer items-start gap-2.5 pr-8">
-            <Checkbox
-              checked={syncing}
-              onChange={(checked) => setDiscordGuildPolicy(guild.id, { syncProjects: checked })}
-              ariaLabel={t('settings.integrations.discord.servers.syncProjects.label')}
-            />
-            <span className="min-w-0">
-              <span className="block text-xs font-semibold text-foreground">
-                {t('settings.integrations.discord.servers.syncProjects.label')}
+          <div className="flex flex-wrap items-start gap-3 pr-8">
+            <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5">
+              <Checkbox
+                checked={syncing}
+                onChange={(checked) => setDiscordGuildPolicy(guild.id, { syncProjects: checked })}
+                ariaLabel={t('settings.integrations.discord.servers.syncProjects.label')}
+              />
+              <span className="min-w-0">
+                <span className="block text-xs font-semibold text-foreground">
+                  {t('settings.integrations.discord.servers.syncProjects.label')}
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+                  {t('settings.integrations.discord.servers.syncProjects.hint')}
+                </span>
               </span>
-              <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
-                {t('settings.integrations.discord.servers.syncProjects.hint')}
-              </span>
-            </span>
-          </label>
+            </label>
+
+            <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="!font-normal"
+                disabled={!configured || busy}
+                onClick={() => {
+                  setRowAction('sync');
+                  void syncDiscordGuildProjects(
+                    buildProjectSyncPayloads(projects),
+                    buildProjectSyncSummary(projects),
+                    { guildIds: [guild.id] },
+                  ).finally(() => setRowAction(null));
+                }}
+              >
+                {rowAction === 'sync' ? (
+                  <Icon name="loader-4" className="size-3.5 animate-spin" />
+                ) : (
+                  <Icon name="refresh" className="size-3.5" />
+                )}
+                {t('settings.integrations.discord.servers.syncNow')}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="!font-normal"
+                disabled={!configured || busy}
+                onClick={() => {
+                  setRowAction('test');
+                  void sendTestMessage('discord', { guildId: guild.id }).finally(() =>
+                    setRowAction(null),
+                  );
+                }}
+              >
+                {rowAction === 'test' ? (
+                  <Icon name="loader-4" className="size-3.5 animate-spin" />
+                ) : (
+                  <Icon name="send-plane" className="size-3.5" />
+                )}
+                {t('settings.integrations.discord.servers.sendTest')}
+              </Button>
+            </div>
+          </div>
+
+          {respond && (
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-medium text-foreground">
+                {t('settings.integrations.discord.servers.defaultReplyMode.label')}
+              </div>
+              <div
+                className="inline-flex max-w-full flex-wrap items-stretch overflow-hidden rounded-md border border-[var(--interactive-border)]"
+                role="group"
+                aria-label={t('settings.integrations.discord.servers.defaultReplyMode.label')}
+              >
+                {DISCORD_GUILD_REPLY_MODES.map((mode) => {
+                  const selected = replyMode === mode;
+                  if (mode === 'inherit') {
+                    return (
+                      <div key={mode} className="flex items-stretch">
+                        <button
+                          type="button"
+                          onClick={() => setDiscordGuildPolicy(guild.id, { replyMode: mode })}
+                          className={cn(
+                            'px-2.5 py-1.5 text-[11px] font-medium transition-colors',
+                            selected
+                              ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
+                              : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
+                          )}
+                        >
+                          {t(discordReplyModeLabelKey(mode))}
+                        </button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className={cn(
+                                'inline-flex items-center border-l border-[var(--interactive-border)] px-1.5 text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
+                                selected &&
+                                  'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]',
+                              )}
+                              aria-label={t(
+                                'settings.integrations.discord.servers.defaultReplyMode.label',
+                              )}
+                            >
+                              <Icon name="arrow-down-s" className="size-3.5" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="min-w-[12rem]">
+                            <DropdownMenuLabel>
+                              {t('settings.integrations.discord.servers.defaultReplyMode.label')}
+                            </DropdownMenuLabel>
+                            <DropdownMenuRadioGroup
+                              value={defaultReplyMode}
+                              onValueChange={(value) => {
+                                if (value === 'always' || value === 'mention') {
+                                  setDiscordDefaultReplyMode(value);
+                                  setDiscordGuildPolicy(guild.id, { replyMode: 'inherit' });
+                                }
+                              }}
+                            >
+                              {DISCORD_DEFAULT_REPLY_MODES.map((modeOption) => (
+                                <DropdownMenuRadioItem key={modeOption} value={modeOption}>
+                                  {t(discordReplyModeLabelKey(modeOption))}
+                                </DropdownMenuRadioItem>
+                              ))}
+                            </DropdownMenuRadioGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    );
+                  }
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setDiscordGuildPolicy(guild.id, { replyMode: mode })}
+                      className={cn(
+                        'border-r border-[var(--interactive-border)] px-2.5 py-1.5 text-[11px] font-medium transition-colors',
+                        selected
+                          ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
+                          : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
+                      )}
+                    >
+                      {t(discordReplyModeLabelKey(mode))}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <label htmlFor={`sync-cat-${guild.id}`} className="text-muted-foreground">
@@ -1685,14 +1694,14 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
 
   return (
     <div className="rounded-xl border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-5 shadow-sm space-y-5">
-      {/* Header — Discord mark + status + Disconnect / Advanced */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+      {/* Header — Discord mark + status; Advanced then Disconnect (one row). */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           <Icon name="discord-fill" className={cn('size-5 shrink-0', meta.color)} />
-          <span className="text-sm font-semibold text-foreground">{meta.name}</span>
+          <span className="shrink-0 text-sm font-semibold text-foreground">{meta.name}</span>
           <StatusBadge status={displayStatus} />
           {conn.discordBotUsername && (
-            <span className="truncate text-xs text-muted-foreground">
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
               {conn.discordBotUsername}
               {conn.discordBotDiscriminator && conn.discordBotDiscriminator !== '0'
                 ? `#${conn.discordBotDiscriminator}`
@@ -1700,24 +1709,13 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
             </span>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {configured && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="!font-normal text-[var(--status-error)] hover:text-[var(--status-error)] border-[var(--status-error)]/40"
-              onClick={() => setDisconnectConfirmOpen(true)}
-            >
-              {t('settings.integrations.discord.disconnect.button')}
-            </Button>
-          )}
+        <div className="flex shrink-0 items-center gap-1.5">
           {!showWizard && (
             <Button
               type="button"
               variant="outline"
-              size="sm"
-              className="!font-normal"
+              size="xs"
+              className="!font-normal whitespace-nowrap"
               onClick={() => {
                 setAdvancedOpen((open) => !open);
                 if (!advancedOpen) {
@@ -1732,6 +1730,17 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
             >
               <Icon name="settings-3" className="size-3.5" />
               {t('settings.integrations.discord.actions.advancedSettings')}
+            </Button>
+          )}
+          {configured && (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="!font-normal whitespace-nowrap text-[var(--status-error)] hover:text-[var(--status-error)] border-[var(--status-error)]/40"
+              onClick={() => setDisconnectConfirmOpen(true)}
+            >
+              {t('settings.integrations.discord.disconnect.button')}
             </Button>
           )}
         </div>
