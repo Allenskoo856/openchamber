@@ -760,6 +760,8 @@ interface UIStore {
   setScheduledTasksDialogOpen: (open: boolean) => void;
   setArchivePageOpen: (open: boolean) => void;
   setWorktreesPageProjectId: (projectId: string | null) => void;
+  /** Close every full-page surface (Scheduled, Archive, Worktrees, Multi-run). */
+  closeMainSurfaces: () => void;
   setSettingsDialogOpen: (open: boolean) => void;
   setNewWorktreeDialogOpen: (open: boolean) => void;
   setModelSelectorOpen: (open: boolean) => void;
@@ -1573,6 +1575,20 @@ export const useUIStore = create<UIStore>()(
           set(projectId
             ? { worktreesPageProjectId: projectId, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isMultiRunLauncherOpen: false }
             : { worktreesPageProjectId: null });
+        },
+
+        closeMainSurfaces: () => {
+          const state = get();
+          if (!state.isScheduledTasksDialogOpen && !state.isArchivePageOpen && !state.worktreesPageProjectId && !state.isMultiRunLauncherOpen) {
+            return;
+          }
+          set({
+            isScheduledTasksDialogOpen: false,
+            isArchivePageOpen: false,
+            worktreesPageProjectId: null,
+            isMultiRunLauncherOpen: false,
+            multiRunLauncherPrefillPrompt: '',
+          });
         },
 
         setSettingsDialogOpen: (open) => {

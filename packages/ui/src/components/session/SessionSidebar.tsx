@@ -463,6 +463,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   // is driven by the openchamber:navigate event, so switch to chat explicitly
   // (a no-op in the expanded side-by-side layout, which is always showing chat).
   const openNewSessionDraftFromTree = React.useCallback<typeof openNewSessionDraft>((options) => {
+    // Starting a draft always leaves any full-page surface, even when a
+    // draft was already open (no store transition fires in that case).
+    useUIStore.getState().closeMainSurfaces();
     openNewSessionDraft(options);
     if (isVSCode) {
       window.dispatchEvent(new CustomEvent('openchamber:navigate', { detail: { view: 'chat' } }));
@@ -1725,6 +1728,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }, [mobileVariant, openMultiRunLauncher, setActiveMainTab, setSessionSwitcherOpen]);
 
   const handleOpenNewSessionDraftFromHeader = React.useCallback(() => {
+    useUIStore.getState().closeMainSurfaces();
     setActiveMainTab('chat');
     if (mobileVariant) {
       setSessionSwitcherOpen(false);

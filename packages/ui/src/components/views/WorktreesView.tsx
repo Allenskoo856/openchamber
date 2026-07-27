@@ -12,7 +12,6 @@ import { WorktreeSectionContent } from '@/components/sections/openchamber/Worktr
 export function WorktreesView(): React.ReactNode {
   const { t } = useI18n();
   const projectId = useUIStore((state) => state.worktreesPageProjectId);
-  const setWorktreesPageProjectId = useUIStore((state) => state.setWorktreesPageProjectId);
   const setNewWorktreeDialogOpen = useUIStore((state) => state.setNewWorktreeDialogOpen);
   const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
   const project = useProjectsStore((state) => state.projects.find((entry) => entry.id === projectId) ?? null);
@@ -35,14 +34,6 @@ export function WorktreesView(): React.ReactNode {
             <Icon name="node-tree" className="mr-1 h-3.5 w-3.5" />
             {t('sessions.sidebar.project.actions.newWorktree')}
           </Button>
-          <button
-            type="button"
-            onClick={() => setWorktreesPageProjectId(null)}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-            aria-label={t('sessions.worktreesPage.closeAria')}
-          >
-            <Icon name="close" className="h-4 w-4" />
-          </button>
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-4">

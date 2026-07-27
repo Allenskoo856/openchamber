@@ -61,16 +61,12 @@ export const MainLayout: React.FC = () => {
     const isSurfacePageOpen = isScheduledTasksPageOpen || isArchivePageOpen || Boolean(worktreesPageProjectId) || isMultiRunLauncherOpen;
 
     React.useEffect(() => {
-        const closeSurfacePages = () => {
-            const ui = useUIStore.getState();
-            if (ui.isScheduledTasksDialogOpen) ui.setScheduledTasksDialogOpen(false);
-            if (ui.isArchivePageOpen) ui.setArchivePageOpen(false);
-            if (ui.worktreesPageProjectId) ui.setWorktreesPageProjectId(null);
-            if (ui.isMultiRunLauncherOpen) ui.setMultiRunLauncherOpen(false);
-        };
+        const closeSurfacePages = () => useUIStore.getState().closeMainSurfaces();
         const unsubscribeSession = useSessionUIStore.subscribe((state, prev) => {
             const sessionSelected = Boolean(state.currentSessionId) && state.currentSessionId !== prev.currentSessionId;
-            const draftOpened = Boolean(state.newSessionDraft?.open) && !prev.newSessionDraft?.open;
+            // Draft identity change covers re-opening a draft while one is
+            // already open (the boolean alone never transitions then).
+            const draftOpened = Boolean(state.newSessionDraft?.open) && state.newSessionDraft !== prev.newSessionDraft;
             if (sessionSelected || draftOpened) closeSurfacePages();
         });
         const unsubscribeTab = useUIStore.subscribe((state, prev) => {

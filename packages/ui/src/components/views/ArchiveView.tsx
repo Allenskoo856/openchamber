@@ -172,19 +172,12 @@ export function ArchiveView(): React.ReactNode {
                 className="h-8 w-full rounded-md border border-border bg-transparent pl-8 pr-3 typography-ui-label text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
               />
             </div>
+            {/* Pages have no close button: you leave via the sidebar. */}
             <span className="flex-shrink-0 typography-micro text-muted-foreground">
               {filteredSessions.length === 1
                 ? t('sessions.archivePage.countSingle', { count: filteredSessions.length })
                 : t('sessions.archivePage.countPlural', { count: filteredSessions.length })}
             </span>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              aria-label={t('sessions.archivePage.closeAria')}
-            >
-              <Icon name="close" className="h-4 w-4" />
-            </button>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3">
