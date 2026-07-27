@@ -2,9 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {
+  CLAUDE_SCOPE_ERROR,
   CLAUDE_SESSION_EXPIRED_ERROR,
+  classifyClaudeUsageHttpError,
   ensureClaudeUsageAccessToken,
   fetchClaudeUsagePayload,
+  fetchClaudeUsageWindowsFromRateLimits,
+  hasKnownMissingProfileScope,
+  mapClaudeUsageWindows,
   type ClaudeUsageAccess,
 } from './claudeOauth';
 import { fetchOpenCodeGoUsage } from './opencodeGoQuota';
@@ -863,6 +868,44 @@ const fetchClaudeQuota = async (): Promise<ProviderResult> => {
       });
     }
 
+    const skipUsageEndpoint = access.source === 'env' || hasKnownMissingProfileScope(access.scopes);
+
+    const buildFallbackOrError = async (status: number | null = null, bodyText = '') => {
+      try {
+        const windows = await fetchClaudeUsageWindowsFromRateLimits(access!.accessToken);
+        return buildResult({
+          providerId: 'claude',
+          providerName,
+          ok: true,
+          configured: true,
+          usage: { windows },
+        });
+      } catch {
+        if (status === 401) {
+          return buildResult({
+            providerId: 'claude',
+            providerName,
+            ok: false,
+            configured: true,
+            error: CLAUDE_SESSION_EXPIRED_ERROR,
+          });
+        }
+        return buildResult({
+          providerId: 'claude',
+          providerName,
+          ok: false,
+          configured: true,
+          error: status == null
+            ? CLAUDE_SCOPE_ERROR
+            : classifyClaudeUsageHttpError(status, bodyText),
+        });
+      }
+    };
+
+    if (skipUsageEndpoint) {
+      return await buildFallbackOrError();
+    }
+
     let response = await fetchClaudeUsagePayload(access.accessToken);
 
     if (response.status === 401 && access.canRefresh) {
@@ -889,61 +932,23 @@ const fetchClaudeQuota = async (): Promise<ProviderResult> => {
       response = await fetchClaudeUsagePayload(access.accessToken);
     }
 
-    if (!response.ok) {
-      return buildResult({
-        providerId: 'claude',
-        providerName,
-        ok: false,
-        configured: true,
-        error: response.status === 401
-          ? CLAUDE_SESSION_EXPIRED_ERROR
-          : `API error: ${response.status}`,
-      });
+    if (response.ok) {
+      const payload = await response.json() as Record<string, unknown>;
+      const windows = mapClaudeUsageWindows(payload);
+      if (Object.keys(windows).length > 0) {
+        return buildResult({
+          providerId: 'claude',
+          providerName,
+          ok: true,
+          configured: true,
+          usage: { windows },
+        });
+      }
+      return await buildFallbackOrError();
     }
 
-    const payload = await response.json() as Record<string, unknown>;
-    const windows: Record<string, UsageWindow> = {};
-    const fiveHour = payload.five_hour as Record<string, unknown> | undefined;
-    const sevenDay = payload.seven_day as Record<string, unknown> | undefined;
-    const sevenDaySonnet = payload.seven_day_sonnet as Record<string, unknown> | undefined;
-    const sevenDayOpus = payload.seven_day_opus as Record<string, unknown> | undefined;
-
-    if (fiveHour) {
-      windows['5h'] = toUsageWindow({
-        usedPercent: toNumber(fiveHour.utilization),
-        windowSeconds: null,
-        resetAt: toTimestamp(fiveHour.resets_at),
-      });
-    }
-    if (sevenDay) {
-      windows['7d'] = toUsageWindow({
-        usedPercent: toNumber(sevenDay.utilization),
-        windowSeconds: null,
-        resetAt: toTimestamp(sevenDay.resets_at),
-      });
-    }
-    if (sevenDaySonnet) {
-      windows['7d-sonnet'] = toUsageWindow({
-        usedPercent: toNumber(sevenDaySonnet.utilization),
-        windowSeconds: null,
-        resetAt: toTimestamp(sevenDaySonnet.resets_at),
-      });
-    }
-    if (sevenDayOpus) {
-      windows['7d-opus'] = toUsageWindow({
-        usedPercent: toNumber(sevenDayOpus.utilization),
-        windowSeconds: null,
-        resetAt: toTimestamp(sevenDayOpus.resets_at),
-      });
-    }
-
-    return buildResult({
-      providerId: 'claude',
-      providerName,
-      ok: true,
-      configured: true,
-      usage: { windows },
-    });
+    const bodyText = await response.text().catch(() => '');
+    return await buildFallbackOrError(response.status, bodyText);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Request failed';
     const sessionExpired = /token refresh failed|no refresh token|Session expired/i.test(message);
