@@ -115,15 +115,13 @@ export function ArchiveView(): React.ReactNode {
 
   return (
     <div className="absolute inset-0 z-10 flex flex-col bg-background">
-      <div className="flex items-start justify-between gap-3 border-b border-border/50 px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="typography-ui-label font-semibold text-foreground">{t('sessions.archivePage.title')}</h2>
-          <p className="typography-micro text-muted-foreground">
-            {totalCount === 1
-              ? t('sessions.archivePage.countSingle', { count: totalCount })
-              : t('sessions.archivePage.countPlural', { count: totalCount })}
-          </p>
-        </div>
+      {/* The app Header shows the surface title; keep only count + close. */}
+      <div className="flex items-center justify-between gap-3 px-4 pt-2">
+        <span className="typography-micro text-muted-foreground">
+          {totalCount === 1
+            ? t('sessions.archivePage.countSingle', { count: totalCount })
+            : t('sessions.archivePage.countPlural', { count: totalCount })}
+        </span>
         <button
           type="button"
           onClick={() => setOpen(false)}
@@ -133,7 +131,7 @@ export function ArchiveView(): React.ReactNode {
           <Icon name="close" className="h-4 w-4" />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto px-4 pb-4 pt-2">
         <div className="mx-auto w-full max-w-2xl space-y-5">
           <div className="relative">
             <Icon name="search" className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

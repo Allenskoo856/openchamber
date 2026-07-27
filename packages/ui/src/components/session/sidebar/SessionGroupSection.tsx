@@ -784,6 +784,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
         addSessionToFolder(targetEntry.scopeKey, folderId, sessionId);
       }}
     >
+      {renderFolderItems()}
       {shouldVirtualize ? (
         <div ref={archivedVirtualContainerRef}>
           {!virtualizerReady ? (
@@ -900,7 +901,6 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
           {t('sessions.sidebar.group.showFewer')}
         </button>
       ) : null}
-      {renderFolderItems()}
     </SessionFolderDndScope>
   );
 

@@ -66,22 +66,16 @@ export function SidebarHeader(props: Props): React.ReactNode {
     <div className="select-none flex-shrink-0 px-2.5 py-1">
       <div className="flex h-auto min-h-8 flex-col gap-1">
         <div className="flex h-8 items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleOpenDirectoryDialog}
-                  className={headerActionButtonClass}
-                  aria-label={t('sessions.sidebar.header.actions.addProject')}
-                >
-                  <Icon name="folder-add" className={headerActionIconClass} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.addProject')}</p></TooltipContent>
-            </Tooltip>
-
-          </div>
+          {/* Add project mirrors the nav rows above: icon + label, same left
+              alignment, while staying inline with the icon controls at right. */}
+          <button
+            type="button"
+            onClick={handleOpenDirectoryDialog}
+            className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left typography-ui-label font-normal text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+          >
+            <Icon name="folder-add" className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+            <span className="truncate">{t('sessions.sidebar.header.actions.addProject')}</span>
+          </button>
 
           <div className="flex items-center gap-1.5">
             <Tooltip>
@@ -89,7 +83,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={() => setIsSessionSearchOpen((prev) => !prev)}
-                  className={headerActionButtonClass}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
                   aria-label={t('sessions.sidebar.header.actions.searchSessions')}
                   aria-expanded={isSessionSearchOpen}
                 >
@@ -104,7 +98,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={onToggleSelectionMode}
-                  className={cn(headerActionButtonClass, selectionModeEnabled && 'bg-interactive-hover text-primary')}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground', selectionModeEnabled && 'bg-interactive-hover text-primary')}
                   aria-label={selectionModeEnabled
                     ? t('sessions.sidebar.header.actions.exitSelection')
                     : t('sessions.sidebar.header.actions.selectSessions')}
@@ -126,7 +120,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className={headerActionButtonClass}
+                      className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
                       aria-label={t('sessions.sidebar.header.displayMode.label')}
                     >
                       <Icon name="equalizer-2" className={headerActionIconClass} />

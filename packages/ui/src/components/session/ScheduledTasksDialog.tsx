@@ -10,6 +10,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { formatTimeForPreference } from '@/lib/timeFormat';
 import type { TimeFormatPreference } from '@/stores/useUIStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { refreshGlobalSessions } from '@/stores/useGlobalSessionsStore';
 import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
@@ -353,18 +354,25 @@ export function ScheduledTasksDialog() {
     }
     setMutatingTaskID(task.id);
     try {
-      await runScheduledTaskNow(selectedProjectID, task.id);
+      const { sessionId } = await runScheduledTaskNow(selectedProjectID, task.id);
       await Promise.all([
         reloadTasks(selectedProjectID, { silent: true }),
         refreshGlobalSessions(),
       ]);
       toast.success(t('sessions.scheduledTasks.dialog.toast.started'));
+      if (sessionId) {
+        // Jump straight into the started session; selecting it also closes
+        // this surface (MainLayout closes surfaces on session selection).
+        const project = projects.find((entry) => entry.id === selectedProjectID);
+        useSessionUIStore.getState().setCurrentSession(sessionId, project?.path ?? null);
+        useUIStore.getState().setActiveMainTab('chat');
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('sessions.scheduledTasks.dialog.toast.runFailed'));
     } finally {
       setMutatingTaskID(null);
     }
-  }, [selectedProjectID, reloadTasks, t]);
+  }, [selectedProjectID, projects, reloadTasks, t]);
 
   const projectSelector = (
     <div className="flex flex-col items-start gap-1">
@@ -608,12 +616,10 @@ export function ScheduledTasksDialog() {
         </MobileOverlayPanel>
       ) : open ? (
         // Full-page surface replacing the chat area (mounted inside <main>).
+        // The app Header shows the surface title, so the page itself only
+        // carries a slim close affordance.
         <div className="absolute inset-0 z-10 flex flex-col bg-background">
-          <div className="flex items-start justify-between gap-3 border-b border-border/50 px-4 py-3">
-            <div className="min-w-0">
-              <h2 className="typography-ui-label font-semibold text-foreground">{t('sessions.scheduledTasks.dialog.title')}</h2>
-              <p className="typography-micro text-muted-foreground">{t('sessions.scheduledTasks.dialog.description')}</p>
-            </div>
+          <div className="flex items-center justify-end px-4 pt-2">
             <button
               type="button"
               onClick={() => setOpen(false)}
@@ -623,7 +629,7 @@ export function ScheduledTasksDialog() {
               <Icon name="close" className="h-4 w-4" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto px-4 py-4">
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
             <div className="mx-auto w-full max-w-2xl">
               {tasksContent}
             </div>
