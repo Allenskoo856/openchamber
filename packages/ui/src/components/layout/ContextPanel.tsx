@@ -2637,6 +2637,10 @@ export const ContextPanel: React.FC = () => {
       }
 
       const data = event.data as { type?: unknown };
+      if (data?.type === 'openchamber:theme-sync-request') {
+        postThemeSyncToEmbeddedChat();
+        return;
+      }
       if (data?.type === 'openchamber:chat-settings-request') {
         postChatSettingsSyncToEmbeddedChat();
         return;
@@ -2653,7 +2657,7 @@ export const ContextPanel: React.FC = () => {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [postChatSettingsSyncToEmbeddedChat, setThemeMode, themeMode]);
+  }, [postChatSettingsSyncToEmbeddedChat, postThemeSyncToEmbeddedChat, setThemeMode, themeMode]);
 
   React.useLayoutEffect(() => {
     const hasAnyChatTab = tabs.some((tab) => tab.mode === 'chat');
