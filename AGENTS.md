@@ -105,6 +105,13 @@ Pure code-reading or explanation does not require implementation skills unless n
 - For docs-only or isolated config changes, run the narrowest relevant validation.
 - Report exactly what was and was not validated. Static checks alone do not prove runtime, relay, performance, or platform correctness.
 
+## Cursor Cloud specific instructions
+
+- Cloud VM update installs VS Code via `.cursor/environment.json` → `.cursor/install-vscode.sh` (`code` on PATH).
+- For VS Code extension manual checks: `bun run vscode:build`, then launch
+  `code --user-data-dir=/tmp/oc-vscode-userdata --extensions-dir=/tmp/oc-vscode-exts --extensionDevelopmentPath="$PWD/packages/vscode" --disable-workspace-trust <workspace>`.
+- Prefer DISPLAY=:1 / computer-use for Extension Development Host UI verification.
+
 ## Pull Request Handoff
 
 Before creating or updating a pull request, read `CONTRIBUTING.md` and

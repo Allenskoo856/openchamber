@@ -1,0 +1,4 @@
+{
+  "install": "bun install && bash .cursor/install-vscode.sh",
+  "agentCanUpdateSnapshot": true
+}
