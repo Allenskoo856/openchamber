@@ -37,14 +37,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useI18n, type I18nKey } from '@/lib/i18n';
@@ -1173,13 +1165,12 @@ function DiscordAdvancedSettings({
 
 type DiscordReplyMode = 'always' | 'mention' | 'inherit';
 
-const DISCORD_DEFAULT_REPLY_MODES = ['always', 'mention'] as const;
-const DISCORD_GUILD_REPLY_MODES = ['always', 'mention', 'inherit'] as const;
+/** Visible per-server reply modes — always / mention only (no inherit UI). */
+const DISCORD_SERVER_REPLY_MODES = ['always', 'mention'] as const;
 
-function discordReplyModeLabelKey(mode: DiscordReplyMode): I18nKey {
-  if (mode === 'always') return 'settings.integrations.discord.servers.replyMode.always';
+function discordReplyModeLabelKey(mode: 'always' | 'mention'): I18nKey {
   if (mode === 'mention') return 'settings.integrations.discord.servers.replyMode.mention';
-  return 'settings.integrations.discord.servers.replyMode.inherit';
+  return 'settings.integrations.discord.servers.replyMode.always';
 }
 
 /**
@@ -1226,7 +1217,6 @@ function DiscordServerRow({
 }) {
   const { t } = useI18n();
   const setDiscordGuildPolicy = useMessengerStore((s) => s.setDiscordGuildPolicy);
-  const setDiscordDefaultReplyMode = useMessengerStore((s) => s.setDiscordDefaultReplyMode);
   const resolveDiscordGuild = useMessengerStore((s) => s.resolveDiscordGuild);
   const sendTestMessage = useMessengerStore((s) => s.sendTestMessage);
   const syncDiscordGuildProjects = useMessengerStore((s) => s.syncDiscordGuildProjects);
@@ -1237,7 +1227,14 @@ function DiscordServerRow({
 
   const policy = conn.discordGuildPolicies?.[guild.id];
   const respond = policy?.enabled !== false;
-  const replyMode: DiscordReplyMode = policy?.replyMode ?? 'inherit';
+  const storedReplyMode: DiscordReplyMode = policy?.replyMode ?? 'inherit';
+  // Legacy `inherit` maps to the saved default (or always) for the two-mode UI.
+  const replyMode: 'always' | 'mention' =
+    storedReplyMode === 'mention' || storedReplyMode === 'always'
+      ? storedReplyMode
+      : conn.discordDefaultReplyMode === 'mention'
+        ? 'mention'
+        : 'always';
   const syncing = isDiscordGuildSyncing(conn, guild.id);
   const resolved = conn.discordGuildResolved?.[guild.id];
   const categories = resolved?.categories ?? [];
@@ -1246,7 +1243,6 @@ function DiscordServerRow({
     policy?.parentCategoryId ?? (isLegacyPrimary ? conn.discordParentCategoryId : undefined) ?? '';
   const createThreads =
     policy?.createThreads ?? (isLegacyPrimary ? conn.discordCreateThreads !== false : true);
-  const defaultReplyMode = conn.discordDefaultReplyMode ?? 'always';
 
   // A live server gateway can report "connected" while this browser holds no
   // token; the server falls back to the saved token, so gate the per-server
@@ -1263,7 +1259,7 @@ function DiscordServerRow({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-3 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-3 py-2.5">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <DiscordGuildIcon guild={guild} />
           <span className="min-w-0 break-words text-sm font-semibold leading-snug text-foreground">
@@ -1282,6 +1278,34 @@ function DiscordServerRow({
             {t('settings.integrations.discord.servers.enabled.label')}
           </span>
         </label>
+
+        {respond && (
+          <div
+            className="inline-flex shrink-0 items-stretch overflow-hidden rounded-md border border-[var(--interactive-border)]"
+            role="group"
+            aria-label={t('settings.integrations.discord.servers.replyMode.always')}
+          >
+            {DISCORD_SERVER_REPLY_MODES.map((mode, index) => {
+              const selected = replyMode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setDiscordGuildPolicy(guild.id, { replyMode: mode })}
+                  className={cn(
+                    'px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap transition-colors',
+                    index === 0 && 'border-r border-[var(--interactive-border)]',
+                    selected
+                      ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
+                      : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
+                  )}
+                >
+                  {t(discordReplyModeLabelKey(mode))}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <Button
           type="button"
@@ -1373,93 +1397,6 @@ function DiscordServerRow({
               </Button>
             </div>
           </div>
-
-          {respond && (
-            <div className="space-y-1.5">
-              <div className="text-[11px] font-medium text-foreground">
-                {t('settings.integrations.discord.servers.defaultReplyMode.label')}
-              </div>
-              <div
-                className="inline-flex max-w-full flex-wrap items-stretch overflow-hidden rounded-md border border-[var(--interactive-border)]"
-                role="group"
-                aria-label={t('settings.integrations.discord.servers.defaultReplyMode.label')}
-              >
-                {DISCORD_GUILD_REPLY_MODES.map((mode) => {
-                  const selected = replyMode === mode;
-                  if (mode === 'inherit') {
-                    return (
-                      <div key={mode} className="flex items-stretch">
-                        <button
-                          type="button"
-                          onClick={() => setDiscordGuildPolicy(guild.id, { replyMode: mode })}
-                          className={cn(
-                            'px-2.5 py-1.5 text-[11px] font-medium transition-colors',
-                            selected
-                              ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
-                              : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
-                          )}
-                        >
-                          {t(discordReplyModeLabelKey(mode))}
-                        </button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              className={cn(
-                                'inline-flex items-center border-l border-[var(--interactive-border)] px-1.5 text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
-                                selected &&
-                                  'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]',
-                              )}
-                              aria-label={t(
-                                'settings.integrations.discord.servers.defaultReplyMode.label',
-                              )}
-                            >
-                              <Icon name="arrow-down-s" className="size-3.5" />
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="min-w-[12rem]">
-                            <DropdownMenuLabel>
-                              {t('settings.integrations.discord.servers.defaultReplyMode.label')}
-                            </DropdownMenuLabel>
-                            <DropdownMenuRadioGroup
-                              value={defaultReplyMode}
-                              onValueChange={(value) => {
-                                if (value === 'always' || value === 'mention') {
-                                  setDiscordDefaultReplyMode(value);
-                                  setDiscordGuildPolicy(guild.id, { replyMode: 'inherit' });
-                                }
-                              }}
-                            >
-                              {DISCORD_DEFAULT_REPLY_MODES.map((modeOption) => (
-                                <DropdownMenuRadioItem key={modeOption} value={modeOption}>
-                                  {t(discordReplyModeLabelKey(modeOption))}
-                                </DropdownMenuRadioItem>
-                              ))}
-                            </DropdownMenuRadioGroup>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    );
-                  }
-                  return (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setDiscordGuildPolicy(guild.id, { replyMode: mode })}
-                      className={cn(
-                        'border-r border-[var(--interactive-border)] px-2.5 py-1.5 text-[11px] font-medium transition-colors',
-                        selected
-                          ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]'
-                          : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
-                      )}
-                    >
-                      {t(discordReplyModeLabelKey(mode))}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <label htmlFor={`sync-cat-${guild.id}`} className="text-muted-foreground">
@@ -1761,36 +1698,6 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
       ) : (
         <>
           <DiscordServersAndInviteBlock conn={conn} />
-
-          {/* Auto-managed gateway status — matches the mock Listening pill. */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium',
-                conn.discordListenerConnected
-                  ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]'
-                  : conn.discordListenerRunning
-                    ? 'bg-[var(--status-warning)]/15 text-[var(--status-warning)]'
-                    : 'bg-muted text-muted-foreground',
-              )}
-            >
-              <span
-                className={cn(
-                  'size-1.5 rounded-full',
-                  conn.discordListenerConnected
-                    ? 'bg-[var(--status-success)]'
-                    : conn.discordListenerRunning
-                      ? 'bg-[var(--status-warning)]'
-                      : 'bg-muted-foreground',
-                )}
-              />
-              {conn.discordListenerConnected
-                ? t('settings.integrations.discord.listener.status.live')
-                : conn.discordListenerRunning
-                  ? t('settings.integrations.discord.listener.status.connecting')
-                  : t('settings.integrations.discord.listener.status.off')}
-            </span>
-          </div>
 
           {/* Advanced settings — opened from the header control. */}
           <div ref={advancedSectionRef}>
