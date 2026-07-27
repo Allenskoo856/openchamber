@@ -1774,25 +1774,23 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         prefetchSession={sync.prefetchSession}
       />
       {!hideDirectoryControls && !isVSCode ? (
-        <SidebarNav
-          onNewSession={handleOpenNewSessionDraftFromHeader}
-          onOpenScheduled={() => {
-            if (mobileVariant) setSessionSwitcherOpen(false);
-            setScheduledTasksDialogOpen(true);
-          }}
-          onOpenMultiRun={handleOpenMultiRunFromHeader}
-          canOpenMultiRun={projects.length > 0}
-          onOpenArchive={() => {
-            if (mobileVariant) setSessionSwitcherOpen(false);
-            setArchivePageOpen(true);
-          }}
-        />
+        <SidebarNav onNewSession={handleOpenNewSessionDraftFromHeader} />
       ) : null}
 
       <SidebarHeader
         hideDirectoryControls={hideDirectoryControls}
         showRecentControls={!isVSCode}
         handleOpenDirectoryDialog={handleOpenDirectoryDialog}
+        onOpenScheduled={() => {
+          if (mobileVariant) setSessionSwitcherOpen(false);
+          setScheduledTasksDialogOpen(true);
+        }}
+        onOpenMultiRun={handleOpenMultiRunFromHeader}
+        canOpenMultiRun={projects.length > 0}
+        onOpenArchive={() => {
+          if (mobileVariant) setSessionSwitcherOpen(false);
+          setArchivePageOpen(true);
+        }}
         headerActionIconClass={headerActionIconClass}
         headerActionButtonClass={headerActionButtonClass}
         isSessionSearchOpen={isSessionSearchOpen}

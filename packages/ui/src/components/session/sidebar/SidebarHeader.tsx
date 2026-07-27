@@ -10,6 +10,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { Icon } from "@/components/icon/Icon";
+import { ArrowsMerge } from '@/components/icons/ArrowsMerge';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useI18n } from '@/lib/i18n';
 
@@ -17,6 +18,10 @@ type Props = {
   hideDirectoryControls: boolean;
   showRecentControls: boolean;
   handleOpenDirectoryDialog: () => void;
+  onOpenScheduled: () => void;
+  onOpenMultiRun: () => void;
+  canOpenMultiRun: boolean;
+  onOpenArchive: () => void;
   headerActionIconClass: string;
   headerActionButtonClass: string;
   isSessionSearchOpen: boolean;
@@ -38,6 +43,10 @@ export function SidebarHeader(props: Props): React.ReactNode {
     hideDirectoryControls,
     showRecentControls,
     handleOpenDirectoryDialog,
+    onOpenScheduled,
+    onOpenMultiRun,
+    canOpenMultiRun,
+    onOpenArchive,
     headerActionIconClass,
     headerActionButtonClass,
     isSessionSearchOpen,
@@ -68,16 +77,66 @@ export function SidebarHeader(props: Props): React.ReactNode {
     <div className="select-none flex-shrink-0 px-2.5 py-1">
       <div className="flex h-auto min-h-8 flex-col gap-1">
         <div className="flex h-8 items-center justify-between gap-2">
-          {/* Add project mirrors the nav rows above: icon + label, same left
-              alignment, while staying inline with the icon controls at right. */}
-          <button
-            type="button"
-            onClick={handleOpenDirectoryDialog}
-            className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left typography-ui-label font-normal text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-          >
-            <Icon name="folder-add" className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-            <span className="truncate">{t('sessions.sidebar.header.actions.addProject')}</span>
-          </button>
+          {/* Quiet toolbar under the New-session CTA: project/surface entry
+              points at left, list controls at right. */}
+          <div className="flex items-center gap-1.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleOpenDirectoryDialog}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
+                  aria-label={t('sessions.sidebar.header.actions.addProject')}
+                >
+                  <Icon name="folder-add" className={headerActionIconClass} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.addProject')}</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onOpenScheduled}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
+                  aria-label={t('sessions.sidebar.header.actions.scheduledTasks')}
+                >
+                  <Icon name="calendar-schedule" className={headerActionIconClass} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.scheduledTasks')}</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onOpenMultiRun}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
+                  aria-label={t('sessions.sidebar.header.actions.newMultiRun')}
+                  disabled={!canOpenMultiRun}
+                >
+                  <ArrowsMerge className={headerActionIconClass} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.newMultiRun')}</p></TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onOpenArchive}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
+                  aria-label={t('sessions.sidebar.nav.archive')}
+                >
+                  <Icon name="archive" className={headerActionIconClass} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.nav.archive')}</p></TooltipContent>
+            </Tooltip>
+          </div>
 
           <div className="flex items-center gap-1.5">
             <Tooltip>
