@@ -16,9 +16,9 @@ export function SidebarNav(props: Props): React.ReactNode {
       <button
         type="button"
         onClick={props.onNewSession}
-        className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left typography-ui-label font-normal text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left typography-ui-label font-normal text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
       >
-        <Icon name="chat-new" className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        <Icon name="chat-new" className="h-4 w-4 flex-shrink-0" />
         <span className="truncate">{t('sessions.sidebar.header.actions.newSession')}</span>
       </button>
     </div>

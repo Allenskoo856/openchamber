@@ -87,7 +87,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={handleOpenDirectoryDialog}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
                   aria-label={t('sessions.sidebar.header.actions.addProject')}
                 >
                   <Icon name="folder-add" className={headerActionIconClass} />
@@ -101,7 +101,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={onOpenScheduled}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
                   aria-label={t('sessions.sidebar.header.actions.scheduledTasks')}
                 >
                   <Icon name="calendar-schedule" className={headerActionIconClass} />
@@ -115,7 +115,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={onOpenMultiRun}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
                   aria-label={t('sessions.sidebar.header.actions.newMultiRun')}
                   disabled={!canOpenMultiRun}
                 >
@@ -130,7 +130,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={onOpenArchive}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
                   aria-label={t('sessions.sidebar.nav.archive')}
                 >
                   <Icon name="archive" className={headerActionIconClass} />
@@ -146,7 +146,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={() => setIsSessionSearchOpen((prev) => !prev)}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
                   aria-label={t('sessions.sidebar.header.actions.searchSessions')}
                   aria-expanded={isSessionSearchOpen}
                 >
@@ -161,7 +161,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={onToggleSelectionMode}
-                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground', selectionModeEnabled && 'bg-interactive-hover text-primary')}
+                  className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent', selectionModeEnabled && 'bg-interactive-hover text-primary')}
                   aria-label={selectionModeEnabled
                     ? t('sessions.sidebar.header.actions.exitSelection')
                     : t('sessions.sidebar.header.actions.selectSessions')}
@@ -183,7 +183,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground')}
+                      className={cn(headerActionButtonClass, 'text-muted-foreground hover:text-foreground hover:bg-transparent')}
                       aria-label={t('sessions.sidebar.header.displayMode.label')}
                     >
                       <Icon name="equalizer-2" className={headerActionIconClass} />
