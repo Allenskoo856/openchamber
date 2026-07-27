@@ -150,19 +150,16 @@
     background-color: transparent !important;
   }
 
-  /* Sticky sidebar zone headers need a frosted backing so scrolled rows do
-     not show through the transparent vibrancy surface. Chromium cannot apply
-     backdrop-filter inside a masked ancestor (the mask makes the scroller a
-     backdrop root whose content is excluded from the backdrop snapshot), so
-     under vibrancy we drop the sidebar scroller's scroll-shadow mask — that
-     re-enables real blur sampling of the rows sliding underneath. */
-  :root.desktop-runtime[data-oc-vibrancy] .oc-sidebar-scroller {
-    mask-image: none !important;
-    -webkit-mask-image: none !important;
-  }
-
+  /* Sticky sidebar zone headers must fully mask the rows scrolling under
+     them. A frosted (translucent + backdrop-blur) backing is NOT possible
+     here: Electron's transparent/vibrancy windows break backdrop-filter
+     entirely (electron#20357 — the backdrop snapshot fails against a
+     transparent root), so any translucency lets row text bleed through
+     un-blurred. Use the opaque sidebar tone instead; the blur declaration
+     stays only as a progressive enhancement if Electron ever fixes it. */
   :root.desktop-runtime[data-oc-vibrancy] .oc-zone-header-backing {
-    background-color: color-mix(in oklab, var(--background) 60%, transparent) !important;
+    background: var(--sidebar-stuck-bg) !important;
+    background-color: var(--sidebar-stuck-bg) !important;
     -webkit-backdrop-filter: blur(16px) saturate(1.2);
     backdrop-filter: blur(16px) saturate(1.2);
   }
