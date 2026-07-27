@@ -179,7 +179,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
               <button
                 type="button"
                 onClick={() => toggleSection(section.key)}
-                className="group flex w-full items-center gap-1.5 bg-interactive-hover/50 py-1 pl-4 pr-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                className="group flex w-full items-center gap-1.5 py-1 pl-4 pr-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                 aria-expanded={!isCollapsed}
               >
                 <span className="inline-flex h-3.5 w-3.5 items-center justify-center">

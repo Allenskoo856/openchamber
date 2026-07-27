@@ -196,7 +196,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
               className={cn(
                 // pl-4 keeps the icon/text aligned with the padded rows below
                 // (container pl-2.5 + band px-1.5 it replaces).
-                'relative flex items-center gap-1 bg-interactive-hover/50 py-1 pl-4 pr-3.5',
+                'relative flex items-center gap-1 py-1 pl-4 pr-3.5',
                 // Desktop shell reports when the header is actually stuck;
                 // a subtle elevation makes the pinned state readable.
                 isStuck && 'shadow-md',
