@@ -31,6 +31,7 @@ import type { SessionNodeChildRenderExtras, SessionNodeRenderExtras } from './se
 import type { SessionNode } from './types';
 import { formatProjectLabel, formatSessionCompactDateLabel, formatSessionDateLabel, normalizePath, renderHighlightedText } from './utils';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { getGitHubPrStatusKey, usePrVisualSummary } from '@/stores/useGitHubPrStatusStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
@@ -358,6 +359,12 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   }, [isVSCode, node.worktree]);
   const prSummary = usePrVisualSummary(prLookupKey);
   const prIconColor = prSummary ? `var(--pr-${prSummary.visualState})` : undefined;
+  const sessionGroupingMode = useSessionDisplayStore((state) => state.sessionGroupingMode);
+  // In by-worktree grouping the project tree already shows the branch on the
+  // group sub-header, so the per-row marker only appears in flat mode and in
+  // the mixed-context recent list.
+  const showInlineBranchMarker = Boolean(tooltipBranchLabel)
+    && (renderContext === 'recent' || sessionGroupingMode === 'flat');
   const prStatusLabel = React.useMemo(() => {
     if (!prSummary) return null;
     switch (prSummary.visualState) {
@@ -1202,7 +1209,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                         // date stays inline there.
                         <span className="ml-2 inline-flex flex-shrink-0 items-center gap-1 text-[0.72rem] text-muted-foreground/75">
                           {sessionGoalGlyph}
-                          {tooltipBranchLabel ? (
+                          {showInlineBranchMarker ? (
                             <Icon
                               name="git-branch"
                               className={cn('h-3 w-3', !prIconColor && 'text-muted-foreground/60')}
@@ -1211,7 +1218,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                           ) : null}
                           {sessionCompactUpdatedLabel}
                         </span>
-                      ) : (sessionGoalGlyph || tooltipBranchLabel) ? (
+                      ) : (sessionGoalGlyph || showInlineBranchMarker) ? (
                         <div className="relative ml-1 flex h-4 flex-shrink-0 items-center justify-end">
                           <span className={cn(
                             'inline-flex items-center gap-1 whitespace-nowrap text-right transition-opacity duration-150',
@@ -1220,7 +1227,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                               : hideOnHoverClass,
                           )}>
                             {sessionGoalGlyph}
-                            {tooltipBranchLabel ? (
+                            {showInlineBranchMarker ? (
                               <Icon
                                 name="git-branch"
                                 className={cn('h-3 w-3', !prIconColor && 'text-muted-foreground/60')}

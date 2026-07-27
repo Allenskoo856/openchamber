@@ -224,9 +224,12 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                     <div className="space-y-0 pt-0.5 pb-0.5">
                       {section.groups.map((group) => {
                         const groupKey = `${projectKey}:${group.id}`;
+                        // Root/flat sessions render directly under the project
+                        // zone header; worktree and archived groups keep their
+                        // own slim sub-header.
                         return (
                           <React.Fragment key={groupKey}>
-                            {props.renderGroupSessions(group, groupKey, projectKey, !group.isArchivedBucket, undefined, scrollContainerRef)}
+                            {props.renderGroupSessions(group, groupKey, projectKey, group.isMain, undefined, scrollContainerRef)}
                           </React.Fragment>
                         );
                       })}

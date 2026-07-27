@@ -28,6 +28,7 @@ import {
 } from './sessionNodeItemUtils';
 import type { SessionNodeRenderExtras } from './sessionNodeItemUtils';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
+import { getGitHubPrStatusKey, usePrVisualSummary } from '@/stores/useGitHubPrStatusStore';
 import { useI18n } from '@/lib/i18n';
 import { useChildStoreManager } from '@/sync/sync-context';
 
@@ -286,6 +287,15 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
   const searchData = hasSessionSearchQuery ? groupSearchDataByGroup.get(group) : null;
   const foldersMap = useSessionFoldersStore((state) => state.foldersMap);
   const isCollapsed = hasSessionSearchQuery ? false : collapsedGroups.has(groupKey);
+  // PR state for the worktree sub-header (grouped display mode).
+  const groupPrKey = React.useMemo(() => {
+    if (group.isMain || group.isArchivedBucket || hideGroupLabel) return null;
+    const directory = normalizePath(group.directory ?? null);
+    const branch = group.branch?.trim();
+    return directory && branch ? getGitHubPrStatusKey(directory, branch) : null;
+  }, [group.branch, group.directory, group.isArchivedBucket, group.isMain, hideGroupLabel]);
+  const groupPrSummary = usePrVisualSummary(groupPrKey);
+  const groupPrColor = groupPrSummary ? `var(--pr-${groupPrSummary.visualState})` : undefined;
   const childStores = useChildStoreManager();
   const bootstrapDirectory = normalizePath(group.directory ?? null);
   const bootstrapState = React.useSyncExternalStore(
@@ -956,10 +966,13 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                   <span className="min-w-0 flex-1 truncate">{renderHighlightedText(group.label, normalizedSessionSearchQuery)}</span>
                 </span>
               ) : (!group.isMain || group.worktree) ? (
-                <span className="inline-flex min-w-0 max-w-full items-center gap-1">
+                // Worktree sub-header in the flat visual language: slim
+                // folder-style row with a PR-tinted branch icon and PR badge.
+                <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
                   <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
                     <Icon name="git-branch"
-                      className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')}
+                      className={cn('h-3.5 w-3.5 shrink-0', !groupPrColor && 'text-muted-foreground', alwaysShowActions ? 'hidden' : 'group-hover/gh:hidden')}
+                      style={groupPrColor ? { color: groupPrColor } : undefined}
                     />
                     <span className={cn(
                       'text-muted-foreground h-3.5 w-3.5 items-center justify-center',
@@ -968,7 +981,17 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                       {isCollapsed ? <Icon name="arrow-right-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-down-s" className="h-3.5 w-3.5" />}
                     </span>
                   </span>
-                  <span className="min-w-0 flex-1 truncate">{renderHighlightedText(group.label, normalizedSessionSearchQuery)}</span>
+                  <span className="min-w-0 truncate typography-ui-label font-semibold text-muted-foreground">
+                    {renderHighlightedText(group.label, normalizedSessionSearchQuery)}
+                  </span>
+                  {groupPrSummary ? (
+                    <span
+                      className="flex-shrink-0 text-[0.72rem] font-medium leading-none"
+                      style={groupPrColor ? { color: groupPrColor } : undefined}
+                    >
+                      #{groupPrSummary.number}
+                    </span>
+                  ) : null}
                 </span>
               ) : (
                 renderHighlightedText(group.label, normalizedSessionSearchQuery)

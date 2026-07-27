@@ -57,6 +57,8 @@ export function SidebarHeader(props: Props): React.ReactNode {
   const toggleRecentSection = useSessionDisplayStore((state) => state.toggleRecentSection);
   const projectSortOrder = useSessionDisplayStore((state) => state.projectSortOrder);
   const setProjectSortOrder = useSessionDisplayStore((state) => state.setProjectSortOrder);
+  const sessionGroupingMode = useSessionDisplayStore((state) => state.sessionGroupingMode);
+  const setSessionGroupingMode = useSessionDisplayStore((state) => state.setSessionGroupingMode);
 
   if (hideDirectoryControls) {
     return null;
@@ -145,6 +147,21 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   >
                     <span>{t(labelKey)}</span>
                     {projectSortOrder === order ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>{t('sessions.sidebar.header.grouping.label')}</DropdownMenuLabel>
+                {([
+                  ['by-worktree', 'sessions.sidebar.header.grouping.byWorktree'],
+                  ['flat', 'sessions.sidebar.header.grouping.flat'],
+                ] as const).map(([mode, labelKey]) => (
+                  <DropdownMenuItem
+                    key={mode}
+                    onClick={() => setSessionGroupingMode(mode)}
+                    className="flex items-center justify-between"
+                  >
+                    <span>{t(labelKey)}</span>
+                    {sessionGroupingMode === mode ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
                   </DropdownMenuItem>
                 ))}
                 {showRecentControls ? (

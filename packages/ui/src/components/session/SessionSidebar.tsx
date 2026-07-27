@@ -1195,6 +1195,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const {
     projectSections,
     groupSearchDataByGroup,
+    sectionsForRender,
     flatSectionsForRender,
     searchMatchCount,
   } = useSessionSidebarSections({
@@ -1351,15 +1352,21 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   // Web/desktop route archived sessions to the Archive page; only the VS Code
   // compact webview keeps inline archived buckets behind its toggle.
   const showInlineArchived = isVSCode && showArchivedSessions;
+  // 'by-worktree' renders the worktree-grouped sections (parallel-work
+  // overview); 'flat' renders the merged per-project list. VS Code has no
+  // worktree groups, so both resolve to the same shape — use flat there.
+  const sessionGroupingMode = useSessionDisplayStore((state) => state.sessionGroupingMode);
+  const useGroupedSections = sessionGroupingMode === 'by-worktree' && !isVSCode;
   const sectionsForSidebarRender = React.useMemo(() => {
+    const source = useGroupedSections ? sectionsForRender : flatSectionsForRender;
     return showInlineArchived
-      ? flatSectionsForRender
-      : flatSectionsForRender.map((section) => (
+      ? source
+      : source.map((section) => (
         section.groups.some((group) => group.isArchivedBucket)
           ? { ...section, groups: section.groups.filter((group) => !group.isArchivedBucket) }
           : section
       ));
-  }, [flatSectionsForRender, showInlineArchived]);
+  }, [flatSectionsForRender, sectionsForRender, showInlineArchived, useGroupedSections]);
 
   // Discover/refresh PR status for expanded projects' worktree branches so
   // session rows can tint their branch marker and show PR state in tooltips.
