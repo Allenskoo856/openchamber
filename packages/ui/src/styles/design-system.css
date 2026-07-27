@@ -150,17 +150,21 @@
     background-color: transparent !important;
   }
 
-  /* Sticky sidebar zone headers need an opaque-looking backing so scrolled
-     rows do not show through. Under desktop vibrancy the sidebar surface is
-     transparent, so emulate the frosted look with a dense background tint.
-     NOTE: the sidebar scroller carries a mask-image (scroll shadow), which
-     makes it a backdrop root — Chromium fails to sample content behind a
-     backdrop-filter inside masked ancestors, so the blur below is only a
-     progressive enhancement and legibility MUST come from the tint alone. */
+  /* Sticky sidebar zone headers need a frosted backing so scrolled rows do
+     not show through the transparent vibrancy surface. Chromium cannot apply
+     backdrop-filter inside a masked ancestor (the mask makes the scroller a
+     backdrop root whose content is excluded from the backdrop snapshot), so
+     under vibrancy we drop the sidebar scroller's scroll-shadow mask — that
+     re-enables real blur sampling of the rows sliding underneath. */
+  :root.desktop-runtime[data-oc-vibrancy] .oc-sidebar-scroller {
+    mask-image: none !important;
+    -webkit-mask-image: none !important;
+  }
+
   :root.desktop-runtime[data-oc-vibrancy] .oc-zone-header-backing {
-    background-color: color-mix(in oklab, var(--background) 88%, transparent) !important;
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
+    background-color: color-mix(in oklab, var(--background) 60%, transparent) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    backdrop-filter: blur(16px) saturate(1.2);
   }
 
   .font-sans {
