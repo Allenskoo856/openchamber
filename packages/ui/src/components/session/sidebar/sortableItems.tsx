@@ -173,9 +173,13 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
           <ContextMenu open={isContextMenuOpen} onOpenChange={setIsContextMenuOpen}>
             <ContextMenuTrigger
               render={
+                // Sticky zone header: this trigger div is a direct child of
+                // the project wrapper (which spans header + sessions), so it
+                // can stick for the whole zone. The solid sidebar backing
+                // keeps scrolled session rows from showing through the
+                // translucent band.
                 <div
-                  className={cn('w-full text-left group/project select-none')}
-                  style={{ backgroundColor: isDesktopShell && isStuck ? 'transparent' : undefined }}
+                  className={cn('sticky top-0 z-10 w-full rounded-md bg-sidebar text-left group/project select-none')}
                   onContextMenu={(event) => {
                     // VS Code hides project actions entirely (hideDirectoryControls).
                     if (hideDirectoryControls) return;
@@ -185,10 +189,15 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 />
               }
             >
-            {/* Sticky zone header: the solid sidebar backing keeps scrolled
-                session rows from showing through the translucent band. */}
-            <div className="sticky top-0 z-10 rounded-md bg-sidebar">
-            <div className="relative flex items-center gap-1 rounded-md bg-interactive-hover/50 px-1.5 py-1" {...attributes}>
+            <div
+              className={cn(
+                'relative flex items-center gap-1 rounded-md bg-interactive-hover/50 px-1.5 py-1',
+                // Desktop shell reports when the header is actually stuck;
+                // a subtle elevation makes the pinned state readable.
+                isStuck && 'shadow-md',
+              )}
+              {...attributes}
+            >
               <Tooltip>
                 <TooltipTrigger asChild>
                     <button
@@ -342,7 +351,6 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                   </Tooltip>
                 </div>
               ) : null}
-            </div>
             </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="min-w-[180px]">
