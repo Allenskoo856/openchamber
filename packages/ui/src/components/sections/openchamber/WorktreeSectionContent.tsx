@@ -461,9 +461,6 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
                     <p className="typography-meta min-w-0 truncate text-foreground">
                       {worktree.label || worktree.branch || t('settings.openchamber.worktrees.list.detachedHead')}
                     </p>
-                    <span className="typography-micro flex-shrink-0 self-center rounded bg-sidebar-accent/40 px-1.5 py-[1px] leading-none text-muted-foreground/60">
-                      OpenCode
-                    </span>
                   </div>
                   <p className="typography-micro truncate text-muted-foreground/60">
                     {formatPathForDisplay(worktree.path, homeDirectory)}
