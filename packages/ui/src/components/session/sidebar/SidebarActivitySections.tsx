@@ -175,11 +175,11 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
           <div key={section.key} className="relative space-y-1">
             {/* Zone header styled like a project header band; sticky with a
                 solid sidebar backing so rows never show through. */}
-            <div className="sticky top-0 z-10 rounded-md bg-sidebar">
+            <div className="sticky top-0 z-10 -ml-2.5 -mr-2 bg-sidebar">
               <button
                 type="button"
                 onClick={() => toggleSection(section.key)}
-                className="group flex w-full items-center gap-1.5 rounded-md bg-interactive-hover/50 px-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                className="group flex w-full items-center gap-1.5 bg-interactive-hover/50 py-1 pl-4 pr-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                 aria-expanded={!isCollapsed}
               >
                 <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
@@ -188,7 +188,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
                     {isCollapsed ? <Icon name="arrow-right-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-down-s" className="h-3.5 w-3.5" />}
                   </span>
                 </span>
-                <span className="text-[14px] font-normal lowercase text-foreground">{section.title}</span>
+                <span className="text-[14px] font-semibold lowercase text-foreground">{section.title}</span>
               </button>
             </div>
             {!isCollapsed ? (

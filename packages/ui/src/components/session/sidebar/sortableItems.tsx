@@ -178,8 +178,11 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 // can stick for the whole zone. The solid sidebar backing
                 // keeps scrolled session rows from showing through the
                 // translucent band.
+                // Full-bleed band: pull past the list container's padding so
+                // the section band spans the entire sidebar width (ref: edge-
+                // to-edge section headers, not rounded pills).
                 <div
-                  className={cn('sticky top-0 z-10 w-full rounded-md bg-sidebar text-left group/project select-none')}
+                  className={cn('sticky top-0 z-10 -ml-2.5 -mr-2 bg-sidebar text-left group/project select-none')}
                   onContextMenu={(event) => {
                     // VS Code hides project actions entirely (hideDirectoryControls).
                     if (hideDirectoryControls) return;
@@ -191,7 +194,9 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
             >
             <div
               className={cn(
-                'relative flex items-center gap-1 rounded-md bg-interactive-hover/50 px-1.5 py-1',
+                // pl-4 keeps the icon/text aligned with the padded rows below
+                // (container pl-2.5 + band px-1.5 it replaces).
+                'relative flex items-center gap-1 bg-interactive-hover/50 py-1 pl-4 pr-3.5',
                 // Desktop shell reports when the header is actually stuck;
                 // a subtle elevation makes the pinned state readable.
                 isStuck && 'shadow-md',
@@ -248,7 +253,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                       )}
                     </span>
                     <span className={cn(
-                      'text-[14px] font-normal truncate lowercase',
+                      'text-[14px] font-semibold truncate lowercase',
                       isActiveProject ? 'text-foreground' : 'text-foreground group-hover/project:text-foreground',
                     )}>
                       {projectLabel}
