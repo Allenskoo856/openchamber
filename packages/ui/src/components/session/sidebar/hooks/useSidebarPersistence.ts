@@ -10,6 +10,7 @@ type SafeStorageLike = {
 type Keys = {
   sessionExpanded: string;
   projectCollapse: string;
+  groupOrder: string;
   groupCollapse: string;
 };
 
@@ -17,6 +18,7 @@ type Args = {
   isVSCode: boolean;
   safeStorage: SafeStorageLike;
   keys: Keys;
+  groupOrderByProject: Map<string, string[]>;
   collapsedGroups: Set<string>;
   setExpandedParents: React.Dispatch<React.SetStateAction<Set<string>>>;
   setCollapsedProjects: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -27,6 +29,7 @@ export const useSidebarPersistence = (args: Args) => {
     isVSCode,
     safeStorage,
     keys,
+    groupOrderByProject,
     collapsedGroups,
     setExpandedParents,
     setCollapsedProjects,
@@ -98,6 +101,15 @@ export const useSidebarPersistence = (args: Args) => {
       // ignored
     }
   }, [keys.projectCollapse, keys.sessionExpanded, safeStorage, setCollapsedProjects, setExpandedParents]);
+
+  React.useEffect(() => {
+    try {
+      const serialized = Object.fromEntries(groupOrderByProject.entries());
+      safeStorage.setItem(keys.groupOrder, JSON.stringify(serialized));
+    } catch {
+      // ignored
+    }
+  }, [groupOrderByProject, keys.groupOrder, safeStorage]);
 
   React.useEffect(() => {
     try {

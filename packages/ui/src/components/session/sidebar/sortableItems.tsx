@@ -15,6 +15,11 @@ import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/pro
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useI18n } from '@/lib/i18n';
 
+export type SortableDragHandleProps = {
+  listeners: ReturnType<typeof useSortable>['listeners'];
+  setActivatorNodeRef: ReturnType<typeof useSortable>['setActivatorNodeRef'];
+};
+
 export interface SortableProjectItemProps {
   id: string;
   disabled?: boolean;
@@ -374,4 +379,42 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
     </div>
   );
 };
+
+const SortableGroupItemBase: React.FC<{
+  id: string;
+  disabled?: boolean;
+  children: React.ReactNode | ((dragHandleProps: SortableDragHandleProps) => React.ReactNode);
+}> = ({ id, disabled = false, children }) => {
+  const {
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled });
+
+  const dragHandleProps = React.useMemo<SortableDragHandleProps>(() => ({
+    listeners,
+    setActivatorNodeRef,
+  }), [listeners, setActivatorNodeRef]);
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={cn(
+        'space-y-0.5 rounded-md',
+        isDragging && 'opacity-50',
+      )}
+    >
+      {typeof children === 'function' ? children(dragHandleProps) : children}
+    </div>
+  );
+};
+
+export const SortableGroupItem = React.memo(SortableGroupItemBase);
 

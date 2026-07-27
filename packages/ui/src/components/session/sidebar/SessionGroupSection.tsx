@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
 import type { MainTab } from '@/stores/useUIStore';
 import { SessionFolderItem } from '../SessionFolderItem';
+import type { SortableDragHandleProps } from './sortableItems';
 import { DroppableFolderWrapper, SessionFolderDndScope } from './sessionFolderDnd';
 import type { GroupSearchData, SessionGroup, SessionNode } from './types';
 import { isBranchDifferentFromLabel, normalizePath, renderHighlightedText } from './utils';
@@ -89,6 +90,7 @@ type Props = {
   editTitle: string;
   openSidebarMenuKey: string | null;
   onToggleCollapsedGroup: (groupKey: string) => void;
+  dragHandleProps?: SortableDragHandleProps | null;
   compactBodyPadding?: boolean;
   /**
    * Optional scroll container ref threaded from the outer ScrollableOverlay.
@@ -224,6 +226,7 @@ const areGroupPropsEqual = (prev: Props, next: Props): boolean => {
     && prev.setRenameFolderDraft === next.setRenameFolderDraft
     && prev.setRenamingFolderId === next.setRenamingFolderId
     && prev.onToggleCollapsedGroup === next.onToggleCollapsedGroup
+    && prev.dragHandleProps === next.dragHandleProps
     && prev.scrollContainerRef === next.scrollContainerRef
   );
 };
@@ -269,6 +272,7 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     editingId,
     openSidebarMenuKey,
     onToggleCollapsedGroup,
+    dragHandleProps,
     compactBodyPadding = false,
     scrollContainerRef,
   } = props;
@@ -952,12 +956,15 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
         aria-expanded={!isCollapsed}
       >
         <div
+          ref={dragHandleProps?.setActivatorNodeRef}
           className={cn(
             // pl-1.5 lines the branch icon up with the project-zone header
             // icon (container pl-2.5 + 6px = band pl-4 past its -ml-2.5).
             'min-w-0 flex flex-1 items-start gap-1 overflow-hidden pl-1.5 transition-[padding]',
+            dragHandleProps ? 'cursor-grab active:cursor-grabbing' : '',
             groupHeaderRightPadding,
           )}
+          {...(dragHandleProps?.listeners ?? {})}
         >
           <div className="min-w-0 flex flex-1 flex-col justify-center gap-0.5 overflow-hidden">
             <p className="text-[14px] font-normal truncate text-foreground/92">

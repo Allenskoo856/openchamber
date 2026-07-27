@@ -23,6 +23,7 @@ import { NewWorktreeDialog } from './NewWorktreeDialog';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useArchivedAutoFolders } from './sidebar/hooks/useArchivedAutoFolders';
+import { useGroupOrdering } from './sidebar/hooks/useGroupOrdering';
 import { useSessionSidebarSections } from './sidebar/hooks/useSessionSidebarSections';
 import { ProjectSessionSelectionEffect } from './sidebar/hooks/useProjectSessionSelection';
 import { useSessionGrouping } from './sidebar/hooks/useSessionGrouping';
@@ -49,6 +50,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { listProjectWorktrees, worktreeMapsEqual } from '@/lib/worktrees/worktreeManager';
 import { checkIsGitRepository } from '@/lib/gitApi';
 import type { WorktreeMetadata } from '@/types/worktree';
+import type { SortableDragHandleProps } from './sidebar/sortableItems';
 import {
   BulkSessionDeleteConfirmDialog,
   FolderDeleteConfirmDialog,
@@ -95,6 +97,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { streamPerfCount, streamPerfMark } from '@/stores/utils/streamDebug';
 
 const PROJECT_COLLAPSE_STORAGE_KEY = 'oc.sessions.projectCollapse';
+const GROUP_ORDER_STORAGE_KEY = 'oc.sessions.groupOrder';
 const GROUP_COLLAPSE_STORAGE_KEY = 'oc.sessions.groupCollapse';
 const PROJECT_ACTIVE_SESSION_STORAGE_KEY = 'oc.sessions.activeSessionByProject';
 // v3 holds composite "${renderContext}:${active|archived}:${sessionId}"
@@ -310,6 +313,24 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       return new Set(Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : []);
     } catch {
       return new Set();
+    }
+  });
+  const [groupOrderByProject, setGroupOrderByProject] = React.useState<Map<string, string[]>>(() => {
+    try {
+      const raw = getDeferredSafeStorage().getItem(GROUP_ORDER_STORAGE_KEY);
+      if (!raw) {
+        return new Map();
+      }
+      const parsed = JSON.parse(raw) as Record<string, string[]>;
+      const next = new Map<string, string[]>();
+      Object.entries(parsed).forEach(([projectId, order]) => {
+        if (Array.isArray(order)) {
+          next.set(projectId, order.filter((item) => typeof item === 'string'));
+        }
+      });
+      return next;
+    } catch {
+      return new Map();
     }
   });
   const initialActiveSessionByProject = React.useMemo<Map<string, string>>(() => {
@@ -663,8 +684,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     keys: {
       sessionExpanded: SESSION_EXPANDED_STORAGE_KEY,
       projectCollapse: PROJECT_COLLAPSE_STORAGE_KEY,
+      groupOrder: GROUP_ORDER_STORAGE_KEY,
       groupCollapse: GROUP_COLLAPSE_STORAGE_KEY,
     },
+    groupOrderByProject,
     collapsedGroups,
     setExpandedParents,
     setCollapsedProjects,
@@ -1221,6 +1244,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     </div>
   ), [t]);
 
+  const { getOrderedGroups } = useGroupOrdering(groupOrderByProject);
   const hasInitializedArchivedCollapseRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -1565,6 +1589,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       groupKey: string,
       projectId?: string | null,
       hideGroupLabel?: boolean,
+      dragHandleProps?: SortableDragHandleProps | null,
       compactBodyPadding?: boolean,
       scrollContainerRef?: React.RefObject<HTMLElement | null>,
     ) => (
@@ -1573,6 +1598,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         groupKey={groupKey}
         projectId={projectId}
         hideGroupLabel={hideGroupLabel}
+        dragHandleProps={dragHandleProps}
         compactBodyPadding={compactBodyPadding}
         hasSessionSearchQuery={hasSessionSearchQuery}
         normalizedSessionSearchQuery={normalizedSessionSearchQuery}
@@ -1816,6 +1842,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         projectHeaderSentinelRefs={projectHeaderSentinelRefs}
         reorderProjects={reorderProjects}
         projectSortOrder={projectSortOrder}
+        getOrderedGroups={getOrderedGroups}
+        setGroupOrderByProject={setGroupOrderByProject}
         renderProjectStatusIndicator={renderProjectStatusIndicator}
         openSidebarMenuKey={openSidebarMenuKey}
         setOpenSidebarMenuKey={setOpenSidebarMenuKey}

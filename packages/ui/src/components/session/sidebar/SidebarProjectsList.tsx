@@ -8,11 +8,12 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { formatDirectoryName, formatPathForDisplay, cn } from '@/lib/utils';
 import type { SessionGroup } from './types';
-import { SortableProjectItem } from './sortableItems';
+import type { SortableDragHandleProps } from './sortableItems';
+import { SortableGroupItem, SortableProjectItem } from './sortableItems';
 import { formatProjectLabel } from './utils';
 import { useI18n } from '@/lib/i18n';
 import type { MainTab } from '@/stores/useUIStore';
@@ -48,9 +49,12 @@ type Props = {
     groupKey: string,
     projectId?: string | null,
     hideGroupLabel?: boolean,
+    dragHandleProps?: SortableDragHandleProps | null,
     compactBodyPadding?: boolean,
     scrollContainerRef?: React.RefObject<HTMLElement | null>,
   ) => React.ReactNode;
+  getOrderedGroups: (projectId: string, groups: SessionGroup[]) => SessionGroup[];
+  setGroupOrderByProject: React.Dispatch<React.SetStateAction<Map<string, string[]>>>;
   renderProjectStatusIndicator?: (projectId: string, groups: SessionGroup[]) => React.ReactNode;
   homeDirectory: string | null;
   collapsedProjects: Set<string>;
@@ -84,6 +88,33 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+  const groupSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  );
+
+  // Memoize getOrderedGroups per project so downstream consumers see a stable
+  // array reference while inputs are unchanged (avoids O(P) fresh arrays per
+  // list render invalidating the memoized group subtrees).
+  const orderedGroupsCacheRef = React.useRef<Map<string, { groups: SessionGroup[]; ordered: SessionGroup[] }>>(new Map());
+  const orderedGroupsCacheGetOrderedGroupsRef = React.useRef<typeof props.getOrderedGroups>(props.getOrderedGroups);
+  if (orderedGroupsCacheGetOrderedGroupsRef.current !== props.getOrderedGroups) {
+    orderedGroupsCacheGetOrderedGroupsRef.current = props.getOrderedGroups;
+    orderedGroupsCacheRef.current.clear();
+  }
+  const cachedGetOrderedGroups = (projectId: string, groups: SessionGroup[]): SessionGroup[] => {
+    const cache = orderedGroupsCacheRef.current;
+    const hit = cache.get(projectId);
+    if (hit && hit.groups === groups) {
+      return hit.ordered;
+    }
+    const ordered = props.getOrderedGroups(projectId, groups);
+    cache.set(projectId, { groups, ordered });
+    if (cache.size > 256) {
+      const firstKey = cache.keys().next().value;
+      if (firstKey !== undefined) cache.delete(firstKey);
+    }
+    return ordered;
+  };
 
   // Threaded into SessionGroupSection so the archived-bucket virtualizer
   // can resolve the scrolling ancestor synchronously (no getComputedStyle
@@ -141,7 +172,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
               const hideGroupLabel = group.id === primaryGroup.id;
               return (
                 <React.Fragment key={groupKey}>
-                  {props.renderGroupSessions(group, groupKey, activeSection.project.id, hideGroupLabel, true, scrollContainerRef)}
+                  {props.renderGroupSessions(group, groupKey, activeSection.project.id, hideGroupLabel, null, true, scrollContainerRef)}
                 </React.Fragment>
               );
             });
@@ -222,17 +253,50 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                 >
                   {!isCollapsed ? (
                     <div className="space-y-0 pt-0.5 pb-0.5">
-                      {section.groups.map((group) => {
-                        const groupKey = `${projectKey}:${group.id}`;
-                        // Root/flat sessions render directly under the project
-                        // zone header; worktree and archived groups keep their
-                        // own slim sub-header.
+                      {(() => {
+                        const orderedGroups = cachedGetOrderedGroups(projectKey, section.groups);
+                        const rootGroup = orderedGroups.find((group) => group.isMain) ?? null;
+                        const nestedGroups = rootGroup
+                          ? orderedGroups.filter((group) => group.id !== rootGroup.id)
+                          : orderedGroups;
                         return (
-                          <React.Fragment key={groupKey}>
-                            {props.renderGroupSessions(group, groupKey, projectKey, group.isMain, undefined, scrollContainerRef)}
-                          </React.Fragment>
+                          <DndContext
+                            sensors={groupSensors}
+                            collisionDetection={closestCenter}
+                            onDragEnd={(event) => {
+                              if (props.isInlineEditing) return;
+                              const { active, over } = event;
+                              if (!over || active.id === over.id) return;
+                              const oldIndex = nestedGroups.findIndex((item) => item.id === active.id);
+                              const newIndex = nestedGroups.findIndex((item) => item.id === over.id);
+                              if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+                              const nextNested = arrayMove(nestedGroups, oldIndex, newIndex).map((item) => item.id);
+                              const next = rootGroup ? [rootGroup.id, ...nextNested] : nextNested;
+                              props.setGroupOrderByProject((prev) => {
+                                const map = new Map(prev);
+                                map.set(projectKey, next);
+                                return map;
+                              });
+                            }}
+                          >
+                            {/* Root/flat sessions render directly under the
+                                project zone header; worktree and archived
+                                groups keep their own slim sortable sub-header. */}
+                            {rootGroup ? props.renderGroupSessions(rootGroup, `${projectKey}:${rootGroup.id}`, projectKey, true, null, undefined, scrollContainerRef) : null}
+                            <SortableContext items={nestedGroups.map((group) => group.id)} strategy={verticalListSortingStrategy}>
+                              {nestedGroups.map((group) => {
+                                const groupKey = `${projectKey}:${group.id}`;
+                                return (
+                                  <SortableGroupItem key={group.id} id={group.id} disabled={props.isInlineEditing}>
+                                    {(dragHandleProps) => props.renderGroupSessions(group, groupKey, projectKey, false, dragHandleProps, undefined, scrollContainerRef)}
+                                  </SortableGroupItem>
+                                );
+                              })}
+                            </SortableContext>
+                            <DragOverlay dropAnimation={null} />
+                          </DndContext>
                         );
-                      })}
+                      })()}
                     </div>
                   ) : null}
                 </SortableProjectItem>
