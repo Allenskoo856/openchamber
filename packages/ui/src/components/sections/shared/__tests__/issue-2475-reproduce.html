@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  /* === Replicated from OpenChamber CSS === */
+  
+  /* Root overflow hidden (index.css lines 131-137) */
+  :root, :root body, :root #root {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  /* Dialog popup (SettingsWindow.tsx line 52) */
+  .dialog-popup {
+    position: relative;
+    pointer-events: auto;
+    width: 90vw;
+    max-width: 1200px;
+    height: 85vh;
+    max-height: 900px;
+    border-radius: 12px;
+    border: 1px solid #ccc;
+    box-shadow: none;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  /* SettingsView root (line 1066) */
+  .settings-view {
+    position: relative;
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  /* Content row (line 1146) */
+  .settings-content-row {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Nav panel (lines 1151-1163) */
+  .settings-nav {
+    position: relative;
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid #eee;
+    width: 220px;
+    min-width: 220px;
+    background: #f5f5f5;
+  }
+
+  /* Content area (line 1171) */
+  .settings-content-area {
+    flex: 1;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  /* Single page wrapper (line 1059) */
+  .settings-page-wrapper {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  /* ScrollableOverlay outer (line 49-53) */
+  .scrollable-overlay-outer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+    overflow: hidden;
+    height: 100%;
+  }
+
+  /* ScrollableOverlay inner (lines 76-81) */
+  .scrollable-overlay-inner {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* Native scrollbar hidden for overlay targets (index.css 642-656) */
+  .scrollable-overlay-inner {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+    scrollbar-gutter: auto !important;
+  }
+  .scrollable-overlay-inner::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+  }
+
+  /* Overlay scrollbar hidden inside settings (index.css 1753-1755) */
+  [data-settings-view="true"] .overlay-scrollbar {
+    display: none;
+  }
+
+  /* Overlay scrollbar (position absolute, inset 0, pointer-events none) */
+  .overlay-scrollbar {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 10;
+  }
+
+  /* === Demo content === */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  
+  .demo-layout {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    background: rgba(0,0,0,0.3);
+  }
+
+  .settings-content {
+    padding: 32px 48px;
+    max-width: 840px;
+    margin: 0 auto;
+  }
+
+  .tall-content {
+    height: 2000px;
+    background: linear-gradient(180deg, #e0f7fa 0%, #fff3e0 50%, #fce4ec 100%);
+    border-radius: 8px;
+    padding: 24px;
+    margin-top: 16px;
+  }
+
+  .section {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .field-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .field-row:last-child { border-bottom: none; }
+
+  .info-box {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 8px;
+  }
+
+  h2 { font-size: 18px; margin-bottom: 12px; }
+  h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+
+  /* Native scrollbar visible variant (for comparison) */
+  .scrollable-overlay-inner.native-scrollbar-visible {
+    scrollbar-width: auto !important;
+  }
+  .scrollable-overlay-inner.native-scrollbar-visible::-webkit-scrollbar {
+    width: auto !important;
+    height: auto !important;
+    display: block !important;
+  }
+
+  .overlay-scrollbar-visible .overlay-scrollbar {
+    display: block !important;
+  }
+
+  .test-controls {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    background: #fff;
+    padding: 12px 16px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    z-index: 100;
+    font-size: 13px;
+  }
+  .test-controls button {
+    padding: 6px 12px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: #f0f0f0;
+    cursor: pointer;
+  }
+  .test-controls button:hover { background: #e0e0e0; }
+
+  .status-badge {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .status-yes { background: #c8e6c9; color: #2e7d32; }
+  .status-no { background: #ffcdd2; color: #c62828; }
+
+  .scrollbar-status {
+    margin-top: 8px;
+    display: flex;
+    gap: 16px;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div class="demo-layout">
+  <div class="dialog-popup" id="dialog">
+    <div class="settings-view" data-settings-view="true" id="settingsView">
+      <div style="height: 48px; border-bottom: 1px solid #eee; display: flex; align-items: center; padding: 0 16px; flex-shrink: 0;">
+        <strong>Settings</strong>
+        <span style="margin-left: 12px; color: #666; font-size: 13px;">Shortcuts</span>
+      </div>
+      <div class="settings-content-row">
+        <div class="settings-nav">
+          <div class="info-box" style="padding: 12px;">
+            Nav items here...
+          </div>
+        </div>
+        <div class="settings-content-area">
+          <div class="settings-page-wrapper">
+            <div class="scrollable-overlay-outer">
+              <div class="scrollable-overlay-inner" id="scrollContainer">
+                <div class="settings-content">
+                  <!-- Simulate the Shortcuts settings page (KeyboardShortcutsSettings) -->
+                  <h3>Keyboard Shortcuts</h3>
+                  <p class="info-box" style="margin-bottom: 16px;">
+                    Customize keyboard shortcuts for common actions.
+                  </p>
+
+                  <div class="section">
+                    <div class="field-row">
+                      <span>Toggle chat focus</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+K</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Open quick actions</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+Shift+K</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Toggle sidebar</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+B</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Open file</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+P</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Search in project</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+Shift+F</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Toggle terminal</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+J</span>
+                    </div>
+                    <div class="field-row">
+                      <span>New session</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+N</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Accept suggestion</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Tab</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Reject suggestion</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Esc</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Toggle diff view</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+D</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Open settings</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+,</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Open file...</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+P</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Find in files...</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+Shift+F</span>
+                    </div>
+                    <div class="field-row">
+                      <span>Replace in files...</span>
+                      <span style="background: #eee; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px;">Cmd+Shift+H</span>
+                    </div>
+                    <div class="field-row">
+                      <span>...</span>
+                      <span>...</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <!-- Hidden overlay scrollbar (position absolute, doesn't affect flow) -->
+              <div class="overlay-scrollbar" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="test-controls">
+  <span><span class="status-badge" id="scrollStatus">?</span> Can scroll</span>
+  <span><span class="status-badge" id="nativeScrollbarStatus">?</span> Native scrollbar visible</span>
+  <span><span class="status-badge" id="overlayScrollbarStatus">?</span> Overlay scrollbar visible</span>
+  <span style="color:#999">|</span>
+  <button onclick="checkScroll()">Re-check</button>
+  <button onclick="toggleOverlay()">Toggle overlay scrollbar CSS</button>
+  <button onclick="toggleNative()">Toggle native scrollbar CSS</button>
+</div>
+
+<script>
+function checkScroll() {
+  const container = document.getElementById('scrollContainer');
+  
+  // Check if scrollable
+  const canScroll = container.scrollHeight > container.clientHeight;
+  document.getElementById('scrollStatus').textContent = canScroll ? 'YES' : 'NO';
+  document.getElementById('scrollStatus').className = 'status-badge ' + (canScroll ? 'status-yes' : 'status-no');
+
+  // Check native scrollbar visibility
+  const hasNativeWidth = getComputedStyle(container).getPropertyValue('scrollbar-width');
+  const nativeVisible = hasNativeWidth !== 'none';
+  document.getElementById('nativeScrollbarStatus').textContent = nativeVisible ? 'YES' : 'NO';
+  document.getElementById('nativeScrollbarStatus').className = 'status-badge ' + (nativeVisible ? 'status-yes' : 'status-no');
+
+  // Check overlay scrollbar visibility
+  const settingsView = document.getElementById('settingsView');
+  const overlayBars = settingsView.querySelectorAll('.overlay-scrollbar');
+  let overlayVisible = false;
+  overlayBars.forEach(bar => {
+    const display = getComputedStyle(bar).getPropertyValue('display');
+    if (display !== 'none') overlayVisible = true;
+  });
+  document.getElementById('overlayScrollbarStatus').textContent = overlayVisible ? 'YES' : 'NO';
+  document.getElementById('overlayScrollbarStatus').className = 'status-badge ' + (overlayVisible ? 'status-yes' : 'status-no');
+
+  console.log('=== Scroll Status ===');
+  console.log('scrollHeight:', container.scrollHeight, 'clientHeight:', container.clientHeight);
+  console.log('Can scroll (content overflows):', canScroll);
+  console.log('overflow-y:', getComputedStyle(container).overflowY);
+  console.log('scrollbar-width:', getComputedStyle(container).scrollbarWidth);
+  console.log('Webkit scrollbar display:', getComputedStyle(container, '::-webkit-scrollbar').display);
+  console.log('Overlay scrollbar display:', overlayVisible ? 'visible' : 'hidden');
+  console.log('======================');
+}
+
+// Toggle overlay scrollbar visibility (simulate removing the display:none rule)
+let overlayHidden = true;
+function toggleOverlay() {
+  overlayHidden = !overlayHidden;
+  const style = document.querySelector('[data-overlay-toggle]') || (() => {
+    const s = document.createElement('style');
+    s.setAttribute('data-overlay-toggle', 'true');
+    document.head.appendChild(s);
+    return s;
+  })();
+  style.textContent = overlayHidden 
+    ? '[data-settings-view="true"] .overlay-scrollbar { display: none; }' 
+    : '[data-settings-view="true"] .overlay-scrollbar { display: block; }';
+  checkScroll();
+}
+
+let nativeHidden = true;
+function toggleNative() {
+  nativeHidden = !nativeHidden;
+  const style = document.querySelector('[data-native-toggle]') || (() => {
+    const s = document.createElement('style');
+    s.setAttribute('data-native-toggle', 'true');
+    document.head.appendChild(s);
+    return s;
+  })();
+  style.textContent = nativeHidden 
+    ? `.scrollable-overlay-inner { scrollbar-width: none !important; -ms-overflow-style: none !important; } .scrollable-overlay-inner::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }`
+    : `.scrollable-overlay-inner { scrollbar-width: auto !important; } .scrollable-overlay-inner::-webkit-scrollbar { width: auto !important; height: auto !important; display: block !important; }`;
+  checkScroll();
+}
+
+window.addEventListener('load', checkScroll);
+window.addEventListener('resize', checkScroll);
+</script>
+</body>
+</html>
