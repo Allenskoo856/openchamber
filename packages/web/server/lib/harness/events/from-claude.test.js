@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
 import {
+  buildTurnAbortEvents,
   buildUserMessageEvents,
   createClaudeMapperContext,
   createOpenCodeId,
@@ -231,5 +232,168 @@ describe('from-claude mapper', () => {
     });
     expect(mapClaudeMessageToEvents(ctx, { type: 'totally_unknown' }).events).toEqual([]);
     expect(mapClaudeMessageToEvents(ctx, null).events).toEqual([]);
+  });
+});
+
+describe('tool arguments survive completion', () => {
+  it('echoes the tool_use input on the completed state', () => {
+    const ctx = createClaudeMapperContext({
+      sessionId: 'ses_1',
+      directory: '/proj',
+      userMessageId: 'msg_u',
+      assistantMessageId: 'msg_a',
+    });
+
+    mapClaudeMessageToEvents(ctx, {
+      type: 'assistant',
+      message: {
+        content: [{
+          type: 'tool_use',
+          id: 'call_1',
+          name: 'Read',
+          input: { file_path: '/proj/a.ts' },
+        }],
+      },
+    });
+
+    const { events } = mapClaudeMessageToEvents(ctx, {
+      type: 'user',
+      message: {
+        content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'ok' }],
+      },
+    });
+
+    const state = events.at(-1).properties.part.state;
+    expect(state.status).toBe('completed');
+    // The UI reducer replaces state wholesale — dropping input blanks the args.
+    expect(state.input).toEqual({ file_path: '/proj/a.ts' });
+  });
+});
+
+describe('extended thinking', () => {
+  it('maps thinking deltas to a reasoning part', () => {
+    const ctx = createClaudeMapperContext({
+      sessionId: 'ses_1',
+      directory: '/proj',
+      userMessageId: 'msg_u',
+      assistantMessageId: 'msg_a',
+    });
+
+    const { events } = mapClaudeMessageToEvents(ctx, {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        delta: { type: 'thinking_delta', thinking: 'weighing options' },
+      },
+    });
+
+    const opened = events.find((e) => e.type === 'message.part.updated');
+    expect(opened.properties.part.type).toBe('reasoning');
+    expect(events.at(-1)).toMatchObject({
+      type: 'message.part.delta',
+      properties: { delta: 'weighing options' },
+    });
+  });
+
+  it('finalizes reasoning before text on result', () => {
+    const ctx = createClaudeMapperContext({
+      sessionId: 'ses_1',
+      directory: '/proj',
+      userMessageId: 'msg_u',
+      assistantMessageId: 'msg_a',
+    });
+
+    mapClaudeMessageToEvents(ctx, {
+      type: 'assistant',
+      message: { content: [{ type: 'thinking', thinking: 'hmm' }] },
+    });
+    mapClaudeMessageToEvents(ctx, {
+      type: 'stream_event',
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'answer' } },
+    });
+
+    const { events } = mapClaudeMessageToEvents(ctx, { type: 'result', subtype: 'success' });
+    const finals = events
+      .filter((e) => e.type === 'message.part.updated')
+      .map((e) => [e.properties.part.type, e.properties.part.text]);
+    expect(finals).toEqual([['reasoning', 'hmm'], ['text', 'answer']]);
+  });
+});
+
+describe('divergent full text block', () => {
+  it('rewrites the segment instead of dropping the tail', () => {
+    const ctx = createClaudeMapperContext({
+      sessionId: 'ses_1',
+      directory: '/proj',
+      userMessageId: 'msg_u',
+      assistantMessageId: 'msg_a',
+      textPartId: 'prt_text',
+      accumulatedText: 'strea',
+      textPartStarted: true,
+    });
+
+    const { events } = mapClaudeMessageToEvents(ctx, {
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'completely different answer' }] },
+    });
+
+    expect(events.at(-1).properties.part).toMatchObject({
+      id: 'prt_text',
+      type: 'text',
+      text: 'completely different answer',
+    });
+  });
+});
+
+describe('abort finalization', () => {
+  it('closes running tool parts and the open text segment', () => {
+    const ctx = createClaudeMapperContext({
+      sessionId: 'ses_1',
+      directory: '/proj',
+      userMessageId: 'msg_u',
+      assistantMessageId: 'msg_a',
+    });
+
+    mapClaudeMessageToEvents(ctx, {
+      type: 'stream_event',
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'working' } },
+    });
+    mapClaudeMessageToEvents(ctx, {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', id: 'call_1', name: 'Bash', input: { command: 'ls' } }],
+      },
+    });
+
+    const events = buildTurnAbortEvents(ctx);
+    const parts = events.map((e) => e.properties.part);
+
+    expect(parts.find((p) => p.type === 'text')?.text).toBe('working');
+    const tool = parts.find((p) => p.type === 'tool');
+    expect(tool.state).toMatchObject({
+      status: 'error',
+      error: 'Aborted by user',
+      input: { command: 'ls' },
+    });
+  });
+
+  it('leaves already-settled tools alone', () => {
+    const ctx = createClaudeMapperContext({
+      sessionId: 'ses_1',
+      directory: '/proj',
+      userMessageId: 'msg_u',
+      assistantMessageId: 'msg_a',
+    });
+
+    mapClaudeMessageToEvents(ctx, {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 'call_1', name: 'Read', input: {} }] },
+    });
+    mapClaudeMessageToEvents(ctx, {
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'call_1', content: 'done' }] },
+    });
+
+    expect(buildTurnAbortEvents(ctx)).toEqual([]);
   });
 });

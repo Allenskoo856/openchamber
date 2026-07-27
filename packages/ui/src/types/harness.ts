@@ -5,12 +5,15 @@
 
 export type HarnessId = 'opencode' | 'claude-code';
 
-export type ClaudePermissionMode =
-  | 'default'
-  | 'acceptEdits'
-  | 'plan'
-  | 'dontAsk'
-  | 'bypassPermissions';
+/**
+ * Claude permission modes OpenChamber can produce.
+ *
+ * This is never a standalone control: it is derived from the selected agent's
+ * edit permission on every send (see `claudePermissionModeFromEditPermission`).
+ * Auto-approve is a separate mechanism that answers the `canUseTool` bridge,
+ * so no bypass mode belongs here — one would silently defeat that bridge.
+ */
+export type ClaudePermissionMode = 'default' | 'acceptEdits' | 'plan';
 
 /** Claude Agent SDK effort levels (named). */
 export type ClaudeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -144,8 +147,6 @@ const CLAUDE_PERMISSION_MODES: readonly ClaudePermissionMode[] = [
   'default',
   'acceptEdits',
   'plan',
-  'dontAsk',
-  'bypassPermissions',
 ] as const;
 
 export const CLAUDE_EFFORT_LEVELS: readonly ClaudeEffort[] = [

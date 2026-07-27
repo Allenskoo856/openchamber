@@ -131,6 +131,10 @@
         "typescript": "~5.9.0",
       },
     },
+    "packages/quota-core": {
+      "name": "@openchamber/quota-core",
+      "version": "1.16.3",
+    },
     "packages/ui": {
       "name": "@openchamber/ui",
       "version": "1.16.3",
@@ -240,6 +244,7 @@
       "name": "openchamber",
       "version": "1.16.3",
       "dependencies": {
+        "@openchamber/quota-core": "workspace:*",
         "@openchamber/ui": "workspace:*",
         "@opencode-ai/sdk": "1.18.4",
         "adm-zip": "^0.5.16",
@@ -269,6 +274,7 @@
         "@anthropic-ai/claude-agent-sdk": "^0.3.220",
         "@clack/prompts": "^1.1.0",
         "@octokit/rest": "^22.0.1",
+        "@openchamber/quota-core": "workspace:*",
         "@opencode-ai/sdk": "1.18.4",
         "@simplewebauthn/server": "13.3.1",
         "adm-zip": "^0.5.16",
@@ -1019,6 +1025,8 @@
     "@openchamber/electron": ["@openchamber/electron@workspace:packages/electron"],
 
     "@openchamber/mobile": ["@openchamber/mobile@workspace:packages/mobile"],
+
+    "@openchamber/quota-core": ["@openchamber/quota-core@workspace:packages/quota-core"],
 
     "@openchamber/ui": ["@openchamber/ui@workspace:packages/ui"],
 

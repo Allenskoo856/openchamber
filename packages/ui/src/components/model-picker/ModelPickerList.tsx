@@ -78,7 +78,7 @@ const formatCost = (value?: number | null) => {
   return formatUsdCurrency(value);
 };
 
-type ModelPickerLabels = {
+export type ModelPickerLabels = {
   searchPlaceholder: string;
   noResults: string;
   favorites: string;

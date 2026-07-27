@@ -3,12 +3,12 @@
  * When Claude Code is selected, OpenCode getCurrentModel() limits must not be used.
  */
 
-import type { EngineCatalog, ExecutionTarget } from '@/types/harness';
-import { isExecutionTarget } from '@/types/harness';
+import type { EngineCatalog } from '@/types/harness';
+import { resolveActiveClaudeModel } from '@/lib/harness/claude-models';
 import {
-  buildClaudeModelMetadata,
-  resolveClaudeCatalogModel,
-} from '@/lib/harness/claude-models';
+  resolveActiveEngineTarget,
+  type ActiveEngineTargetArgs,
+} from '@/lib/harness/resolve-execution-target';
 
 export type ActiveModelLimits = {
   context: number;
@@ -17,44 +17,17 @@ export type ActiveModelLimits = {
   source: 'claude-code' | 'opencode';
 };
 
-function resolveActiveTarget(args: {
-  sessionId?: string | null;
-  sessionTarget?: ExecutionTarget | null;
-  pendingHandoffTarget?: ExecutionTarget | null;
-  lastUsedTarget?: ExecutionTarget | null;
-}): ExecutionTarget | null {
-  const sessionId = typeof args.sessionId === 'string' ? args.sessionId.trim() : '';
-  if (sessionId) {
-    if (args.sessionTarget && isExecutionTarget(args.sessionTarget)) return args.sessionTarget;
-    if (args.pendingHandoffTarget && isExecutionTarget(args.pendingHandoffTarget)) {
-      return args.pendingHandoffTarget;
-    }
-  }
-  if (args.lastUsedTarget && isExecutionTarget(args.lastUsedTarget)) {
-    return args.lastUsedTarget;
-  }
-  return null;
-}
-
-export function resolveActiveModelLimits(args: {
-  sessionId?: string | null;
-  sessionTarget?: ExecutionTarget | null;
-  pendingHandoffTarget?: ExecutionTarget | null;
-  lastUsedTarget?: ExecutionTarget | null;
+export function resolveActiveModelLimits(args: ActiveEngineTargetArgs & {
   claudeCatalog?: EngineCatalog | null;
   /** OpenCode live/current model limits when engine is OpenCode. */
   openCodeContext?: number | null;
   openCodeOutput?: number | null;
   openCodeModelName?: string | null;
 }): ActiveModelLimits {
-  const target = resolveActiveTarget(args);
+  const target = resolveActiveEngineTarget(args);
 
   if (target?.harnessId === 'claude-code') {
-    const modelRef = typeof target.modelRef === 'string' && target.modelRef.trim()
-      ? target.modelRef.trim()
-      : 'sonnet';
-    const models = args.claudeCatalog?.sections.flatMap((section) => section.models) ?? [];
-    const metadata = buildClaudeModelMetadata(resolveClaudeCatalogModel(models, modelRef));
+    const { modelRef, metadata } = resolveActiveClaudeModel(target, args.claudeCatalog);
     return {
       context: metadata.limit?.context ?? 200_000,
       output: metadata.limit?.output ?? 64_000,

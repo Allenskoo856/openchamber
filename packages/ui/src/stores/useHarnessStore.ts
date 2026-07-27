@@ -240,11 +240,7 @@ export const useHarnessStore = create<HarnessStore>()(
             return false;
           }
           if (!response.ok) {
-            const message = await readErrorMessage(response);
-            set({
-              error: message,
-              isDetecting: { ...get().isDetecting, [id]: false },
-            });
+            set({ error: await readErrorMessage(response) });
             return false;
           }
           const payload = await response.json().catch(() => null);
@@ -253,10 +249,7 @@ export const useHarnessStore = create<HarnessStore>()(
           }
           const catalog = parseEngineCatalog(payload);
           if (!catalog) {
-            set({
-              error: 'Invalid harness detect response',
-              isDetecting: { ...get().isDetecting, [id]: false },
-            });
+            set({ error: 'Invalid harness detect response' });
             return false;
           }
           const catalogs = upsertCatalog(get().catalogs, catalog);
@@ -265,19 +258,18 @@ export const useHarnessStore = create<HarnessStore>()(
             catalogsById: indexCatalogsById(catalogs),
             error: null,
             loadState: 'ready',
-            isDetecting: { ...get().isDetecting, [id]: false },
           });
           return true;
         } catch (error) {
           if (generation !== loadGeneration) {
             return false;
           }
-          const message = error instanceof Error ? error.message : 'Failed to detect harness';
-          set({
-            error: message,
-            isDetecting: { ...get().isDetecting, [id]: false },
-          });
+          set({ error: error instanceof Error ? error.message : 'Failed to detect harness' });
           return false;
+        } finally {
+          // Must clear on every exit, including the stale-generation returns —
+          // otherwise a refresh racing a detect strands the spinner forever.
+          set({ isDetecting: { ...get().isDetecting, [id]: false } });
         }
       },
 

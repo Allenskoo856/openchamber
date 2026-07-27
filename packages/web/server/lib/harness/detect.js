@@ -13,7 +13,7 @@ import {
 import { findBinaryOnPath } from './binary-path.js';
 import { probeClaudeAgentSdk } from './translators/claude-code/query.js';
 import { buildClaudeCodeChildEnv } from './translators/claude-code/auth-env.js';
-import { hasClaudeCliOAuthCredentials } from '../quota/providers/claude-cli-auth.js';
+import { hasClaudeCliOAuthCredentials } from '@openchamber/quota-core';
 
 export { findBinaryOnPath } from './binary-path.js';
 

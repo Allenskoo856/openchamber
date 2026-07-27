@@ -3,12 +3,38 @@
  */
 
 import type { ModelMetadata } from '@/types';
-import type { ClaudeEffort, EngineCatalogModel } from '@/types/harness';
+import type {
+  ClaudeEffort,
+  ClaudePermissionMode,
+  EngineCatalog,
+  EngineCatalogModel,
+  ExecutionTarget,
+} from '@/types/harness';
 import { CLAUDE_EFFORT_LEVELS, isClaudeEffort } from '@/types/harness';
+import type { EditPermissionMode } from '@/stores/types/sessionTypes';
 import { CLAUDE_FAVORITE_PROVIDER_ID } from '@/lib/harness/favorite-targets';
 
 export { CLAUDE_EFFORT_LEVELS, isClaudeEffort };
 export type { ClaudeEffort };
+
+/** Claude's default model when a target carries no usable ref. */
+const DEFAULT_CLAUDE_MODEL_REF = 'sonnet';
+
+/**
+ * Map OpenCode agent edit permission → Claude Agent SDK permissionMode.
+ *
+ * Claude modes are coarser than per-tool OpenCode rules; edit is the closest
+ * shared control surface (composer agent chip / agent settings). This is the
+ * only producer of `ClaudePermissionMode` — see the type for why there is no
+ * standalone control and no bypass mode.
+ */
+export function claudePermissionModeFromEditPermission(
+  editPermission: EditPermissionMode | undefined,
+): ClaudePermissionMode {
+  if (editPermission === 'allow') return 'acceptEdits';
+  if (editPermission === 'deny') return 'plan';
+  return 'default';
+}
 
 /** Fallback limits when catalog entry omits them (unknown / older Claude refs). */
 const DEFAULT_CLAUDE_LIMIT = {
@@ -77,4 +103,19 @@ export function resolveClaudeCatalogModel(
       output: ['text'],
     },
   };
+}
+
+/**
+ * Model ref + metadata for a Claude execution target, flattening the catalog.
+ * Shared by every composer surface that must describe the active Claude model.
+ */
+export function resolveActiveClaudeModel(
+  target: Extract<ExecutionTarget, { harnessId: 'claude-code' }>,
+  catalog: EngineCatalog | null | undefined,
+): { modelRef: string; metadata: ModelMetadata } {
+  const modelRef = typeof target.modelRef === 'string' && target.modelRef.trim()
+    ? target.modelRef.trim()
+    : DEFAULT_CLAUDE_MODEL_REF;
+  const models = catalog?.sections.flatMap((section) => section.models) ?? [];
+  return { modelRef, metadata: buildClaudeModelMetadata(resolveClaudeCatalogModel(models, modelRef)) };
 }

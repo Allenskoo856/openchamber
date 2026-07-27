@@ -23,6 +23,24 @@ const snapshots = new Map();
 const SESSION_LIMIT = 500;
 
 /**
+ * Evict the least recently updated idle snapshot.
+ *
+ * Insertion order is wrong here: a long-lived session that is still `busy` is
+ * exactly the oldest key, and dropping it would report an in-flight turn as
+ * idle — letting queue auto-send fire into a running turn. Busy snapshots are
+ * never evicted; they are removed by their own idle event.
+ */
+function evictOldestIdle() {
+  /** @type {HarnessTurnSnapshot | null} */
+  let oldest = null;
+  for (const snap of snapshots.values()) {
+    if (snap.status === 'busy') continue;
+    if (!oldest || snap.updatedAt < oldest.updatedAt) oldest = snap;
+  }
+  if (oldest) snapshots.delete(oldest.sessionId);
+}
+
+/**
  * @param {string} sessionId
  * @param {string} [directory]
  * @returns {HarnessTurnSnapshot}
@@ -40,9 +58,7 @@ function ensureSnapshot(sessionId, directory = '') {
       aborted: false,
     };
     snapshots.set(sessionId, snap);
-    if (snapshots.size > SESSION_LIMIT) {
-      snapshots.delete(snapshots.keys().next().value);
-    }
+    if (snapshots.size > SESSION_LIMIT) evictOldestIdle();
   } else if (directory && !snap.directory) {
     snap.directory = directory;
   }

@@ -1,26 +1,48 @@
-import { readAuthFile } from '../../opencode/auth.js';
+import { readAuthFile, writeAuthFile } from '../../opencode/auth.js';
 import {
   getAuthEntry,
   normalizeAuthEntry,
   buildResult,
-  toUsageWindow,
-  toNumber,
-  toTimestamp
 } from '../utils/index.js';
 import {
   CLAUDE_SCOPE_ERROR,
   CLAUDE_SESSION_EXPIRED_ERROR,
   classifyClaudeUsageHttpError,
-  ensureClaudeUsageAccessToken,
+  ensureClaudeUsageAccessToken as ensureClaudeUsageAccessTokenCore,
   fetchClaudeUsagePayload,
   fetchClaudeUsageWindowsFromRateLimits,
-  hasClaudeProfileScope,
-} from './claude-oauth.js';
-import { readClaudeCliOAuthAccessToken } from './claude-cli-auth.js';
+  mapClaudeUsageWindows,
+  readClaudeCliOAuthAccessToken,
+  shouldSkipClaudeUsageEndpoint,
+} from '@openchamber/quota-core';
 
 export const providerId = 'claude';
 export const providerName = 'Claude subscription';
 const aliases = ['anthropic', 'claude'];
+
+// Re-exported for backward compatibility: these are the actual shared
+// implementations from @openchamber/quota-core, not local copies. Anything
+// still importing them from this module (or from the deleted
+// claude-oauth.js / claude-cli-auth.js siblings) gets the single source of
+// truth.
+export { mapClaudeUsageWindows, shouldSkipClaudeUsageEndpoint };
+
+/**
+ * Resolve a usable Claude subscription access token, refreshing when
+ * expired. Wires this host's own OpenCode `auth.json` reader/writer
+ * (shared with every other quota provider) into the shared quota-core
+ * credential/refresh layer, so persistence behavior (backup file, status
+ * logging) is unchanged from before the extraction.
+ *
+ * @param {Parameters<typeof ensureClaudeUsageAccessTokenCore>[0]} [options]
+ */
+function ensureClaudeUsageAccessToken(options = {}) {
+  return ensureClaudeUsageAccessTokenCore({
+    readAuth: readAuthFile,
+    writeAuth: writeAuthFile,
+    ...options,
+  });
+}
 
 /**
  * Resolve whether Claude subscription usage can be probed.
@@ -35,62 +57,6 @@ export const isConfigured = () => {
   const openCodeToken = entry?.access ?? entry?.token;
   return typeof openCodeToken === 'string' && Boolean(openCodeToken.trim());
 };
-
-/**
- * @param {unknown} payload
- * @returns {Record<string, ReturnType<typeof toUsageWindow>>}
- */
-export function mapClaudeUsageWindows(payload) {
-  const windows = {};
-  const fiveHour = payload?.five_hour ?? null;
-  const sevenDay = payload?.seven_day ?? null;
-  const sevenDaySonnet = payload?.seven_day_sonnet ?? null;
-  const sevenDayOpus = payload?.seven_day_opus ?? null;
-
-  if (fiveHour && typeof fiveHour === 'object') {
-    windows['5h'] = toUsageWindow({
-      usedPercent: toNumber(fiveHour.utilization),
-      windowSeconds: 5 * 60 * 60,
-      resetAt: toTimestamp(fiveHour.resets_at)
-    });
-  }
-  if (sevenDay && typeof sevenDay === 'object') {
-    windows['7d'] = toUsageWindow({
-      usedPercent: toNumber(sevenDay.utilization),
-      windowSeconds: 7 * 24 * 60 * 60,
-      resetAt: toTimestamp(sevenDay.resets_at)
-    });
-  }
-  if (sevenDaySonnet && typeof sevenDaySonnet === 'object') {
-    windows['7d-sonnet'] = toUsageWindow({
-      usedPercent: toNumber(sevenDaySonnet.utilization),
-      windowSeconds: 7 * 24 * 60 * 60,
-      resetAt: toTimestamp(sevenDaySonnet.resets_at)
-    });
-  }
-  if (sevenDayOpus && typeof sevenDayOpus === 'object') {
-    windows['7d-opus'] = toUsageWindow({
-      usedPercent: toNumber(sevenDayOpus.utilization),
-      windowSeconds: 7 * 24 * 60 * 60,
-      resetAt: toTimestamp(sevenDayOpus.resets_at)
-    });
-  }
-
-  return windows;
-}
-
-/**
- * True when this credential cannot use `/api/oauth/usage` successfully.
- * Env setup-tokens and known inference-only scopes should skip that endpoint.
- *
- * @param {{ source?: string, scopes?: string[] | null } | null | undefined} access
- */
-export function shouldSkipClaudeUsageEndpoint(access) {
-  if (!access) return true;
-  if (access.source === 'env') return true;
-  if (access.scopes != null && !hasClaudeProfileScope(access.scopes)) return true;
-  return false;
-}
 
 /**
  * @param {string} accessToken

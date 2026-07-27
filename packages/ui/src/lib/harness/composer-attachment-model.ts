@@ -5,12 +5,12 @@
  */
 
 import type { ModelMetadata } from '@/types';
-import type { EngineCatalog, ExecutionTarget } from '@/types/harness';
-import { isExecutionTarget } from '@/types/harness';
+import type { EngineCatalog } from '@/types/harness';
+import { resolveActiveClaudeModel } from '@/lib/harness/claude-models';
 import {
-  buildClaudeModelMetadata,
-  resolveClaudeCatalogModel,
-} from '@/lib/harness/claude-models';
+  resolveActiveEngineTarget,
+  type ActiveEngineTargetArgs,
+} from '@/lib/harness/resolve-execution-target';
 
 export type ComposerAttachmentModel = {
   modelKey: string;
@@ -18,45 +18,16 @@ export type ComposerAttachmentModel = {
   inputModalities: string[] | undefined;
 };
 
-function resolveActiveComposerTarget(args: {
-  sessionId?: string | null;
-  sessionTarget?: ExecutionTarget | null;
-  pendingHandoffTarget?: ExecutionTarget | null;
-  lastUsedTarget?: ExecutionTarget | null;
-}): ExecutionTarget | null {
-  const sessionId = typeof args.sessionId === 'string' ? args.sessionId.trim() : '';
-  if (sessionId) {
-    if (args.sessionTarget && isExecutionTarget(args.sessionTarget)) {
-      return args.sessionTarget;
-    }
-    if (args.pendingHandoffTarget && isExecutionTarget(args.pendingHandoffTarget)) {
-      return args.pendingHandoffTarget;
-    }
-  }
-  if (args.lastUsedTarget && isExecutionTarget(args.lastUsedTarget)) {
-    return args.lastUsedTarget;
-  }
-  return null;
-}
-
-export function resolveComposerAttachmentModel(args: {
-  sessionId?: string | null;
-  sessionTarget?: ExecutionTarget | null;
-  pendingHandoffTarget?: ExecutionTarget | null;
-  lastUsedTarget?: ExecutionTarget | null;
+export function resolveComposerAttachmentModel(args: ActiveEngineTargetArgs & {
   openCodeProviderId?: string | null;
   openCodeModelId?: string | null;
   openCodeMetadata?: ModelMetadata | null;
   claudeCatalog?: EngineCatalog | null;
 }): ComposerAttachmentModel {
-  const target = resolveActiveComposerTarget(args);
+  const target = resolveActiveEngineTarget(args);
 
   if (target?.harnessId === 'claude-code') {
-    const modelRef = typeof target.modelRef === 'string' && target.modelRef.trim()
-      ? target.modelRef.trim()
-      : 'sonnet';
-    const models = args.claudeCatalog?.sections.flatMap((section) => section.models) ?? [];
-    const metadata = buildClaudeModelMetadata(resolveClaudeCatalogModel(models, modelRef));
+    const { modelRef, metadata } = resolveActiveClaudeModel(target, args.claudeCatalog);
     return {
       modelKey: `claude-code/${modelRef}`,
       modelName: metadata.name ?? modelRef,

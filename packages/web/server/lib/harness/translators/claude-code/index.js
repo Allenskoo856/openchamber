@@ -10,6 +10,7 @@ import {
   replyPermission as replyPendingPermission,
 } from './permissions.js';
 import {
+  buildTurnAbortEvents,
   buildUserMessageEvents,
   createClaudeMapperContext,
   createOpenCodeId,
@@ -97,7 +98,7 @@ export function buildClaudePrompt(text, files, options = {}) {
  * @param {typeof detectClaudeCode} [deps.detect]
  */
 export function createClaudeCodeTranslator(deps = {}) {
-  /** @type {Map<string, { handle: object, aborting: boolean, idleEmitted: boolean }>} */
+  /** @type {Map<string, { handle: object, ctx: object, aborting: boolean, idleEmitted: boolean }>} */
   const activeTurns = new Map();
   const getBroadcast = deps.getBroadcast || (() => null);
   const startQuery = deps.startQuery || startClaudeQuery;
@@ -186,9 +187,10 @@ export function createClaudeCodeTranslator(deps = {}) {
 
     const broadcast = getBroadcast();
     const files = Array.isArray(body?.files) ? body.files : [];
-    const userEvents = buildUserMessageEvents(ctx, text, files);
-    emitHarnessEvents(broadcast, directory, userEvents);
 
+    // Validate attachments before anything optimistic is broadcast. Emitting the
+    // user message first would leave a sent-and-busy turn on screen that never
+    // gets an assistant reply when attachment mapping rejects the payload.
     let promptInput;
     try {
       promptInput = buildClaudePrompt(text, files, { cwd: directory });
@@ -197,12 +199,10 @@ export function createClaudeCodeTranslator(deps = {}) {
         code: error.code || 'ATTACHMENT_ERROR',
         message: error.message || 'Attachment mapping failed',
       });
-      emitHarnessEvents(broadcast, directory, [{
-        type: 'session.status',
-        properties: { sessionID: sessionId, status: { type: 'idle' } },
-      }]);
       throw error;
     }
+
+    emitHarnessEvents(broadcast, directory, buildUserMessageEvents(ctx, text, files));
 
     const canUseTool = createCanUseTool({
       sessionId,
@@ -235,7 +235,7 @@ export function createClaudeCodeTranslator(deps = {}) {
       throw wrapped;
     }
 
-    const activeTurn = { handle, aborting: false, idleEmitted: false };
+    const activeTurn = { handle, ctx, aborting: false, idleEmitted: false };
     activeTurns.set(sessionId, activeTurn);
     const emitEvents = (events) => {
       if (events.some((event) => isIdleStatusEvent(event, sessionId))) {
@@ -356,10 +356,13 @@ export function createClaudeCodeTranslator(deps = {}) {
     }
 
     if (binding?.directory) {
-      // Emit MessageAbortedError so session-goal pauses immediately (same
-      // contract as OpenCode abort), then idle for UI/status consumers.
+      // Close every part the interrupted turn left open first, otherwise those
+      // tool/text parts keep spinning in the transcript forever.
       const abortedAssistantId = createOpenCodeId('msg');
       emitHarnessEvents(getBroadcast(), binding.directory, [
+        ...buildTurnAbortEvents(active.ctx),
+        // Emit MessageAbortedError so session-goal pauses immediately (same
+        // contract as OpenCode abort), then idle for UI/status consumers.
         {
           type: 'message.updated',
           properties: {

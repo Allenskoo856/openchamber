@@ -532,7 +532,13 @@ export const createSessionGoalRuntime = ({
       messages = typeof getHarnessRecentMessages === 'function'
         ? getHarnessRecentMessages(sessionId)
         : null;
-      if (!messages) return;
+      if (!messages) {
+        // No snapshot yet (binding still settling, or the server restarted
+        // mid-turn). Unlike a fetch failure this produces no later idle event
+        // to re-arm the tick, so retry instead of stalling the goal loop.
+        armTimer(sessionId, directory, idleQuietMs);
+        return;
+      }
     } else {
       const statuses = await fetchSessionStatuses(directory);
       if (!statuses) {

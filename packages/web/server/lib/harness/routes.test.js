@@ -220,3 +220,90 @@ describe('harness routes', () => {
     });
   });
 });
+
+describe('OpenCode overlay proxy', () => {
+  const registerWithUpstream = (app, upstream) => {
+    registerHarnessRoutes(app, {
+      initBindings: false,
+      detectAll: async () => [],
+      detectOne: async () => null,
+      buildOpenCodeUrl: (path) => `http://127.0.0.1:1/${path.replace(/^\//, '')}`,
+      getOpenCodeAuthHeaders: () => ({}),
+      ...upstream,
+    });
+    // Generic proxy stand-in so `next()` fallthrough is observable.
+    app.use((_req, res) => res.status(599).json({ fellThrough: true }));
+  };
+
+  // Only the upstream OpenCode host is stubbed; the test's own client calls to
+  // the local express server must still go out for real.
+  const UPSTREAM_HOST = '127.0.0.1:1';
+  const withStubbedFetch = async (impl, run) => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : String(input?.url ?? input);
+      if (url.includes(UPSTREAM_HOST)) return impl(input, init);
+      return original(input, init);
+    };
+    try {
+      await run();
+    } finally {
+      globalThis.fetch = original;
+    }
+  };
+
+  it('overlays harness busy status onto an OK upstream response', async () => {
+    await withServer((app) => registerWithUpstream(app), async (base) => {
+      await withStubbedFetch(
+        async () => new Response(JSON.stringify({ ses_oc: { type: 'busy' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+        async () => {
+          const res = await fetch(`${base}/api/session/status?directory=/proj`);
+          expect(res.status).toBe(200);
+          expect(await res.json()).toMatchObject({ ses_oc: { type: 'busy' } });
+        },
+      );
+    });
+  });
+
+  it('falls through to the generic proxy when upstream is not ok', async () => {
+    await withServer((app) => registerWithUpstream(app), async (base) => {
+      await withStubbedFetch(
+        async () => new Response('nope', { status: 502 }),
+        async () => {
+          const res = await fetch(`${base}/api/session/status?directory=/proj`);
+          expect(res.status).toBe(599);
+        },
+      );
+    });
+  });
+
+  it('falls through when the upstream fetch throws', async () => {
+    await withServer((app) => registerWithUpstream(app), async (base) => {
+      await withStubbedFetch(
+        async () => { throw new Error('connection refused'); },
+        async () => {
+          const res = await fetch(`${base}/api/session/ses_1/message`);
+          expect(res.status).toBe(599);
+        },
+      );
+    });
+  });
+
+  it('falls through when upstream returns unparseable JSON', async () => {
+    await withServer((app) => registerWithUpstream(app), async (base) => {
+      await withStubbedFetch(
+        async () => new Response('<html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+        async () => {
+          const res = await fetch(`${base}/api/session/ses_1/message`);
+          expect(res.status).toBe(599);
+        },
+      );
+    });
+  });
+});

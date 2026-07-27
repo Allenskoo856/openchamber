@@ -8,10 +8,10 @@ import {
   ensureClaudeUsageAccessToken,
   fetchClaudeUsagePayload,
   fetchClaudeUsageWindowsFromRateLimits,
-  hasKnownMissingProfileScope,
   mapClaudeUsageWindows,
+  shouldSkipClaudeUsageEndpoint,
   type ClaudeUsageAccess,
-} from './claudeOauth';
+} from '@openchamber/quota-core';
 import { fetchOpenCodeGoUsage } from './opencodeGoQuota';
 import { readCredential } from './quotaCredentials';
 
@@ -868,7 +868,7 @@ const fetchClaudeQuota = async (): Promise<ProviderResult> => {
       });
     }
 
-    const skipUsageEndpoint = access.source === 'env' || hasKnownMissingProfileScope(access.scopes);
+    const skipUsageEndpoint = shouldSkipClaudeUsageEndpoint(access);
 
     const buildFallbackOrError = async (status: number | null = null, bodyText = '') => {
       try {
@@ -956,7 +956,10 @@ const fetchClaudeQuota = async (): Promise<ProviderResult> => {
       providerId: 'claude',
       providerName,
       ok: false,
-      configured: Boolean(access?.accessToken) || sessionExpired,
+      // Reaching this catch means a credential existed, so this is an error
+      // state — not "Not configured". A network/timeout failure must not read
+      // as "no Claude account" (matches claude.js).
+      configured: true,
       error: sessionExpired ? CLAUDE_SESSION_EXPIRED_ERROR : message,
     });
   }

@@ -10,10 +10,16 @@
  *   (`CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`) get HTTP 403.
  * - When the usage endpoint rejects for scope, fall back to unified rate-limit
  *   headers from a tiny Messages API probe (works with inference scope).
+ *
+ * This module is the single source of truth for Claude OAuth/quota behavior
+ * shared by the OpenChamber web server and VS Code extension. Every
+ * `fs`/`fetch`/clock touch is injectable via an `options` object so both
+ * hosts (and tests) can supply their own I/O without this package taking a
+ * runtime dependency on either host.
  */
 
-import { readAuthFile, writeAuthFile } from '../../opencode/auth.js';
-import { getAuthEntry, normalizeAuthEntry, toNumber, toTimestamp, toUsageWindow } from '../utils/index.js';
+import { readOpenCodeAuthFile, writeOpenCodeAuthFile } from './opencode-auth.js';
+import { getAuthEntry, normalizeAuthEntry, toNumber, toTimestamp, toUsageWindow } from './utils.js';
 import {
   readClaudeCliOAuthCredentials,
   writeClaudeCliOAuthCredentials,
@@ -209,7 +215,7 @@ function listClaudeUsageCredentials(options = {}) {
     });
   }
 
-  const readAuth = options.readAuth || readAuthFile;
+  const readAuth = options.readAuth || readOpenCodeAuthFile;
   const auth = readAuth();
   for (const alias of AUTH_ALIASES) {
     const entry = normalizeAuthEntry(getAuthEntry(auth, [alias]));
@@ -302,8 +308,8 @@ function persistRefreshedCredential(credential, tokens, options = {}) {
   }
 
   if (credential.source === 'opencode-auth' && credential.authKey) {
-    const readAuth = options.readAuth || readAuthFile;
-    const writeAuth = options.writeAuth || writeAuthFile;
+    const readAuth = options.readAuth || readOpenCodeAuthFile;
+    const writeAuth = options.writeAuth || writeOpenCodeAuthFile;
     const auth = readAuth();
     const previous = normalizeAuthEntry(auth[credential.authKey]) || {};
     auth[credential.authKey] = {

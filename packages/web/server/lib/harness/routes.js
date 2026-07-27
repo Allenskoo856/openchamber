@@ -67,28 +67,42 @@ export function registerHarnessRoutes(app, deps = {}) {
   // OpenCode stores nothing for Claude turns, and an authoritative empty
   // refetch would wipe optimistic / event-applied chat (and stall the queue).
   if (buildOpenCodeUrl) {
+    /**
+     * GET an OpenCode path, or `null` when the overlay cannot be built.
+     *
+     * `null` means "no authoritative upstream answer" — callers fall through to
+     * the generic proxy so the existing error contract is preserved rather than
+     * turning an upstream failure into an empty success.
+     *
+     * @param {string} path
+     * @param {Record<string, string>} query
+     * @returns {Promise<unknown | null>}
+     */
+    const getFromOpenCode = async (path, query) => {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(query)) {
+        if (value) params.set(key, value);
+      }
+      const search = params.toString();
+      const base = buildOpenCodeUrl(path, '');
+      const response = await fetch(search ? `${base}?${search}` : base, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          ...getOpenCodeAuthHeaders(),
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) return null;
+      return response.json().catch(() => null);
+    };
+
     app.get('/api/session/status', async (req, res, next) => {
       try {
         const directory = typeof req.query?.directory === 'string' ? req.query.directory : '';
-        const base = buildOpenCodeUrl('/session/status', '');
-        const url = directory
-          ? `${base}?directory=${encodeURIComponent(directory)}`
-          : base;
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            ...getOpenCodeAuthHeaders(),
-          },
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!response.ok) {
-          // Fall through to generic OpenCode proxy on upstream failure so the
-          // existing error contract is preserved when no harness overlay is needed.
-          return next();
-        }
-        const openCodeStatuses = await response.json().catch(() => ({}));
-        res.json(mergeHarnessBusyIntoSessionStatuses(openCodeStatuses, directory));
+        const statuses = await getFromOpenCode('/session/status', { directory });
+        if (statuses === null) return next();
+        res.json(mergeHarnessBusyIntoSessionStatuses(statuses, directory));
       } catch {
         next();
       }
@@ -98,27 +112,15 @@ export function registerHarnessRoutes(app, deps = {}) {
       try {
         const sessionId = typeof req.params?.sessionId === 'string' ? req.params.sessionId : '';
         if (!sessionId) return next();
-        const directory = typeof req.query?.directory === 'string' ? req.query.directory : '';
-        const limit = typeof req.query?.limit === 'string' ? req.query.limit : '';
-        const base = buildOpenCodeUrl(`/session/${encodeURIComponent(sessionId)}/message`, '');
-        const params = new URLSearchParams();
-        if (directory) params.set('directory', directory);
-        if (limit) params.set('limit', limit);
-        const search = params.toString();
-        const url = search ? `${base}?${search}` : base;
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            ...getOpenCodeAuthHeaders(),
+        const messages = await getFromOpenCode(
+          `/session/${encodeURIComponent(sessionId)}/message`,
+          {
+            directory: typeof req.query?.directory === 'string' ? req.query.directory : '',
+            limit: typeof req.query?.limit === 'string' ? req.query.limit : '',
           },
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!response.ok) {
-          return next();
-        }
-        const openCodeMessages = await response.json().catch(() => []);
-        res.json(mergeHarnessMessagesIntoSessionMessages(openCodeMessages, sessionId));
+        );
+        if (messages === null) return next();
+        res.json(mergeHarnessMessagesIntoSessionMessages(messages, sessionId));
       } catch {
         next();
       }
@@ -142,7 +144,11 @@ export function registerHarnessRoutes(app, deps = {}) {
     res.json({ binding });
   });
 
-  app.get('/api/harness/:id', async (req, res) => {
+  // Read and re-probe are the same operation: detection is never cached, so GET
+  // and POST share one handler.
+  // Detect failure must not look like ready+empty success — the `status` field
+  // on the returned engine is authoritative.
+  const handleDetectOne = async (req, res) => {
     const id = req.params.id;
     if (!isKnownHarnessId(id)) {
       return res.status(404).json({ error: 'Unknown harness', code: 'HARNESS_NOT_FOUND' });
@@ -156,24 +162,10 @@ export function registerHarnessRoutes(app, deps = {}) {
     } catch (error) {
       sendError(res, error);
     }
-  });
+  };
 
-  app.post('/api/harness/:id/detect', async (req, res) => {
-    const id = req.params.id;
-    if (!isKnownHarnessId(id)) {
-      return res.status(404).json({ error: 'Unknown harness', code: 'HARNESS_NOT_FOUND' });
-    }
-    try {
-      const engine = await detectOne(id, { openCodeReady: getOpenCodeReady() });
-      if (!engine) {
-        return res.status(404).json({ error: 'Unknown harness', code: 'HARNESS_NOT_FOUND' });
-      }
-      // Detect failure must not look like ready+empty success — status field is authoritative.
-      res.json(engine);
-    } catch (error) {
-      sendError(res, error);
-    }
-  });
+  app.get('/api/harness/:id', handleDetectOne);
+  app.post('/api/harness/:id/detect', handleDetectOne);
 
   app.post('/api/harness/prompt', json, async (req, res) => {
     try {

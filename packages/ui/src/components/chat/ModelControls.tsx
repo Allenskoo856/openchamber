@@ -18,7 +18,7 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import type { IconName } from "@/components/icon/icons";
-import { ModelPickerList, type ModelPickerEntry, type ModelPickerEngineOption, type ModelPickerProvider } from '@/components/model-picker/ModelPickerList';
+import { ModelPickerList, type ModelPickerEntry } from '@/components/model-picker/ModelPickerList';
 import { useIsVSCodeRuntime } from '@/hooks/useRuntimeAPIs';
 import { isDesktopShell } from '@/lib/desktop';
 import { getAgentColor } from '@/lib/agentColors';
@@ -38,6 +38,10 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useModelLists } from '@/hooks/useModelLists';
 import { useIsTextTruncated } from '@/hooks/useIsTextTruncated';
 import { formatEffortLabel, getCycledPrimaryAgentName, isPrimaryMode, type MobileControlsPanel } from './mobileControlsUtils';
+import { ClaudeEffortMobilePanel, ClaudeEffortSelector } from './model-controls/ClaudeEffortControl';
+import { MobileInfoCard } from './model-controls/MobileInfoCard';
+import { useModelPickerData } from './model-controls/useModelPickerData';
+import { ENGINE_STATUS_LABEL_KEYS } from './model-controls/modelPickerData';
 import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
 import { useOpenCodeReadiness } from '@/hooks/useOpenCodeReadiness';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
@@ -50,47 +54,16 @@ import { CLAUDE_FAVORITE_PROVIDER_ID } from '@/lib/harness/favorite-targets';
 import {
     buildClaudeModelMetadata,
     buildClaudeModelMetadataMap,
-    CLAUDE_EFFORT_LEVELS,
     resolveClaudeCatalogModel,
     type ClaudeEffort,
 } from '@/lib/harness/claude-models';
-import { claudePermissionModeFromEditPermission } from '@/lib/harness/claude-permission-mode';
+import { claudePermissionModeFromEditPermission } from '@/lib/harness/claude-models';
 import { getAgentDefaultEditPermission } from '@/stores/utils/permissionUtils';
-import type { ExecutionTarget, HarnessId, HarnessRuntimeStatus } from '@/types/harness';
+import type { ExecutionTarget, HarnessId } from '@/types/harness';
 import { isClaudeEffort } from '@/types/harness';
 import { useShallow } from 'zustand/react/shallow';
 
 const CLAUDE_PICKER_PROVIDER_ID = CLAUDE_FAVORITE_PROVIDER_ID;
-
-const CLAUDE_EFFORT_LABEL_KEYS: Record<
-    ClaudeEffort,
-    | 'chat.engines.effort.low'
-    | 'chat.engines.effort.medium'
-    | 'chat.engines.effort.high'
-    | 'chat.engines.effort.xhigh'
-    | 'chat.engines.effort.max'
-> = {
-    low: 'chat.engines.effort.low',
-    medium: 'chat.engines.effort.medium',
-    high: 'chat.engines.effort.high',
-    xhigh: 'chat.engines.effort.xhigh',
-    max: 'chat.engines.effort.max',
-};
-
-const ENGINE_STATUS_LABEL_KEYS: Record<
-    HarnessRuntimeStatus,
-    | 'settings.engines.sidebar.status.ready'
-    | 'settings.engines.sidebar.status.needsLogin'
-    | 'settings.engines.sidebar.status.missingCli'
-    | 'settings.engines.sidebar.status.unsupportedHost'
-    | 'settings.engines.sidebar.status.error'
-> = {
-    ready: 'settings.engines.sidebar.status.ready',
-    'needs-login': 'settings.engines.sidebar.status.needsLogin',
-    'missing-cli': 'settings.engines.sidebar.status.missingCli',
-    'unsupported-host': 'settings.engines.sidebar.status.unsupportedHost',
-    error: 'settings.engines.sidebar.status.error',
-};
 
 type IconComponent = IconName;
 
@@ -812,6 +785,28 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         () => buildClaudeModelMetadataMap(claudeCatalogModels),
         [claudeCatalogModels],
     );
+
+    const {
+        labels: modelPickerLabels,
+        engineOptions,
+        pickerProviders,
+        pickerFavoriteModels,
+        pickerRecentModels,
+        pickerSelectedModel,
+    } = useModelPickerData({
+        t,
+        claudePickerProviderId: CLAUDE_PICKER_PROVIDER_ID,
+        pickerHarnessId,
+        enginesClaudeCodeEnabled,
+        claudeCatalog,
+        claudeCatalogModels,
+        claudeModelRef,
+        providers,
+        favoriteModelsList,
+        recentModelsList,
+        currentProviderId,
+        currentModelId,
+    });
     const currentModelForMetadata = currentModelId
         ? models.find((model: ProviderModel) => model.id === currentModelId)
         : undefined;
@@ -1619,15 +1614,13 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             >
                 <div className="flex flex-col gap-1.5">
                     {}
-                    <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="typography-micro text-muted-foreground mb-0.5">{t('chat.modelControls.provider')}</div>
+                    <MobileInfoCard caption={t('chat.modelControls.provider')} tightCaption>
                         <div className="typography-meta text-foreground font-medium">{getProviderDisplayName()}</div>
-                    </div>
+                    </MobileInfoCard>
 
                     {}
                     {currentCapabilityIcons.length > 0 && (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="typography-micro text-muted-foreground mb-1">{t('chat.modelControls.capabilities')}</div>
+                        <MobileInfoCard caption={t('chat.modelControls.capabilities')}>
                             <div className="flex flex-wrap gap-1.5">
                                 {currentCapabilityIcons.map(({ key, icon, label }) => (
                                     <div key={key} className="flex items-center gap-1.5">
@@ -1636,13 +1629,12 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                     </div>
                                 ))}
                             </div>
-                        </div>
+                        </MobileInfoCard>
                     )}
 
                     {}
                     {(inputModalityIcons.length > 0 || outputModalityIcons.length > 0) && (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="typography-micro text-muted-foreground mb-1">{t('chat.modelControls.modalities')}</div>
+                        <MobileInfoCard caption={t('chat.modelControls.modalities')}>
                             <div className="flex flex-col gap-1">
                                 {inputModalityIcons.length > 0 && (
                                     <div className="flex items-center gap-2">
@@ -1673,12 +1665,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                     </div>
                                 )}
                             </div>
-                        </div>
+                        </MobileInfoCard>
                     )}
 
                     {}
-                    <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                        <div className="typography-micro text-muted-foreground mb-1">{t('chat.modelControls.limits')}</div>
+                    <MobileInfoCard caption={t('chat.modelControls.limits')}>
                         <div className="flex flex-col gap-0.5">
                             <div className="flex items-center justify-between">
                                 <span className="typography-meta text-muted-foreground/80">{t('chat.modelControls.context')}</span>
@@ -1689,11 +1680,10 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 <span className="typography-meta font-medium text-foreground">{formatTokens(currentMetadata?.limit?.output)}</span>
                             </div>
                         </div>
-                    </div>
+                    </MobileInfoCard>
 
                     {pickerHarnessId !== 'claude-code' ? (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="typography-micro text-muted-foreground mb-1">{t('chat.modelControls.metadata')}</div>
+                        <MobileInfoCard caption={t('chat.modelControls.metadata')}>
                             <div className="flex flex-col gap-0.5">
                                 <div className="flex items-center justify-between">
                                     <span className="typography-meta text-muted-foreground/80">{t('chat.modelControls.knowledge')}</span>
@@ -1704,7 +1694,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                     <span className="typography-meta font-medium text-foreground">{formatDate(currentMetadata?.release_date)}</span>
                                 </div>
                             </div>
-                        </div>
+                        </MobileInfoCard>
                     ) : null}
                 </div>
             </MobileOverlayPanel>
@@ -1745,14 +1735,13 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 <div className="flex flex-col gap-1.5">
                     {}
                     {currentAgent.description && (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
+                        <MobileInfoCard>
                             <div className="typography-meta text-foreground">{currentAgent.description}</div>
-                        </div>
+                        </MobileInfoCard>
                     )}
 
                     {}
-                    <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                        <div className="typography-micro text-muted-foreground mb-0.5">{t('chat.modelControls.mode')}</div>
+                    <MobileInfoCard caption={t('chat.modelControls.mode')} tightCaption>
                         <div className="typography-meta text-foreground font-medium">
                             {currentAgent.mode === 'primary'
                                 ? t('chat.modelControls.modeValue.primary')
@@ -1762,12 +1751,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                         ? t('chat.modelControls.modeValue.all')
                                         : t('chat.modelControls.modeValue.none')}
                         </div>
-                    </div>
+                    </MobileInfoCard>
 
                     {}
                     {(hasModelConfig || hasTemperatureOrTopP) && (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                            <div className="typography-micro text-muted-foreground mb-1">{t('chat.modelControls.model')}</div>
+                        <MobileInfoCard caption={t('chat.modelControls.model')}>
                             {hasModelConfig && (
                                 <div className="typography-meta text-foreground font-medium mb-1">
                                     {currentAgent.model!.providerID} / {currentAgent.model!.modelID}
@@ -1789,12 +1777,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                     )}
                                 </div>
                             )}
-                        </div>
+                        </MobileInfoCard>
                     )}
 
                     {}
-                    <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-                        <div className="typography-micro text-muted-foreground mb-1">{t('chat.modelControls.permissions')}</div>
+                    <MobileInfoCard caption={t('chat.modelControls.permissions')}>
                         <div className="flex flex-col gap-1">
                             <div className="flex items-center justify-between">
                                 <span className="typography-meta text-muted-foreground/80">{t('chat.modelControls.edit')}</span>
@@ -1824,16 +1811,16 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </MobileInfoCard>
 
                     {}
                     {hasCustomPrompt && (
-                        <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
+                        <MobileInfoCard>
                             <div className="flex items-center justify-between">
                                 <span className="typography-meta text-muted-foreground/80">{t('chat.modelControls.customPrompt')}</span>
                                 <Icon name="checkbox-circle" className="size-4 text-foreground" />
                             </div>
-                        </div>
+                        </MobileInfoCard>
                     )}
                 </div>
             </MobileOverlayPanel>
@@ -2637,78 +2624,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             setAgentMenuOpen(nextOpen);
         };
 
-        const modelPickerLabels = {
-            searchPlaceholder: t('chat.modelControls.searchModels'),
-            noResults: t('chat.modelControls.noModelsFound'),
-            favorites: t('chat.modelControls.favorites'),
-            recent: t('chat.modelControls.recent'),
-            keyboardHint: t('chat.modelControls.keyboardHintNavigate'),
-            favorite: t('chat.modelControls.favoriteAria'),
-            unfavorite: t('chat.modelControls.unfavoriteAria'),
-            capabilities: t('chat.modelControls.capabilities'),
-            capabilityToolCalling: t('chat.modelControls.capability.toolCalling'),
-            capabilityReasoning: t('chat.modelControls.capability.reasoning'),
-            input: t('chat.modelControls.input'),
-            output: t('chat.modelControls.output'),
-            context: t('chat.modelControls.context'),
-            costPerMillion: t('chat.modelControls.costPerMillion'),
-            costInOutShort: t('chat.modelControls.costInOutShort'),
-            modalityText: t('chat.modelControls.modality.text'),
-            modalityImage: t('chat.modelControls.modality.image'),
-            modalityVideo: t('chat.modelControls.modality.video'),
-            modalityAudio: t('chat.modelControls.modality.audio'),
-            modalityPdf: t('chat.modelControls.modality.pdf'),
-            engines: t('chat.engines.section'),
-        };
-
-        const engineOptions: ModelPickerEngineOption[] = [
-            {
-                id: 'opencode',
-                name: t('chat.engines.opencode'),
-                selected: pickerHarnessId === 'opencode',
-            },
-            ...(enginesClaudeCodeEnabled ? [{
-                id: 'claude-code',
-                name: t('chat.engines.claudeCode'),
-                statusLabel: claudeCatalog
-                    ? t(ENGINE_STATUS_LABEL_KEYS[claudeCatalog.status])
-                    : t('settings.engines.sidebar.status.loading'),
-                selected: pickerHarnessId === 'claude-code',
-            } satisfies ModelPickerEngineOption] : []),
-        ];
-
-        const claudePickerProviders: ModelPickerProvider[] = [{
-            id: CLAUDE_PICKER_PROVIDER_ID,
-            name: t('chat.engines.claudeCode'),
-            models: claudeCatalogModels.map((model) => ({
-                id: model.id,
-                name: model.name,
-                limit: model.limit,
-                modalities: model.modalities,
-                reasoning: model.reasoning,
-                tool_call: model.toolCall,
-            })),
-        }];
-
-        const pickerProviders = pickerHarnessId === 'claude-code'
-            ? claudePickerProviders
-            : providers as ModelPickerProvider[];
-
-        const pickerFavoriteModels = favoriteModelsList.filter(({ target }) => (
-            pickerHarnessId === 'claude-code'
-                ? target.harnessId === 'claude-code'
-                : target.harnessId === 'opencode'
-        ));
-        const pickerRecentModels = recentModelsList.filter(({ target }) => (
-            pickerHarnessId === 'claude-code'
-                ? target.harnessId === 'claude-code'
-                : target.harnessId === 'opencode'
-        ));
-
-        const pickerSelectedModel = pickerHarnessId === 'claude-code'
-            ? { providerID: CLAUDE_PICKER_PROVIDER_ID, modelID: claudeModelRef }
-            : (currentProviderId && currentModelId ? { providerID: currentProviderId, modelID: currentModelId } : null);
-
         const pickerActionsFooter = (
             <>
                 <button
@@ -2747,11 +2662,11 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             const effectiveVariant = hasPendingVariant ? pendingVariant : (isSelected ? currentVariant : undefined);
             const displayLabel = effectiveVariant
                 ? effectiveVariant.charAt(0).toUpperCase() + effectiveVariant.slice(1)
-                : 'Default';
+                : t('chat.engines.effort.default');
 
             return (
                 <span className={cn('typography-micro whitespace-nowrap', wasAdjusted ? 'text-foreground' : 'text-muted-foreground')}>
-                    Thinking: {displayLabel}
+                    {t('chat.modelControls.thinkingValue', { value: displayLabel })}
                 </span>
             );
         };
@@ -3055,157 +2970,30 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         if (!isReady || pickerHarnessId !== 'claude-code') {
             return null;
         }
-
-        const displayEffort = claudeEffort
-            ? t(CLAUDE_EFFORT_LABEL_KEYS[claudeEffort])
-            : t('chat.engines.effort.default');
-        const isDefault = !claudeEffort;
-        const colorClass = isDefault ? 'text-muted-foreground' : 'text-[color:var(--status-info)]';
-
-        if (isCompact) {
-            return (
-                <button
-                    type="button"
-                    onClick={() => setActiveMobilePanel('effort')}
-                    className={cn(
-                        'model-controls__effort-trigger flex items-center gap-1.5 transition-opacity min-w-0 focus:outline-none',
-                        buttonHeight,
-                        'cursor-pointer hover:bg-transparent hover:opacity-70',
-                    )}
-                    aria-label={t('chat.engines.effort.aria', { level: displayEffort })}
-                >
-                    <Icon name="brain-ai-3" className={cn(controlIconSize, 'flex-shrink-0', colorClass)} />
-                    <span
-                        className={cn(
-                            'model-controls__effort-label',
-                            controlTextSize,
-                            'font-medium min-w-0 truncate',
-                            isMobile && 'max-w-[60px]',
-                            colorClass,
-                        )}
-                    >
-                        {displayEffort}
-                    </span>
-                </button>
-            );
-        }
-
         return (
-            <Tooltip delayDuration={600}>
-                <DropdownMenu>
-                    <TooltipTrigger asChild>
-                        <DropdownMenuTrigger asChild>
-                            <div
-                                className={cn(
-                                    'model-controls__effort-trigger flex items-center gap-1.5 transition-colors cursor-pointer hover:bg-transparent hover:opacity-70 min-w-0',
-                                    buttonHeight,
-                                )}
-                                aria-label={t('chat.engines.effort.aria', { level: displayEffort })}
-                            >
-                                <Icon name="brain-ai-3" className={cn(controlIconSize, 'flex-shrink-0', colorClass)} />
-                                <span
-                                    className={cn(
-                                        'model-controls__effort-label',
-                                        controlTextSize,
-                                        'font-medium min-w-0 truncate',
-                                        isDesktop ? 'max-w-[180px]' : undefined,
-                                        colorClass,
-                                    )}
-                                >
-                                    {displayEffort}
-                                </span>
-                            </div>
-                        </DropdownMenuTrigger>
-                    </TooltipTrigger>
-                    <DropdownMenuContent align="end" alignOffset={-40} className="w-[min(180px,calc(100vw-2rem))]">
-                        <DropdownMenuLabel className="typography-ui-header font-semibold text-foreground">
-                            {t('chat.engines.effort.label')}
-                        </DropdownMenuLabel>
-                        <DropdownMenuItem className="typography-meta" onSelect={() => handleClaudeEffortChange(undefined)}>
-                            <div className="flex items-center justify-between gap-2 w-full min-w-0">
-                                <span className="typography-meta font-medium text-foreground truncate min-w-0">
-                                    {t('chat.engines.effort.default')}
-                                </span>
-                                {isDefault && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
-                            </div>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {CLAUDE_EFFORT_LEVELS.map((level) => {
-                            const selected = claudeEffort === level;
-                            return (
-                                <DropdownMenuItem
-                                    key={level}
-                                    className="typography-meta"
-                                    onSelect={() => handleClaudeEffortChange(level)}
-                                >
-                                    <div className="flex items-center justify-between gap-2 w-full min-w-0">
-                                        <span className="typography-meta font-medium text-foreground truncate min-w-0">
-                                            {t(CLAUDE_EFFORT_LABEL_KEYS[level])}
-                                        </span>
-                                        {selected && <Icon name="check" className="size-4 text-primary flex-shrink-0" />}
-                                    </div>
-                                </DropdownMenuItem>
-                            );
-                        })}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-                <TooltipContent side="top">
-                    <p className="typography-meta">{t('chat.engines.effort.tooltip', { level: displayEffort })}</p>
-                </TooltipContent>
-            </Tooltip>
+            <ClaudeEffortSelector
+                claudeEffort={claudeEffort}
+                onEffortChange={handleClaudeEffortChange}
+                isCompact={isCompact}
+                isMobile={isMobile}
+                isDesktop={isDesktop}
+                buttonHeight={buttonHeight}
+                controlIconSize={controlIconSize}
+                controlTextSize={controlTextSize}
+                onOpenMobilePanel={() => setActiveMobilePanel('effort')}
+            />
         );
     };
 
     const renderClaudeEffortMobilePanel = () => {
         if (!isCompact) return null;
-        const displayEffort = claudeEffort
-            ? t(CLAUDE_EFFORT_LABEL_KEYS[claudeEffort])
-            : t('chat.engines.effort.default');
-
         return (
-            <MobileOverlayPanel
-                open={activeMobilePanel === 'effort'}
+            <ClaudeEffortMobilePanel
+                claudeEffort={claudeEffort}
+                onEffortChange={handleClaudeEffortChange}
+                activeMobilePanel={activeMobilePanel}
                 onClose={closeMobilePanel}
-                title={t('chat.engines.effort.label')}
-            >
-                <div className="flex flex-col gap-1 p-2">
-                    <button
-                        type="button"
-                        className="flex items-center justify-between gap-2 rounded-md px-3 py-2 hover:bg-interactive-hover/50"
-                        onClick={() => {
-                            handleClaudeEffortChange(undefined);
-                            closeMobilePanel();
-                        }}
-                    >
-                        <span className="typography-meta font-medium text-foreground">
-                            {t('chat.engines.effort.default')}
-                        </span>
-                        {!claudeEffort ? <Icon name="check" className="size-4 text-primary flex-shrink-0" /> : null}
-                    </button>
-                    {CLAUDE_EFFORT_LEVELS.map((level) => {
-                        const selected = claudeEffort === level;
-                        return (
-                            <button
-                                key={level}
-                                type="button"
-                                className="flex items-center justify-between gap-2 rounded-md px-3 py-2 hover:bg-interactive-hover/50"
-                                onClick={() => {
-                                    handleClaudeEffortChange(level);
-                                    closeMobilePanel();
-                                }}
-                            >
-                                <span className="typography-meta font-medium text-foreground">
-                                    {t(CLAUDE_EFFORT_LABEL_KEYS[level])}
-                                </span>
-                                {selected ? <Icon name="check" className="size-4 text-primary flex-shrink-0" /> : null}
-                            </button>
-                        );
-                    })}
-                </div>
-                <p className="typography-meta text-muted-foreground px-3 pb-2">
-                    {t('chat.engines.effort.tooltip', { level: displayEffort })}
-                </p>
-            </MobileOverlayPanel>
+            />
         );
     };
 
@@ -3297,7 +3085,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                     </DropdownMenuContent>
                 </DropdownMenu>
                 <TooltipContent side="top">
-                    <p className="typography-meta">Thinking: {displayVariant}</p>
+                    <p className="typography-meta">{t('chat.modelControls.thinkingValue', { value: displayVariant })}</p>
                 </TooltipContent>
             </Tooltip>
         );

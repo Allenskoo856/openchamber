@@ -83,3 +83,33 @@ describe('harness turn snapshot', () => {
     expect(getHarnessTurnSnapshot('ses_b')?.aborted).toBe(true);
   });
 });
+
+describe('snapshot eviction', () => {
+  beforeEach(() => {
+    resetHarnessTurnSnapshots();
+  });
+
+  const setStatus = (sessionId, type) => {
+    applyHarnessEventToSnapshot({
+      type: 'session.status',
+      properties: { sessionID: sessionId, status: { type } },
+    }, '/proj');
+  };
+
+  it('never evicts a busy session when over the limit', () => {
+    // The busy session is the oldest key, so insertion-order eviction would
+    // drop exactly the in-flight turn and report it as idle.
+    setStatus('ses_busy', 'busy');
+    for (let i = 0; i < 600; i += 1) setStatus(`ses_idle_${i}`, 'idle');
+
+    expect(isHarnessSessionWorking('ses_busy')).toBe(true);
+    expect(getHarnessTurnSnapshot('ses_busy')).not.toBeNull();
+  });
+
+  it('evicts the least recently updated idle session', () => {
+    for (let i = 0; i < 501; i += 1) setStatus(`ses_${i}`, 'idle');
+    // ses_0 was written first and never touched again.
+    expect(getHarnessTurnSnapshot('ses_0')).toBeNull();
+    expect(getHarnessTurnSnapshot('ses_500')).not.toBeNull();
+  });
+});

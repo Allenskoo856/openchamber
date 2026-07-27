@@ -149,14 +149,35 @@ export function fileUrlToPath(url) {
 }
 
 /**
- * Ensure a resolved path stays inside cwd (project sandbox).
- * @param {string} absolutePath
- * @param {string} cwd
+ * @param {string} target
+ * @param {(value: string) => string} [realpathSync]
  * @returns {string}
  */
-export function assertPathInsideCwd(absolutePath, cwd) {
-  const resolvedPath = path.resolve(absolutePath);
-  const resolvedCwd = path.resolve(cwd);
+function realpathOrSelf(target, realpathSync) {
+  const resolve = realpathSync || fs.realpathSync;
+  try {
+    return resolve(target);
+  } catch {
+    // Missing paths cannot escape the sandbox by symlink; readFileAttachment
+    // reports the unreadable case with its own error.
+    return target;
+  }
+}
+
+/**
+ * Ensure a resolved path stays inside cwd (project sandbox).
+ *
+ * Both sides are resolved through realpath first: a symlink placed inside the
+ * project that points outside it must not pass the containment check.
+ *
+ * @param {string} absolutePath
+ * @param {string} cwd
+ * @param {{ realpathSync?: (value: string) => string }} [options]
+ * @returns {string}
+ */
+export function assertPathInsideCwd(absolutePath, cwd, options = {}) {
+  const resolvedPath = realpathOrSelf(path.resolve(absolutePath), options.realpathSync);
+  const resolvedCwd = realpathOrSelf(path.resolve(cwd), options.realpathSync);
   const relative = path.relative(resolvedCwd, resolvedPath);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     const error = new Error('Attachment path is outside the project directory');
@@ -184,7 +205,7 @@ export function readFileAttachment(absolutePath, options = {}) {
   const statSync = options.statSync || ((filePath) => fs.statSync(filePath));
 
   const resolved = cwd
-    ? assertPathInsideCwd(absolutePath, cwd)
+    ? assertPathInsideCwd(absolutePath, cwd, { realpathSync: options.realpathSync })
     : path.resolve(absolutePath);
 
   let stat;

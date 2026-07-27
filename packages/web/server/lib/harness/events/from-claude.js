@@ -71,26 +71,50 @@ export function resetOpenCodeIdState() {
  * @property {string} assistantMessageId
  * @property {string} [modelRef]
  * @property {string} [textPartId]
- * @property {Map<string, { partId: string, toolName: string }>} [toolParts]
+ * @property {Map<string, { partId: string, toolName: string, input: object }>} [toolParts]
  * @property {string} [foreignSessionId]
  * @property {number} [assistantCreatedAt]
  * @property {string} [accumulatedText]
  * @property {boolean} [needsNewTextSegment]
  * @property {boolean} [textPartStarted]
+ * @property {string} [reasoningPartId]
+ * @property {string} [accumulatedReasoning]
+ * @property {boolean} [needsNewReasoningSegment]
+ * @property {boolean} [reasoningPartStarted]
  */
+
+/**
+ * Streamed assistant segments share one shape: an OpenCode part that grows by
+ * deltas until a tool (or the turn end) closes it. Keyed by part type so text
+ * and reasoning do not need parallel implementations.
+ */
+const SEGMENT_FIELDS = {
+  text: {
+    partId: 'textPartId',
+    accumulated: 'accumulatedText',
+    started: 'textPartStarted',
+    needsNew: 'needsNewTextSegment',
+  },
+  reasoning: {
+    partId: 'reasoningPartId',
+    accumulated: 'accumulatedReasoning',
+    started: 'reasoningPartStarted',
+    needsNew: 'needsNewReasoningSegment',
+  },
+};
 
 /**
  * @param {Partial<ClaudeMapperContext>} input
  * @returns {ClaudeMapperContext}
  */
 export function createClaudeMapperContext(input) {
-  /** @type {Map<string, { partId: string, toolName: string }>} */
+  /** @type {Map<string, { partId: string, toolName: string, input: object }>} */
   let toolParts = input.toolParts || new Map();
   // Back-compat for older callers/tests that passed toolPartIds: Map<callId, partId>
   if (!input.toolParts && input.toolPartIds instanceof Map) {
     toolParts = new Map();
     for (const [callId, partId] of input.toolPartIds.entries()) {
-      toolParts.set(callId, { partId, toolName: 'tool' });
+      toolParts.set(callId, { partId, toolName: 'tool', input: {} });
     }
   }
 
@@ -107,6 +131,11 @@ export function createClaudeMapperContext(input) {
     accumulatedText: input.accumulatedText || '',
     needsNewTextSegment: input.needsNewTextSegment === true,
     textPartStarted: input.textPartStarted === true || Boolean(input.accumulatedText),
+    reasoningPartId: input.reasoningPartId || createOpenCodeId('prt'),
+    accumulatedReasoning: input.accumulatedReasoning || '',
+    needsNewReasoningSegment: input.needsNewReasoningSegment === true,
+    reasoningPartStarted: input.reasoningPartStarted === true
+      || Boolean(input.accumulatedReasoning),
   };
 }
 
@@ -225,16 +254,116 @@ function assistantInfo(ctx, completed) {
 }
 
 /**
- * After a tool part, subsequent assistant text must use a fresh part id so the
+ * After a tool part, subsequent assistant output must use a fresh part id so the
  * transcript shows text → tools → text instead of merging all text above tools.
  *
  * @param {ClaudeMapperContext} ctx
+ * @param {'text' | 'reasoning'} kind
  */
-function beginNewTextSegment(ctx) {
-  ctx.textPartId = createOpenCodeId('prt');
-  ctx.accumulatedText = '';
-  ctx.textPartStarted = false;
-  ctx.needsNewTextSegment = false;
+function beginNewSegment(ctx, kind) {
+  const field = SEGMENT_FIELDS[kind];
+  ctx[field.partId] = createOpenCodeId('prt');
+  ctx[field.accumulated] = '';
+  ctx[field.started] = false;
+  ctx[field.needsNew] = false;
+}
+
+/**
+ * Open the segment part if needed, then emit one growth delta.
+ *
+ * @param {ClaudeMapperContext} ctx
+ * @param {'text' | 'reasoning'} kind
+ * @param {string} delta
+ * @returns {object[]}
+ */
+function segmentDeltaEvents(ctx, kind, delta) {
+  if (typeof delta !== 'string' || !delta) return [];
+  const field = SEGMENT_FIELDS[kind];
+  const events = [];
+
+  if (ctx[field.needsNew]) {
+    beginNewSegment(ctx, kind);
+  }
+
+  if (!ctx[field.started]) {
+    events.push(...startSegmentEvents(ctx, kind));
+  }
+
+  ctx[field.accumulated] = (ctx[field.accumulated] || '') + delta;
+  events.push({
+    type: 'message.part.delta',
+    properties: {
+      sessionID: ctx.sessionId,
+      messageID: ctx.assistantMessageId,
+      partID: ctx[field.partId],
+      field: 'text',
+      delta,
+    },
+  });
+  return events;
+}
+
+/**
+ * Emit the assistant-message + empty-part pair that opens a segment.
+ *
+ * @param {ClaudeMapperContext} ctx
+ * @param {'text' | 'reasoning'} kind
+ * @returns {object[]}
+ */
+function startSegmentEvents(ctx, kind) {
+  const field = SEGMENT_FIELDS[kind];
+  ctx[field.started] = true;
+  return [
+    {
+      type: 'message.updated',
+      properties: { info: assistantInfo(ctx, false) },
+    },
+    {
+      type: 'message.part.updated',
+      properties: {
+        sessionID: ctx.sessionId,
+        part: {
+          id: ctx[field.partId],
+          sessionID: ctx.sessionId,
+          messageID: ctx.assistantMessageId,
+          type: kind,
+          text: '',
+          time: { start: Date.now() },
+        },
+      },
+    },
+  ];
+}
+
+/**
+ * Reconcile a complete content block against what streaming already emitted.
+ *
+ * Deltas are preferred while streaming; the full block fills in when no partials
+ * arrived. When the full block diverges from the accumulated stream (rather than
+ * merely extending it) the segment is rewritten wholesale — dropping the block
+ * would silently lose the tail.
+ *
+ * @param {ClaudeMapperContext} ctx
+ * @param {'text' | 'reasoning'} kind
+ * @param {string} full
+ * @returns {object[]}
+ */
+function segmentCompletionEvents(ctx, kind, full) {
+  const field = SEGMENT_FIELDS[kind];
+  const accumulated = ctx[field.accumulated] || '';
+
+  if (!accumulated || ctx[field.needsNew]) {
+    return segmentDeltaEvents(ctx, kind, full);
+  }
+  if (full.startsWith(accumulated)) {
+    const remainder = full.slice(accumulated.length);
+    return remainder ? segmentDeltaEvents(ctx, kind, remainder) : [];
+  }
+
+  ctx[field.accumulated] = full;
+  const events = ctx[field.started] ? [] : startSegmentEvents(ctx, kind);
+  events.push(...finalizeSegment(ctx, kind));
+  return events;
 }
 
 /**
@@ -243,47 +372,7 @@ function beginNewTextSegment(ctx) {
  * @returns {object[]}
  */
 function textDeltaEvents(ctx, delta) {
-  if (typeof delta !== 'string' || !delta) return [];
-  const events = [];
-
-  if (ctx.needsNewTextSegment) {
-    beginNewTextSegment(ctx);
-  }
-
-  if (!ctx.textPartStarted) {
-    events.push({
-      type: 'message.updated',
-      properties: { info: assistantInfo(ctx, false) },
-    });
-    events.push({
-      type: 'message.part.updated',
-      properties: {
-        sessionID: ctx.sessionId,
-        part: {
-          id: ctx.textPartId,
-          sessionID: ctx.sessionId,
-          messageID: ctx.assistantMessageId,
-          type: 'text',
-          text: '',
-          time: { start: Date.now() },
-        },
-      },
-    });
-    ctx.textPartStarted = true;
-  }
-
-  ctx.accumulatedText = (ctx.accumulatedText || '') + delta;
-  events.push({
-    type: 'message.part.delta',
-    properties: {
-      sessionID: ctx.sessionId,
-      messageID: ctx.assistantMessageId,
-      partID: ctx.textPartId,
-      field: 'text',
-      delta,
-    },
-  });
-  return events;
+  return segmentDeltaEvents(ctx, 'text', delta);
 }
 
 /**
@@ -294,16 +383,14 @@ function textDeltaEvents(ctx, delta) {
 function mapContentBlock(ctx, block) {
   if (!block || typeof block !== 'object') return [];
   if (block.type === 'text' && typeof block.text === 'string') {
-    // Prefer deltas for streaming; full text block fills when no partials arrived
-    // for the current segment.
-    if (!ctx.accumulatedText || ctx.needsNewTextSegment) {
-      return textDeltaEvents(ctx, block.text);
-    }
-    const remainder = block.text.startsWith(ctx.accumulatedText)
-      ? block.text.slice(ctx.accumulatedText.length)
-      : '';
-    if (remainder) return textDeltaEvents(ctx, remainder);
-    return [];
+    return segmentCompletionEvents(ctx, 'text', block.text);
+  }
+
+  // Extended thinking is requested via the `effort` option; surface it as an
+  // OpenCode reasoning part instead of dropping it. Redacted thinking carries
+  // no readable text, so it is skipped.
+  if (block.type === 'thinking' && typeof block.thinking === 'string') {
+    return segmentCompletionEvents(ctx, 'reasoning', block.thinking);
   }
 
   if (block.type === 'tool_use') {
@@ -313,14 +400,19 @@ function mapContentBlock(ctx, block) {
       entry = {
         partId: createOpenCodeId('prt'),
         toolName: typeof block.name === 'string' && block.name.trim() ? block.name.trim() : 'tool',
+        input: {},
       };
       ctx.toolParts.set(callId, entry);
     } else if (typeof block.name === 'string' && block.name.trim()) {
       entry.toolName = block.name.trim();
     }
     const input = block.input && typeof block.input === 'object' ? block.input : {};
-    // Next assistant text belongs after this tool in transcript order.
+    // Retained so the completed/error state can echo the same arguments — the UI
+    // reducer replaces `part.state` wholesale, so omitting them blanks the args.
+    if (Object.keys(input).length > 0 || !entry.input) entry.input = input;
+    // Next assistant output belongs after this tool in transcript order.
     ctx.needsNewTextSegment = true;
+    ctx.needsNewReasoningSegment = true;
     return [
       {
         type: 'message.updated',
@@ -362,9 +454,11 @@ function mapToolResultBlock(ctx, block) {
   if (!callId) return [];
   let entry = ctx.toolParts.get(callId);
   if (!entry) {
-    entry = { partId: createOpenCodeId('prt'), toolName: 'tool' };
+    entry = { partId: createOpenCodeId('prt'), toolName: 'tool', input: {} };
     ctx.toolParts.set(callId, entry);
   }
+  const input = entry.input && typeof entry.input === 'object' ? entry.input : {};
+  entry.settled = true;
   const output = typeof block.content === 'string'
     ? block.content
     : Array.isArray(block.content)
@@ -386,13 +480,13 @@ function mapToolResultBlock(ctx, block) {
           state: isError
             ? {
               status: 'error',
-              input: {},
+              input,
               error: output || 'Tool error',
               time: { start: Date.now(), end: Date.now() },
             }
             : {
               status: 'completed',
-              input: {},
+              input,
               output: output || '',
               title: entry.toolName,
               metadata: {},
@@ -405,26 +499,84 @@ function mapToolResultBlock(ctx, block) {
 }
 
 /**
- * Finalize the current open text segment (if any).
+ * Finalize one open segment (if any) by writing its complete text.
+ *
  * @param {ClaudeMapperContext} ctx
+ * @param {'text' | 'reasoning'} kind
  * @returns {object[]}
  */
-function finalizeCurrentTextPart(ctx) {
-  if (!ctx.textPartStarted) return [];
+function finalizeSegment(ctx, kind) {
+  const field = SEGMENT_FIELDS[kind];
+  if (!ctx[field.started]) return [];
   return [{
     type: 'message.part.updated',
     properties: {
       sessionID: ctx.sessionId,
       part: {
-        id: ctx.textPartId,
+        id: ctx[field.partId],
         sessionID: ctx.sessionId,
         messageID: ctx.assistantMessageId,
-        type: 'text',
-        text: ctx.accumulatedText || '',
+        type: kind,
+        text: ctx[field.accumulated] || '',
         time: { start: ctx.assistantCreatedAt, end: Date.now() },
       },
     },
   }];
+}
+
+/**
+ * Finalize every open assistant segment. Reasoning closes before text so the
+ * transcript keeps thinking above the answer it produced.
+ *
+ * @param {ClaudeMapperContext} ctx
+ * @returns {object[]}
+ */
+function finalizeOpenSegments(ctx) {
+  return [...finalizeSegment(ctx, 'reasoning'), ...finalizeSegment(ctx, 'text')];
+}
+
+/**
+ * Terminal events for a turn cut short by abort.
+ *
+ * Without these, every tool part left `running` and the open text/reasoning
+ * segment keep their spinner in the transcript forever — the abort marker lands
+ * on a fresh message and never closes the parts already on screen.
+ *
+ * @param {ClaudeMapperContext} ctx
+ * @param {string} [reason]
+ * @returns {object[]}
+ */
+export function buildTurnAbortEvents(ctx, reason = 'Aborted by user') {
+  if (!ctx || typeof ctx !== 'object') return [];
+  const events = finalizeOpenSegments(ctx);
+  const now = Date.now();
+
+  for (const [callId, entry] of ctx.toolParts?.entries() ?? []) {
+    if (!entry || entry.settled) continue;
+    entry.settled = true;
+    events.push({
+      type: 'message.part.updated',
+      properties: {
+        sessionID: ctx.sessionId,
+        part: {
+          id: entry.partId,
+          sessionID: ctx.sessionId,
+          messageID: ctx.assistantMessageId,
+          type: 'tool',
+          callID: callId,
+          tool: entry.toolName,
+          state: {
+            status: 'error',
+            input: entry.input && typeof entry.input === 'object' ? entry.input : {},
+            error: reason,
+            time: { start: ctx.assistantCreatedAt, end: now },
+          },
+        },
+      },
+    });
+  }
+
+  return events;
 }
 
 /**
@@ -463,34 +615,24 @@ export function mapClaudeMessageToEvents(ctx, message) {
       if (event.type === 'content_block_delta') {
         const delta = event.delta;
         if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
-          events.push(...textDeltaEvents(ctx, delta.text));
+          events.push(...segmentDeltaEvents(ctx, 'text', delta.text));
+        } else if (delta?.type === 'thinking_delta' && typeof delta.thinking === 'string') {
+          events.push(...segmentDeltaEvents(ctx, 'reasoning', delta.thinking));
         }
       } else if (event.type === 'content_block_start') {
         const block = event.content_block;
         if (block?.type === 'tool_use') {
           events.push(...mapContentBlock(ctx, block));
-        } else if (block?.type === 'text') {
-          if (ctx.needsNewTextSegment || !ctx.textPartStarted) {
-            if (ctx.needsNewTextSegment) beginNewTextSegment(ctx);
-            events.push({
-              type: 'message.updated',
-              properties: { info: assistantInfo(ctx, false) },
-            });
-            events.push({
-              type: 'message.part.updated',
-              properties: {
-                sessionID: ctx.sessionId,
-                part: {
-                  id: ctx.textPartId,
-                  sessionID: ctx.sessionId,
-                  messageID: ctx.assistantMessageId,
-                  type: 'text',
-                  text: '',
-                  time: { start: Date.now() },
-                },
-              },
-            });
-            ctx.textPartStarted = true;
+        } else {
+          const kind = block?.type === 'text'
+            ? 'text'
+            : block?.type === 'thinking' ? 'reasoning' : null;
+          if (kind) {
+            const field = SEGMENT_FIELDS[kind];
+            if (ctx[field.needsNew] || !ctx[field.started]) {
+              if (ctx[field.needsNew]) beginNewSegment(ctx, kind);
+              events.push(...startSegmentEvents(ctx, kind));
+            }
           }
         }
       }
@@ -542,23 +684,16 @@ export function mapClaudeMessageToEvents(ctx, message) {
     }
 
     case 'result': {
-      const hasContent = ctx.textPartStarted || ctx.toolParts.size > 0
-        || (typeof message.result === 'string' && message.result);
+      const resultText = typeof message.result === 'string' ? message.result : '';
+      const hasContent = ctx.textPartStarted || ctx.reasoningPartStarted
+        || ctx.toolParts.size > 0 || Boolean(resultText);
 
-      if (ctx.textPartStarted) {
-        events.push(...finalizeCurrentTextPart(ctx));
-        events.push({
-          type: 'message.updated',
-          properties: { info: assistantInfo(ctx, true) },
-        });
-      } else if (typeof message.result === 'string' && message.result) {
-        events.push(...textDeltaEvents(ctx, message.result));
-        events.push(...finalizeCurrentTextPart(ctx));
-        events.push({
-          type: 'message.updated',
-          properties: { info: assistantInfo(ctx, true) },
-        });
-      } else if (hasContent) {
+      // Non-streaming turns carry their whole answer on the result message.
+      if (!ctx.textPartStarted && resultText) {
+        events.push(...segmentDeltaEvents(ctx, 'text', resultText));
+      }
+      events.push(...finalizeOpenSegments(ctx));
+      if (hasContent) {
         events.push({
           type: 'message.updated',
           properties: { info: assistantInfo(ctx, true) },

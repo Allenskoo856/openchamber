@@ -10,6 +10,16 @@ import {
   resolveClaudeCodeExecutable,
 } from './executable-path.js';
 
+/**
+ * Claude permission mode is inherited from the selected agent's edit permission
+ * on every send (`claudePermissionModeFromEditPermission`), never configured on
+ * its own. These are the only three values that mapping can produce.
+ *
+ * Auto-approve is a separate mechanism that answers the `canUseTool` bridge, so
+ * a bypass mode must never be forwarded — it would defeat that bridge entirely.
+ */
+const ALLOWED_PERMISSION_MODES = new Set(['default', 'acceptEdits', 'plan']);
+
 let sdkModulePromise = null;
 /** @type {Error | null} */
 let sdkLoadError = null;
@@ -180,8 +190,13 @@ export async function startClaudeQuery(params) {
   if (typeof params.resume === 'string' && params.resume.trim()) {
     options.resume = params.resume.trim();
   }
-  if (typeof params.permissionMode === 'string' && params.permissionMode.trim()) {
-    options.permissionMode = params.permissionMode.trim();
+  // Fail closed: only modes the UI can legitimately produce are forwarded. A
+  // client-supplied `bypassPermissions` must never bypass the canUseTool bridge.
+  const permissionMode = typeof params.permissionMode === 'string'
+    ? params.permissionMode.trim()
+    : '';
+  if (ALLOWED_PERMISSION_MODES.has(permissionMode)) {
+    options.permissionMode = permissionMode;
   }
   if (typeof params.effort === 'string' && params.effort.trim()) {
     options.effort = params.effort.trim();
@@ -239,7 +254,9 @@ export async function startClaudeQuery(params) {
     killProcessTree(getPid(), { signal: 'SIGTERM', force: true });
     if (result && typeof result.return === 'function') {
       try {
-        void result.return();
+        // Must swallow the rejection too — an unhandled one would take the
+        // whole server process down.
+        Promise.resolve(result.return()).catch(() => {});
       } catch {
         // ignore
       }

@@ -85,10 +85,16 @@ export function emitHarnessEvent(broadcast, payload, options = {}) {
   if (typeof broadcast !== 'function') {
     return;
   }
-  broadcast(scopedPayload, {
-    ...(directory ? { directory } : {}),
-    ...(eventId ? { eventId } : {}),
-  });
+  try {
+    broadcast(scopedPayload, {
+      ...(directory ? { directory } : {}),
+      ...(eventId ? { eventId } : {}),
+    });
+  } catch (error) {
+    // A throwing broadcaster must not unwind the turn's event pipeline — the
+    // matching idle event would never be applied and the session would stick busy.
+    console.warn('[harness] event broadcast failed:', error?.message || error);
+  }
 }
 
 /**

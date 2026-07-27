@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import path from 'node:path';
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import {
   assertPathInsideCwd,
   isSupportedAttachmentMime,
@@ -146,5 +148,41 @@ describe('claude-code attachments', () => {
       readFileSync: () => Buffer.from('PK'),
       statSync: () => ({ isFile: () => true, size: 2 }),
     })).toThrow(/not supported/);
+  });
+});
+
+describe('assertPathInsideCwd symlink containment', () => {
+  it('rejects a symlink inside cwd that resolves outside it', () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), 'oc-cwd-'));
+    const outside = mkdtempSync(path.join(tmpdir(), 'oc-outside-'));
+    const secret = path.join(outside, 'secret.txt');
+    writeFileSync(secret, 'token');
+    const link = path.join(cwd, 'innocent.txt');
+
+    try {
+      symlinkSync(secret, link);
+    } catch {
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+      return; // platform without symlink permission
+    }
+
+    try {
+      expect(() => assertPathInsideCwd(link, cwd)).toThrow(/outside the project directory/);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('still accepts a real file inside cwd', () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), 'oc-cwd-'));
+    const inside = path.join(cwd, 'notes.txt');
+    writeFileSync(inside, 'hello');
+    try {
+      expect(assertPathInsideCwd(inside, cwd)).toBe(realpathSync(inside));
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });

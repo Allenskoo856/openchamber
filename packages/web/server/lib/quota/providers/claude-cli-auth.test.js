@@ -7,7 +7,7 @@ import {
   readClaudeCliOAuthAccessToken,
   readClaudeCliOAuthCredentials,
   readClaudeCodeOAuthTokenFromEnv,
-} from './claude-cli-auth.js';
+} from '@openchamber/quota-core';
 
 describe('claude-cli-auth', () => {
   it('extracts camelCase claudeAiOauth accessToken', () => {

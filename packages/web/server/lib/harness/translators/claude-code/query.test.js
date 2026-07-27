@@ -44,3 +44,46 @@ describe('startClaudeQuery effort option', () => {
     await handle.close?.();
   });
 });
+
+describe('startClaudeQuery permissionMode allowlist', () => {
+  /** @type {string | undefined} */
+  let tempDir;
+
+  afterEach(() => {
+    if (tempDir) {
+      rmSync(tempDir, { recursive: true, force: true });
+      tempDir = undefined;
+    }
+  });
+
+  const runWith = async (permissionMode) => {
+    tempDir = mkdtempSync(join(tmpdir(), 'oc-claude-perm-'));
+    let seenOptions;
+    const handle = await startClaudeQuery({
+      prompt: 'hi',
+      cwd: tempDir,
+      permissionMode,
+      includePartialMessages: false,
+      queryImpl: ({ options }) => {
+        seenOptions = options;
+        return { async *[Symbol.asyncIterator]() {}, interrupt: async () => {} };
+      },
+    });
+    await handle.close?.();
+    return seenOptions;
+  };
+
+  for (const mode of ['default', 'acceptEdits', 'plan']) {
+    it(`forwards the inherited mode "${mode}"`, async () => {
+      expect((await runWith(mode)).permissionMode).toBe(mode);
+    });
+  }
+
+  it('drops bypassPermissions so canUseTool cannot be defeated', async () => {
+    expect(await runWith('bypassPermissions')).not.toHaveProperty('permissionMode');
+  });
+
+  it('drops unknown modes', async () => {
+    expect(await runWith('totallyMadeUp')).not.toHaveProperty('permissionMode');
+  });
+});

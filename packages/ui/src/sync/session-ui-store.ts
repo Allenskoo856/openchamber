@@ -71,7 +71,7 @@ import { getRuntimeKey } from "@/lib/runtime-switch"
 import { persistWorktreeTopology, readPersistedWorktreeTopology } from "./worktree-topology-cache"
 import { rememberRuntimeLiveStatus } from "./runtime-live-memory"
 import { HarnessClientError, harnessPrompt } from "@/lib/harness/client"
-import { claudePermissionModeFromEditPermission } from "@/lib/harness/claude-permission-mode"
+import { claudePermissionModeFromEditPermission } from "@/lib/harness/claude-models"
 import { getAgentDefaultEditPermission } from "@/stores/utils/permissionUtils"
 import {
   persistSessionExecutionTarget,

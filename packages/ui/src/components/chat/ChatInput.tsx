@@ -95,6 +95,7 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { GitHubIssuePickerDialog } from '@/components/session/GitHubIssuePickerDialog';
 import { GitHubPrPickerDialog } from '@/components/session/GitHubPrPickerDialog';
 import { Icon } from "@/components/icon/Icon";
+import { ContextCountChip } from './ContextCountChip';
 import { DraftPresetChips } from './DraftPresetChips';
 import { useChatSearchDirectory } from '@/hooks/useChatSearchDirectory';
 import { opencodeClient } from '@/lib/opencode/client';
@@ -4943,118 +4944,39 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                                 </button>
                             </div>
                         ))}
-                        {reviewCount > 0 ? (
-                            <div
-                                className="inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
-                                style={{
-                                    backgroundColor: currentTheme?.colors?.surface?.elevated,
-                                    borderColor: currentTheme?.colors?.interactive?.border,
-                                }}
-                            >
-                                <span className="text-xs font-medium text-muted-foreground">{t('chat.chatInput.reviewComments')}</span>
-                                <span className="text-xs font-semibold" style={{ color: currentTheme?.colors?.status?.info }}>{reviewCount}</span>
-                                <button
-                                    type="button"
-                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
-                                    style={{ minHeight: 0, minWidth: 0 }}
-                                    onClick={removeReviewDrafts}
-                                    aria-label={t('chat.chatInput.reviewCommentsRemove')}
-                                    title={t('chat.chatInput.reviewCommentsRemove')}
-                                >
-                                    <Icon name="close" className="h-3 w-3" />
-                                </button>
-                            </div>
-                        ) : null}
-                        {prCommentCount > 0 ? (
-                            <div
-                                className="inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
-                                style={{
-                                    backgroundColor: currentTheme?.colors?.surface?.elevated,
-                                    borderColor: currentTheme?.colors?.interactive?.border,
-                                }}
-                            >
-                                <Icon name="git-pull-request" className="h-3.5 w-3.5 text-muted-foreground" />
-                                <span className="text-xs font-medium text-muted-foreground">{t('chat.chatInput.prCommentContext')}</span>
-                                <span className="text-xs font-semibold" style={{ color: currentTheme?.colors?.status?.info }}>{prCommentCount}</span>
-                                <button
-                                    type="button"
-                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
-                                    style={{ minHeight: 0, minWidth: 0 }}
-                                    onClick={() => removePreviewDrafts('pr-comment')}
-                                    aria-label={t('chat.chatInput.prCommentContextRemove')}
-                                    title={t('chat.chatInput.prCommentContextRemove')}
-                                >
-                                    <Icon name="close" className="h-3 w-3" />
-                                </button>
-                            </div>
-                        ) : null}
-                        {prCheckCount > 0 ? (
-                            <div
-                                className="inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
-                                style={{
-                                    backgroundColor: currentTheme?.colors?.surface?.elevated,
-                                    borderColor: currentTheme?.colors?.interactive?.border,
-                                }}
-                            >
-                                <Icon name="close-circle" className="h-3.5 w-3.5 text-[var(--status-error)]" />
-                                <span className="text-xs font-medium text-muted-foreground">{t('chat.chatInput.prCheckContext')}</span>
-                                <span className="text-xs font-semibold" style={{ color: currentTheme?.colors?.status?.info }}>{prCheckCount}</span>
-                                <button
-                                    type="button"
-                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
-                                    style={{ minHeight: 0, minWidth: 0 }}
-                                    onClick={() => removePreviewDrafts('pr-check')}
-                                    aria-label={t('chat.chatInput.prCheckContextRemove')}
-                                    title={t('chat.chatInput.prCheckContextRemove')}
-                                >
-                                    <Icon name="close" className="h-3 w-3" />
-                                </button>
-                            </div>
-                        ) : null}
-                        {previewConsoleCount > 0 ? (
-                            <div
-                                className="inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
-                                style={{
-                                    backgroundColor: currentTheme?.colors?.surface?.elevated,
-                                    borderColor: currentTheme?.colors?.interactive?.border,
-                                }}
-                            >
-                                <span className="text-xs font-medium text-muted-foreground">{t('chat.chatInput.devServerLogs')}</span>
-                                <span className="text-xs font-semibold" style={{ color: currentTheme?.colors?.status?.info }}>{previewConsoleCount}</span>
-                                <button
-                                    type="button"
-                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
-                                    style={{ minHeight: 0, minWidth: 0 }}
-                                    onClick={() => removePreviewDrafts('preview-console')}
-                                    aria-label={t('chat.chatInput.devServerLogsRemove')}
-                                    title={t('chat.chatInput.devServerLogsRemove')}
-                                >
-                                    <Icon name="close" className="h-3 w-3" />
-                                </button>
-                            </div>
-                        ) : null}
-                        {previewAnnotationCount > 0 ? (
-                            <div
-                                className="inline-flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
-                                style={{
-                                    backgroundColor: currentTheme?.colors?.surface?.elevated,
-                                    borderColor: currentTheme?.colors?.interactive?.border,
-                                }}
-                            >
-                                <span className="text-xs font-medium text-muted-foreground">{t('chat.chatInput.previewAnnotations')}</span>
-                                <span className="text-xs font-semibold" style={{ color: currentTheme?.colors?.status?.info }}>{previewAnnotationCount}</span>
-                                <button
-                                    type="button"
-                                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
-                                    style={{ minHeight: 0, minWidth: 0 }}
-                                    onClick={() => removePreviewDrafts('preview-annotation')}
-                                    aria-label={t('chat.chatInput.previewContextRemove')}
-                                    title={t('chat.chatInput.previewContextRemove')}
-                                >
-                                    <Icon name="close" className="h-3 w-3" />
-                                </button>
-                            </div>
-                        ) : null}
+                        <ContextCountChip
+                            label={t('chat.chatInput.reviewComments')}
+                            count={reviewCount}
+                            onRemove={removeReviewDrafts}
+                            removeLabel={t('chat.chatInput.reviewCommentsRemove')}
+                        />
+                        <ContextCountChip
+                            icon="git-pull-request"
+                            label={t('chat.chatInput.prCommentContext')}
+                            count={prCommentCount}
+                            onRemove={() => removePreviewDrafts('pr-comment')}
+                            removeLabel={t('chat.chatInput.prCommentContextRemove')}
+                        />
+                        <ContextCountChip
+                            icon="close-circle"
+                            iconClassName="h-3.5 w-3.5 text-[var(--status-error)]"
+                            label={t('chat.chatInput.prCheckContext')}
+                            count={prCheckCount}
+                            onRemove={() => removePreviewDrafts('pr-check')}
+                            removeLabel={t('chat.chatInput.prCheckContextRemove')}
+                        />
+                        <ContextCountChip
+                            label={t('chat.chatInput.devServerLogs')}
+                            count={previewConsoleCount}
+                            onRemove={() => removePreviewDrafts('preview-console')}
+                            removeLabel={t('chat.chatInput.devServerLogsRemove')}
+                        />
+                        <ContextCountChip
+                            label={t('chat.chatInput.previewAnnotations')}
+                            count={previewAnnotationCount}
+                            onRemove={() => removePreviewDrafts('preview-annotation')}
+                            removeLabel={t('chat.chatInput.previewContextRemove')}
+                        />
                     </div>
                 )}
 

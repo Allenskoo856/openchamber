@@ -11,13 +11,18 @@ import {
   buildClaudeUsageHeaders,
   classifyClaudeUsageHttpError,
   ensureClaudeUsageAccessToken,
+  extractClaudeOAuthCredentials,
   isClaudeAccessExpired,
   mapClaudeRateLimitHeaders,
   refreshClaudeOAuthToken,
   resolveClaudeUsageCredential,
-} from './claude-oauth.js';
-import { extractClaudeOAuthCredentials, writeClaudeCliOAuthCredentials } from './claude-cli-auth.js';
-import { mapClaudeUsageWindows, providerName } from './claude.js';
+  writeClaudeCliOAuthCredentials,
+} from '@openchamber/quota-core';
+// mapClaudeUsageWindows/shouldSkipClaudeUsageEndpoint are re-exported from
+// claude.js (thin passthrough to @openchamber/quota-core) — imported here to
+// confirm that re-export contract still holds for anything else importing
+// them from this module.
+import { mapClaudeUsageWindows, providerName, shouldSkipClaudeUsageEndpoint } from './claude.js';
 
 describe('claude quota provider', () => {
   afterEach(() => {
@@ -310,8 +315,7 @@ describe('claude quota provider', () => {
     expect(CLAUDE_SESSION_EXPIRED_ERROR).toContain('re-authenticate');
   });
 
-  it('skips the usage endpoint for env setup-tokens and inference-only scopes', async () => {
-    const { shouldSkipClaudeUsageEndpoint } = await import('./claude.js');
+  it('skips the usage endpoint for env setup-tokens and inference-only scopes', () => {
     expect(shouldSkipClaudeUsageEndpoint({ source: 'env', scopes: null })).toBe(true);
     expect(shouldSkipClaudeUsageEndpoint({
       source: 'claude-cli',

@@ -57,6 +57,16 @@ generic OpenCode proxy. JSON body parsing for `/api/harness` is enabled in
    - `session.status` (`busy` / `idle`)
    - `session.error` on hard failures
    - `permission.asked` / `permission.replied` via the canUseTool bridge
+
+   Assistant output streams as two segment kinds, `text` and `reasoning`.
+   Claude `thinking` blocks and `thinking_delta` stream events map to
+   `reasoning` parts (extended thinking is requested via `effort`, so dropping
+   it would silently discard requested output). A tool closes both open
+   segments, so the transcript keeps text → tool → text order.
+
+   Tool parts carry their `tool_use` arguments on the completed/error state as
+   well as while running: the UI reducer replaces `part.state` wholesale, so
+   omitting `input` blanks the arguments the moment a tool finishes.
 4. Events fan out through `createGlobalUiEventBroadcaster` (same WS/SSE clients
    as other synthetic UI events), scoped with `{ directory }`.
 5. Claude `session_id` is stored as `foreignSessionId` for resume.
@@ -64,7 +74,13 @@ generic OpenCode proxy. JSON body parsing for `/api/harness` is enabled in
 Constraints:
 
 - Do not also call OpenCode `session.promptAsync` for the same user turn.
-- Abort interrupts the Claude query and tree-kills the process group.
+- Abort interrupts the Claude query and tree-kills the process group. It also
+  emits terminal events for every part the turn left open (running tools →
+  `error`, open text/reasoning → final text) before the `MessageAbortedError`
+  marker; without those the aborted parts keep spinning in the transcript.
+- Attachments are validated before any optimistic user-message event is
+  broadcast, so a rejected attachment cannot leave a sent-and-busy turn on
+  screen that never receives a reply.
 - `harnessId` on a binding is sticky; engine switch requires a new session
   (handoff).
 
@@ -198,6 +214,13 @@ from the selected OpenCode agent's edit permission (`allow`→`acceptEdits`,
 also settles bridged harness asks via `replyHarnessPermission` (never OpenCode
 `/permission/:id/reply` for Claude-bound sessions).
 
+That inheritance is enforced server-side, not just in the UI: `query.js` only
+forwards `default` / `acceptEdits` / `plan` to the SDK and drops anything else.
+A client-supplied `bypassPermissions` would otherwise disable the `canUseTool`
+bridge outright — and with it auto-accept, which answers through that bridge.
+`ClaudePermissionMode` in `packages/ui/src/types/harness.ts` is narrowed to the
+same three values, so no surface can produce a bypass mode.
+
 ## Goal on Claude
 
 Capability `goal: partial`. Session-goal listens to harness events through
@@ -277,6 +300,7 @@ OpenChamber `{ mime, url, filename }` → SDK content blocks:
 | `file://` or absolute path under session cwd | path reference text (`Attached project file: …`) after sandbox + MIME/size checks; Claude can `Read` the file natively |
 | `file://` with `preferPathReferences: false` | embed bytes like `data:` |
 | path outside cwd | reject `400 ATTACHMENT_PATH_OUTSIDE_CWD` |
+| symlink inside cwd resolving outside | reject `400 ATTACHMENT_PATH_OUTSIDE_CWD` |
 | other binary (e.g. zip) | reject `400 ATTACHMENT_UNSUPPORTED_TYPE` |
 
 User message events also emit OpenCode-shaped `file` parts so the transcript
