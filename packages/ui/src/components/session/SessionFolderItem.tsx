@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import type { SessionFolder } from '@/stores/useSessionFoldersStore';
 import { useI18n } from '@/lib/i18n';
 import { Icon } from "@/components/icon/Icon";
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SessionNodeChildRenderExtras, SessionNodeRenderExtras } from './sidebar/sessionNodeItemUtils';
 
 interface SessionFolderItemProps<TSessionNode> {
@@ -248,9 +249,16 @@ const SessionFolderItemBase = <TSessionNode,>({
             </form>
           ) : (
             <div className="min-w-0 flex items-center gap-1.5 flex-1">
-              <span className={cn('typography-ui-label font-semibold truncate', isDropTarget ? 'text-primary' : 'text-muted-foreground')}>
-                {displayName ?? folder.name}
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className={cn('typography-ui-label font-semibold truncate', isDropTarget ? 'text-primary' : 'text-muted-foreground')}>
+                    {displayName ?? folder.name}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={8} className="max-w-xs">
+                  {displayName ?? folder.name}
+                </TooltipContent>
+              </Tooltip>
               <span className="typography-micro text-muted-foreground/70 flex-shrink-0">
                 • {sessions.length}
               </span>
