@@ -10,6 +10,9 @@ type SessionGroupingMode = 'by-worktree' | 'flat';
 type SessionDisplayStore = {
   sessionGroupingMode: SessionGroupingMode;
   setSessionGroupingMode: (mode: SessionGroupingMode) => void;
+  /** Project/recent zone headers stick to the top while their zone scrolls. */
+  stickyZoneHeaders: boolean;
+  toggleStickyZoneHeaders: () => void;
   showRecentSection: boolean;
   // VS Code only: the compact webview keeps archived buckets inline because it
   // has no room for the full Archive page. Web/desktop ignore this flag and
@@ -49,6 +52,8 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
     (set) => ({
       sessionGroupingMode: 'by-worktree',
       setSessionGroupingMode: (mode) => set({ sessionGroupingMode: mode }),
+      stickyZoneHeaders: true,
+      toggleStickyZoneHeaders: () => set((state) => ({ stickyZoneHeaders: !state.stickyZoneHeaders })),
       showRecentSection: true,
       // Default to HIDDEN so the pre-hydration state matches the quiet/safe
       // option: archived sessions must never flash visible on startup and then

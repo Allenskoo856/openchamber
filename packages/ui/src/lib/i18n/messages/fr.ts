@@ -262,6 +262,7 @@ export const dict = {
   'sessions.sidebar.empty.noMatches.title': 'Aucune session correspondante',
   'sessions.sidebar.empty.noMatches.description': 'Essayez un autre titre, branche, dossier ou chemin.',
   'sessions.sidebar.activity.recentTitle': 'récent',
+  'sessions.sidebar.header.displayMode.stickyHeaders': 'Épingler les en-têtes de projet',
   'sessions.sidebar.header.grouping.label': 'Regrouper les sessions',
   'sessions.sidebar.header.grouping.byWorktree': 'Par worktree',
   'sessions.sidebar.header.grouping.flat': 'Liste plate',

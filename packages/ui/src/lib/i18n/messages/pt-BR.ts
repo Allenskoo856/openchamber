@@ -421,6 +421,7 @@ export const dict: Record<I18nKey, string> = {
   "sessions.sidebar.empty.noMatches.title": "Não há sessões coincidentes",
   "sessions.sidebar.empty.noMatches.description": "Tente com outro título, branch, pasta ou caminho.",
   "sessions.sidebar.activity.recentTitle": "recente",
+  "sessions.sidebar.header.displayMode.stickyHeaders": "Cabeçalhos de projeto fixos",
   "sessions.sidebar.header.grouping.label": "Agrupar sessões",
   "sessions.sidebar.header.grouping.byWorktree": "Por worktree",
   "sessions.sidebar.header.grouping.flat": "Lista plana",

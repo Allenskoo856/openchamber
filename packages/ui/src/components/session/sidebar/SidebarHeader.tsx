@@ -68,6 +68,8 @@ export function SidebarHeader(props: Props): React.ReactNode {
   const setProjectSortOrder = useSessionDisplayStore((state) => state.setProjectSortOrder);
   const sessionGroupingMode = useSessionDisplayStore((state) => state.sessionGroupingMode);
   const setSessionGroupingMode = useSessionDisplayStore((state) => state.setSessionGroupingMode);
+  const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
+  const toggleStickyZoneHeaders = useSessionDisplayStore((state) => state.toggleStickyZoneHeaders);
 
   if (hideDirectoryControls) {
     return null;
@@ -225,18 +227,23 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     {sessionGroupingMode === mode ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
                   </DropdownMenuItem>
                 ))}
+                <DropdownMenuSeparator />
                 {showRecentControls ? (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={toggleRecentSection}
-                      className="flex items-center justify-between"
-                    >
-                      <span>{t('sessions.sidebar.header.displayMode.showRecent')}</span>
-                      {showRecentSection ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                    </DropdownMenuItem>
-                  </>
+                  <DropdownMenuItem
+                    onClick={toggleRecentSection}
+                    className="flex items-center justify-between"
+                  >
+                    <span>{t('sessions.sidebar.header.displayMode.showRecent')}</span>
+                    {showRecentSection ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                  </DropdownMenuItem>
                 ) : null}
+                <DropdownMenuItem
+                  onClick={toggleStickyZoneHeaders}
+                  className="flex items-center justify-between"
+                >
+                  <span>{t('sessions.sidebar.header.displayMode.stickyHeaders')}</span>
+                  {stickyZoneHeaders ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={collapseAllProjects} className="flex items-center gap-2">
                   <Icon name="contract-up-down" className="h-4 w-4" />

@@ -13,6 +13,7 @@ import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
+import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { useI18n } from '@/lib/i18n';
 
 export type SortableDragHandleProps = {
@@ -85,6 +86,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
 }) => {
   const { t } = useI18n();
   const { currentTheme } = useThemeSystem();
+  const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
   const {
     attributes,
     listeners,
@@ -192,7 +194,10 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 // the section band spans the entire sidebar width (ref: edge-
                 // to-edge section headers, not rounded pills).
                 <div
-                  className={cn('oc-zone-header-backing sticky top-0 z-20 -ml-2.5 -mr-2 bg-sidebar text-left group/project select-none')}
+                  className={cn(
+                    '-ml-2.5 -mr-2 text-left group/project select-none',
+                    stickyZoneHeaders && 'oc-zone-header-backing sticky top-0 z-20 bg-sidebar',
+                  )}
                   onContextMenu={(event) => {
                     // VS Code hides project actions entirely (hideDirectoryControls).
                     if (hideDirectoryControls) return;

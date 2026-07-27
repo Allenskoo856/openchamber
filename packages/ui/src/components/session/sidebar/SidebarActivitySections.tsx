@@ -2,6 +2,7 @@ import React from 'react';
 import { cn } from '@/lib/utils';
 import type { SessionNode } from './types';
 import { useI18n } from '@/lib/i18n';
+import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { Icon } from "@/components/icon/Icon";
 import {
   collectSubtreeContainingId,
@@ -61,6 +62,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
     batchSize = MAX_VISIBLE_RECENT_SESSIONS,
   } = props;
   const { t } = useI18n();
+  const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set());
   const [visibleCountBySection, setVisibleCountBySection] = React.useState<Map<string, number>>(new Map());
   const flatVariant = variant === 'flat';
@@ -177,7 +179,10 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
           <div key={section.key} className="relative space-y-1">
             {/* Zone header styled like a project header band; sticky with a
                 solid sidebar backing so rows never show through. */}
-            <div className="oc-zone-header-backing sticky top-0 z-20 -ml-2.5 -mr-2 bg-sidebar">
+            <div className={cn(
+              '-ml-2.5 -mr-2',
+              stickyZoneHeaders && 'oc-zone-header-backing sticky top-0 z-20 bg-sidebar',
+            )}>
               <button
                 type="button"
                 onClick={() => toggleSection(section.key)}
