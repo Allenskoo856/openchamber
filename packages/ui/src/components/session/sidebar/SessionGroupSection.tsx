@@ -773,7 +773,14 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
     rootFolders.forEach((entry) => visit(entry, ''));
     return out;
   };
-  const groupHeaderRightPadding = alwaysShowActions ? 'pr-7' : 'pr-2';
+  // Reserve room for the hover-revealed header actions (new draft + delete
+  // worktree) so they never overlap the label / PR badge.
+  const hasWorktreeDeleteAction = Boolean(!group.isMain && group.worktree);
+  const groupHeaderRightPadding = alwaysShowActions
+    ? (hasWorktreeDeleteAction ? 'pr-14' : 'pr-7')
+    : (hasWorktreeDeleteAction
+        ? 'pr-2 group-hover/gh:pr-14 group-focus-within/gh:pr-14'
+        : 'pr-2 group-hover/gh:pr-7 group-focus-within/gh:pr-7');
 
   const body = (
     <SessionFolderDndScope
@@ -1031,6 +1038,30 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.group.actions.deleteArchivedSessions')}</p></TooltipContent>
+            </Tooltip>
+          </div>
+        ) : null}
+        {group.directory && !group.isMain && group.worktree ? (
+          <div className={cn('absolute right-7 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100')}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    sessionEvents.requestDelete({
+                      sessions: allGroupSessions,
+                      mode: 'worktree',
+                      worktree: group.worktree,
+                    });
+                  }}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  aria-label={t('sessions.sidebar.group.actions.deleteGroupAria', { label: group.label })}
+                >
+                  <Icon name="delete-bin" className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.group.actions.deleteWorktree')}</p></TooltipContent>
             </Tooltip>
           </div>
         ) : null}
