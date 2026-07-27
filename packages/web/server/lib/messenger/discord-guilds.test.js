@@ -7,28 +7,30 @@ import {
 } from './discord-guilds.js';
 
 describe('normalizeDiscordGuildList', () => {
-  it('maps a single page of guilds to { id, name }', () => {
+  it('maps a single page of guilds to { id, name, icon }', () => {
     expect(
       normalizeDiscordGuildList([
-        { id: '1', name: 'Alpha', owner: true },
+        { id: '1', name: 'Alpha', icon: 'abc123', owner: true },
         { id: '2', name: 'Beta' },
+        { id: '3', name: 'Gamma', iconHash: 'def456' },
       ]),
     ).toEqual([
-      { id: '1', name: 'Alpha' },
-      { id: '2', name: 'Beta' },
+      { id: '1', name: 'Alpha', icon: 'abc123' },
+      { id: '2', name: 'Beta', icon: null },
+      { id: '3', name: 'Gamma', icon: 'def456' },
     ]);
   });
 
   it('flattens multiple pages and dedupes by id', () => {
     expect(
       normalizeDiscordGuildList([
-        [{ id: '1', name: 'A' }, { id: '2', name: 'B' }],
-        [{ id: '2', name: 'B-dup' }, { id: '3', name: 'C' }],
+        [{ id: '1', name: 'A', icon: 'a' }, { id: '2', name: 'B' }],
+        [{ id: '2', name: 'B-dup', icon: 'b' }, { id: '3', name: 'C' }],
       ]),
     ).toEqual([
-      { id: '1', name: 'A' },
-      { id: '2', name: 'B' },
-      { id: '3', name: 'C' },
+      { id: '1', name: 'A', icon: 'a' },
+      { id: '2', name: 'B', icon: null },
+      { id: '3', name: 'C', icon: null },
     ]);
   });
 
@@ -66,8 +68,8 @@ describe('fetchDiscordBotGuilds', () => {
     );
 
     expect(guilds).toHaveLength(DISCORD_GUILDS_PAGE_LIMIT + 2);
-    expect(guilds?.[0]).toEqual({ id: '1', name: 'G1' });
-    expect(guilds?.[DISCORD_GUILDS_PAGE_LIMIT]).toEqual({ id: '201', name: 'G201' });
+    expect(guilds?.[0]).toEqual({ id: '1', name: 'G1', icon: null });
+    expect(guilds?.[DISCORD_GUILDS_PAGE_LIMIT]).toEqual({ id: '201', name: 'G201', icon: null });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     const secondUrl = String(fetchImpl.mock.calls[1][0]);
     expect(secondUrl).toContain(`after=${DISCORD_GUILDS_PAGE_LIMIT}`);

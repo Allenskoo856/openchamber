@@ -88,7 +88,8 @@ export interface MessengerConnection {
   discordChannelName?: string;
   discordChannelType?: number;
   discordChannelTypeLabel?: string;
-  discordGuilds?: { id: string; name: string }[];
+  /** Guilds the bot is in. `icon` is the Discord icon hash when present. */
+  discordGuilds?: { id: string; name: string; icon?: string | null }[];
   /** Cached invite URL built from discordBotId so the user can re-invite the bot. */
   discordInviteUrl?: string;
   // ---- Server-wide sync state ----
@@ -500,7 +501,7 @@ type DiscordTestPayload = {
   id?: string;
   username?: string;
   discriminator?: string;
-  guilds?: { id: string; name: string }[];
+  guilds?: { id: string; name: string; icon?: string | null }[];
 };
 
 type MessengerStoreGet = () => MessengerState;
