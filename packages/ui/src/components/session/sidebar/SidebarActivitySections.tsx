@@ -132,7 +132,9 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
   }
 
   return (
-    <div className={cn(flatVariant ? 'space-y-0.5 pb-2' : 'space-y-2 pb-2 pt-1')}>
+    // No top padding: the recent header must start flush with the scroll
+    // edge, otherwise it visually "bumps" a few pixels before sticking.
+    <div className={cn(flatVariant ? 'space-y-0.5 pb-2' : 'space-y-2 pb-2')}>
       {visibleSections.map((section) => {
         const isCollapsed = collapsed.has(section.key);
         const visibleLimit = Math.max(
