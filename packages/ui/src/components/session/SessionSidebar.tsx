@@ -1689,7 +1689,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     // One shared tooltip provider for the whole sidebar: session tooltips open
     // instantly, and moving between rows hands the tooltip over (grouping)
     // instead of replaying the exit/enter animation for each row.
-    <TooltipProvider delay={0} timeout={600}>
+    // closeDelay bridges the small gap between rows: the tooltip survives the
+    // pointer crossing row margins, and the grouping timeout hands it over to
+    // the next row without an exit/enter cycle.
+    <TooltipProvider delay={0} closeDelay={150} timeout={600}>
     <div
       ref={sessionSearchContainerRef}
       className={cn(
