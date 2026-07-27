@@ -1559,19 +1559,19 @@ export const useUIStore = create<UIStore>()(
 
         setScheduledTasksDialogOpen: (open) => {
           set(open
-            ? { isScheduledTasksDialogOpen: true, isArchivePageOpen: false, worktreesPageProjectId: null }
+            ? { isScheduledTasksDialogOpen: true, isArchivePageOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false }
             : { isScheduledTasksDialogOpen: false });
         },
 
         setArchivePageOpen: (open) => {
           set(open
-            ? { isArchivePageOpen: true, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null }
+            ? { isArchivePageOpen: true, isScheduledTasksDialogOpen: false, worktreesPageProjectId: null, isMultiRunLauncherOpen: false }
             : { isArchivePageOpen: false });
         },
 
         setWorktreesPageProjectId: (projectId) => {
           set(projectId
-            ? { worktreesPageProjectId: projectId, isScheduledTasksDialogOpen: false, isArchivePageOpen: false }
+            ? { worktreesPageProjectId: projectId, isScheduledTasksDialogOpen: false, isArchivePageOpen: false, isMultiRunLauncherOpen: false }
             : { worktreesPageProjectId: null });
         },
 
@@ -2036,10 +2036,13 @@ export const useUIStore = create<UIStore>()(
           }
         },
 
+        // Multi-run is one of the mutually exclusive full-page surfaces:
+        // opening it closes the other surfaces and vice versa.
         setMultiRunLauncherOpen: (open) => {
           set((state) => ({
             isMultiRunLauncherOpen: open,
             multiRunLauncherPrefillPrompt: open ? state.multiRunLauncherPrefillPrompt : '',
+            ...(open ? { isScheduledTasksDialogOpen: false, isArchivePageOpen: false, worktreesPageProjectId: null } : {}),
           }));
         },
 
@@ -2048,6 +2051,9 @@ export const useUIStore = create<UIStore>()(
             isMultiRunLauncherOpen: true,
             multiRunLauncherPrefillPrompt: '',
             isSessionSwitcherOpen: false,
+            isScheduledTasksDialogOpen: false,
+            isArchivePageOpen: false,
+            worktreesPageProjectId: null,
           });
         },
 
@@ -2056,6 +2062,9 @@ export const useUIStore = create<UIStore>()(
             isMultiRunLauncherOpen: true,
             multiRunLauncherPrefillPrompt: prompt,
             isSessionSwitcherOpen: false,
+            isScheduledTasksDialogOpen: false,
+            isArchivePageOpen: false,
+            worktreesPageProjectId: null,
           });
         },
 
