@@ -21,7 +21,7 @@ export function WorktreesView(): React.ReactNode {
   return (
     <div className="absolute inset-0 z-10 flex flex-col bg-background">
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="mx-auto w-full max-w-2xl space-y-4">
+        <div className="mx-auto w-full max-w-4xl space-y-4">
           <div className="flex items-center">
             <Button
               size="sm"

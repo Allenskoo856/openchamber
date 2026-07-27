@@ -448,7 +448,9 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
             {t('settings.openchamber.worktrees.list.empty')}
           </p>
         ) : (
-          <div className={cn('space-y-1', PROJECT_SETTINGS_CONTROL_WIDTH)}>
+          // The settings panel keeps its narrow control column; the full-page
+          // Worktrees surface lets rows use the whole content width.
+          <div className={cn('space-y-1', sections === 'all' && PROJECT_SETTINGS_CONTROL_WIDTH)}>
             {availableWorktrees.map((worktree) => (
               <div
                 key={worktree.path}
