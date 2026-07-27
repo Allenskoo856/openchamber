@@ -162,7 +162,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
                 <button
                   type="button"
                   onClick={() => showMoreSessions(section.key, visibleItems.length, section.items.length)}
-                  className="mt-0.5 flex items-center justify-start rounded-md px-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
+                  className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                 >
                   {t('sessions.sidebar.group.showMore')}
                 </button>
@@ -198,7 +198,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
                   <button
                     type="button"
                     onClick={() => showMoreSessions(section.key, visibleItems.length, section.items.length)}
-                    className="mt-0.5 flex items-center justify-start rounded-md px-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
+                    className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                   >
                     {t('sessions.sidebar.group.showMore')}
                   </button>
@@ -207,7 +207,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
                   <button
                     type="button"
                     onClick={() => resetSectionLimit(section.key)}
-                    className="mt-0.5 flex items-center justify-start rounded-md px-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
+                    className="mt-0.5 flex items-center justify-start rounded-md pl-[26px] pr-1.5 py-0.5 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                   >
                     {t('sessions.sidebar.group.showFewer')}
                   </button>

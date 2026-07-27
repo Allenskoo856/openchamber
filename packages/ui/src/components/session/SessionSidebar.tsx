@@ -86,6 +86,8 @@ import {
 } from '@/stores/useGlobalSessionsStore';
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
 import { useNotificationStore } from '@/sync/notification-store';
+import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
+import { getGitHubPrStatusKey, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
 import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
 import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands';
 import { getRuntimeKey } from '@/lib/runtime-switch';
@@ -133,6 +135,8 @@ const isKnownActiveSessionDirectory = (
   if (knownDirectories.size === 0) return options?.allowEmptyDirectorySet ?? true;
   return knownDirectories.has(directory);
 };
+
+const SIDEBAR_PR_NO_PR_RETRY_MS = 5 * 60_000;
 
 const EMPTY_SUBTREE_SET: Set<string> = new Set();
 const EMPTY_STRING_ARRAY: string[] = [];
@@ -1011,9 +1015,13 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     void refreshGlobalSessionsForDirectories(addedDirectories, syncSessionsSnapshotRef.current);
   }, [isVSCode, projectSessionDirectories]);
 
+  const { github } = useRuntimeAPIs();
   const githubAuthStatus = useGitHubAuthStore((state) => state.status);
   const githubAuthChecked = useGitHubAuthStore((state) => state.hasChecked);
   const gitRepoStatus = useGitRepoStatusMap(isVisible ? normalizedProjectPaths : EMPTY_STRING_ARRAY);
+  const ensurePrStatusEntry = useGitHubPrStatusStore((state) => state.ensureEntry);
+  const setPrStatusParams = useGitHubPrStatusStore((state) => state.setParams);
+  const refreshPrStatusTargets = useGitHubPrStatusStore((state) => state.refreshTargets);
 
   useProjectRepoStatus({
     enabled: isVisible,
@@ -1351,6 +1359,92 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           : section
       ));
   }, [flatSectionsForRender, showInlineArchived]);
+
+  // Discover/refresh PR status for expanded projects' worktree branches so
+  // session rows can tint their branch marker and show PR state in tooltips.
+  // The data source is the worktree-grouped projectSections (data layer), not
+  // the flat display sections.
+  const retriedNoPrStatusKeysRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    if (!isVisible || !githubAuthChecked || !githubAuthStatus?.connected || !github) {
+      return;
+    }
+
+    const targetsByKey = new Map<string, { directory: string; branch: string }>();
+    const now = Date.now();
+
+    projectSections.forEach((section) => {
+      if (collapsedProjects.has(section.project.id)) {
+        return;
+      }
+
+      section.groups.forEach((group) => {
+        if (group.isArchivedBucket || group.isMain) {
+          return;
+        }
+        const directory = normalizePath(group.directory ?? null);
+        const branch = group.branch?.trim() || gitBranches.get(directory || '')?.trim();
+        if (!directory || !branch) {
+          return;
+        }
+        const key = getGitHubPrStatusKey(directory, branch);
+        const entry = useGitHubPrStatusStore.getState().entries[key];
+        const hasPr = Boolean(entry?.status?.pr);
+        const retryKey = `${directory}::${branch}`;
+        const noPrLastCheckedAt = Math.max(entry?.lastRefreshAt ?? 0, entry?.lastDiscoveryPollAt ?? 0);
+        const shouldRetryNoPr = Boolean(
+          entry?.isInitialStatusResolved
+          && !hasPr
+          && (
+            !retriedNoPrStatusKeysRef.current.has(retryKey)
+            || now - noPrLastCheckedAt >= SIDEBAR_PR_NO_PR_RETRY_MS
+          ),
+        );
+
+        if (!entry || !entry.isInitialStatusResolved || shouldRetryNoPr) {
+          if (shouldRetryNoPr) {
+            retriedNoPrStatusKeysRef.current.add(retryKey);
+          }
+          if (!targetsByKey.has(key)) {
+            targetsByKey.set(key, { directory, branch });
+          }
+        }
+      });
+    });
+
+    if (targetsByKey.size === 0) {
+      return;
+    }
+
+    targetsByKey.forEach((target, key) => {
+      ensurePrStatusEntry(key);
+      setPrStatusParams(key, {
+        directory: target.directory,
+        branch: target.branch,
+        remoteName: null,
+        canShow: true,
+        github,
+        githubAuthChecked,
+        githubConnected: githubAuthStatus.connected,
+      });
+    });
+
+    void refreshPrStatusTargets([...targetsByKey.values()], {
+      silent: true,
+      markInitialResolved: true,
+    });
+  }, [
+    collapsedProjects,
+    ensurePrStatusEntry,
+    github,
+    githubAuthChecked,
+    githubAuthStatus?.connected,
+    isVisible,
+    gitBranches,
+    projectSections,
+    refreshPrStatusTargets,
+    setPrStatusParams,
+  ]);
 
   const desktopHeaderActionButtonClass =
     'inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md leading-none text-foreground hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed';

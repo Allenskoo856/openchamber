@@ -31,6 +31,7 @@ import type { SessionNodeChildRenderExtras, SessionNodeRenderExtras } from './se
 import type { SessionNode } from './types';
 import { formatProjectLabel, formatSessionCompactDateLabel, formatSessionDateLabel, normalizePath, renderHighlightedText } from './utils';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { getGitHubPrStatusKey, usePrVisualSummary } from '@/stores/useGitHubPrStatusStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
 import { useI18n } from '@/lib/i18n';
@@ -344,6 +345,35 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const tooltipProjectLabel = secondaryMeta?.projectLabel
     ?? (projectLabelFromStore ? formatProjectLabel(projectLabelFromStore) : null);
   const tooltipBranchLabel = secondaryMeta?.branchLabel ?? node.worktree?.branch ?? null;
+  const prLookupKey = React.useMemo(() => {
+    if (isVSCode) return null;
+    const branch = node.worktree?.branch?.trim();
+    const directory = normalizePath(node.worktree?.path ?? null);
+    return branch && directory ? getGitHubPrStatusKey(directory, branch) : null;
+  }, [isVSCode, node.worktree]);
+  const prSummary = usePrVisualSummary(prLookupKey);
+  const prIconColor = prSummary ? `var(--pr-${prSummary.visualState})` : undefined;
+  const prStatusLabel = React.useMemo(() => {
+    if (!prSummary) return null;
+    switch (prSummary.visualState) {
+      case 'merged':
+        return t('sessions.sidebar.group.pr.status.merged');
+      case 'open':
+        return (prSummary.canMerge === true || prSummary.mergeableState === 'clean' || prSummary.checks?.state === 'success')
+          ? t('sessions.sidebar.group.pr.status.readyToMerge')
+          : t('sessions.sidebar.group.pr.status.open');
+      case 'blocked':
+        return prSummary.mergeableState === 'dirty'
+          ? t('sessions.sidebar.group.pr.status.mergeConflicts')
+          : t('sessions.sidebar.group.pr.status.mergeBlocked');
+      case 'draft':
+        return t('sessions.sidebar.group.pr.status.draft');
+      case 'closed':
+        return t('sessions.sidebar.group.pr.status.closed');
+      default:
+        return null;
+    }
+  }, [prSummary, t]);
   const isActive = useSessionUIStore((state) => state.currentSessionId === session.id);
 
   const sessionDirectory =
@@ -1079,7 +1109,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
           {subsessionChevron}
           <div className="flex min-w-0 flex-1 items-center">
             {(
-              <Tooltip>
+              <Tooltip delayDuration={0}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
@@ -1108,12 +1138,16 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                         <span className="ml-2 inline-flex flex-shrink-0 items-center gap-1 text-[0.72rem] text-muted-foreground/75">
                           {sessionGoalGlyph}
                           {tooltipBranchLabel ? (
-                            <Icon name="git-branch" className="h-3 w-3 text-muted-foreground/60" />
+                            <Icon
+                              name="git-branch"
+                              className={cn('h-3 w-3', !prIconColor && 'text-muted-foreground/60')}
+                              style={prIconColor ? { color: prIconColor } : undefined}
+                            />
                           ) : null}
                           {sessionCompactUpdatedLabel}
                         </span>
-                      ) : (
-                        <div className="relative ml-1 flex h-4 min-w-4 flex-shrink-0 items-center justify-end">
+                      ) : (sessionGoalGlyph || tooltipBranchLabel) ? (
+                        <div className="relative ml-1 flex h-4 flex-shrink-0 items-center justify-end">
                           <span className={cn(
                             'inline-flex items-center gap-1 whitespace-nowrap text-right transition-opacity duration-150',
                             isSessionMenuOpen
@@ -1122,11 +1156,15 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                           )}>
                             {sessionGoalGlyph}
                             {tooltipBranchLabel ? (
-                              <Icon name="git-branch" className="h-3 w-3 text-muted-foreground/60" />
+                              <Icon
+                                name="git-branch"
+                                className={cn('h-3 w-3', !prIconColor && 'text-muted-foreground/60')}
+                                style={prIconColor ? { color: prIconColor } : undefined}
+                              />
                             ) : null}
                           </span>
                         </div>
-                      )}
+                      ) : null}
                       {pendingPermissionCount > 0 ? (
                         <span className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1 py-0.5 text-[0.7rem] text-destructive flex-shrink-0" title={t('sessions.sidebar.session.status.permissionRequired')} aria-label={t('sessions.sidebar.session.status.permissionRequired')}>
                           <Icon name="shield" className="h-3 w-3" />
@@ -1153,8 +1191,16 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                     ) : null}
                     {tooltipBranchLabel ? (
                       <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                        <Icon name="git-branch" className="h-3 w-3 flex-shrink-0" />
+                        <Icon name="git-branch" className="h-3 w-3 flex-shrink-0" style={prIconColor ? { color: prIconColor } : undefined} />
                         <span className="min-w-0 truncate">{tooltipBranchLabel}</span>
+                      </div>
+                    ) : null}
+                    {prSummary && prStatusLabel ? (
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <Icon name="git-pull-request" className="h-3 w-3 flex-shrink-0" style={prIconColor ? { color: prIconColor } : undefined} />
+                        <span className="min-w-0 truncate" style={prIconColor ? { color: prIconColor } : undefined}>
+                          #{prSummary.number} · {prStatusLabel}
+                        </span>
                       </div>
                     ) : null}
                   </div>
