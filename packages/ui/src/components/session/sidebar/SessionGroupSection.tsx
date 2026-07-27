@@ -732,9 +732,6 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
               if (mobileVariant) setSessionSwitcherOpen(false);
               openNewSessionDraft({ selectedProjectId: projectId, directoryOverride: scopeDirectory ?? group.directory, targetFolderId: folder.id });
             }}
-            onNewSubFolder={!folder.parentId ? () => {
-              createFolderAndStartRename(scopeKey, folder.id);
-            } : undefined}
             hideActions={false}
             archivedBucket={group.isArchivedBucket === true}
           />
@@ -900,6 +897,9 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
   // Rows own their left gutter (aligned with the zone-header text), so the
   // group body adds no extra indentation.
   void compactBodyPadding;
+  // Folder nesting is legacy-only: existing sub-folders keep working (path
+  // labels), but the UI no longer offers creating new ones.
+  void createFolderAndStartRename;
   const groupBodyPaddingClass = 'pb-2';
 
   if (hideGroupLabel) {

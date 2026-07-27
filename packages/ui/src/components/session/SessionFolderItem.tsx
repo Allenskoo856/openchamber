@@ -52,8 +52,6 @@ interface SessionFolderItemProps<TSessionNode> {
   isDropTarget?: boolean;
   /** Create a new session scoped to this folder */
   onNewSession?: () => void;
-  /** Create a new sub-folder inside this folder */
-  onNewSubFolder?: () => void;
   /** Visual indent depth (0 = root folder, 1 = sub-folder) */
   depth?: number;
   /** Hide folder action buttons (rename/delete/new) */
@@ -85,7 +83,6 @@ const SessionFolderItemBase = <TSessionNode,>({
   droppableRef,
   isDropTarget = false,
   onNewSession,
-  onNewSubFolder,
   depth = 0,
   hideActions = false,
   archivedBucket = false,
@@ -185,7 +182,10 @@ const SessionFolderItemBase = <TSessionNode,>({
           'min-w-0 flex items-center gap-1.5 pl-1.5 flex-1 transition-[padding]',
           archivedBucket
             ? (alwaysShowActions ? 'pr-7' : 'group-hover/folder:pr-7 group-focus-within/folder:pr-7')
-            : '',
+            // Actions overlay on hover (new session, rename, delete = three
+            // 24px buttons anchored at the right edge); reserve room only
+            // while they are revealed, mirroring session-row behavior.
+            : (alwaysShowActions ? 'pr-20' : 'group-hover/folder:pr-20 group-focus-within/folder:pr-20'),
         )}>
           <Icon name={folderIconName} className={cn('h-3.5 w-3.5 flex-shrink-0', isDropTarget ? 'text-primary' : 'text-muted-foreground')} />
 
@@ -263,14 +263,15 @@ const SessionFolderItemBase = <TSessionNode,>({
 
         {/* Action buttons */}
         {!renaming && (!hideActions || archivedBucket) ? (
-          <div className="flex items-center gap-0.5 px-0.5">
-            <div
-              className={cn(
-                'flex items-center gap-0.5 transition-opacity',
-                alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/folder:opacity-100 group-focus-within/folder:opacity-100',
-                archivedBucket && 'absolute right-0.5 top-1/2 z-10 -translate-y-1/2 px-0',
-              )}
-            >
+          <div
+            className={cn(
+              'absolute right-0.5 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 transition-opacity',
+              alwaysShowActions
+                ? 'opacity-100'
+                : 'opacity-0 pointer-events-none group-hover/folder:opacity-100 group-hover/folder:pointer-events-auto group-focus-within/folder:opacity-100 group-focus-within/folder:pointer-events-auto',
+            )}
+          >
+            <div className="flex items-center gap-0.5">
               {!archivedBucket && onNewSession ? (
                 <button
                   type="button"
@@ -283,21 +284,6 @@ const SessionFolderItemBase = <TSessionNode,>({
                   title={t('sessions.sidebar.project.actions.newSession')}
                 >
                   <Icon name="add" className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-              {/* Only allow sub-folders at depth 0 (one level deep max) */}
-              {!archivedBucket && onNewSubFolder && depth === 0 ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onNewSubFolder();
-                  }}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={t('sessions.sidebar.folderItem.newSubfolderAria', { folderName: folder.name })}
-                  title={t('sessions.sidebar.folderItem.newSubfolder')}
-                >
-                  <Icon name="folder-add" className="h-3.5 w-3.5" />
                 </button>
               ) : null}
               {!archivedBucket ? (
