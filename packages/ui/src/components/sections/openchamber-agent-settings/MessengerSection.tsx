@@ -1,13 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  RiCheckLine,
-  RiLoader4Line,
-  RiAlertLine,
-  RiPlayCircleLine,
-  RiStopCircleLine,
-  RiChatSmile3Line,
-  RiStethoscopeLine,
-} from '@remixicon/react';
+import { RiAlertLine } from '@remixicon/react';
 import {
   MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
   MESSENGER_INTERRUPT_TIMEOUT_MAX_MS,
@@ -27,7 +19,7 @@ import { useDiscordGuildMembershipPoll } from './useDiscordGuildMembershipPoll';
 import { useOpenChamberAgentEventsStore, type OpenChamberAgentUiRealtimeEvent } from '@/stores/useOpenChamberAgentEventsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -41,6 +33,7 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useI18n, type I18nKey } from '@/lib/i18n';
 import { Icon } from '@/components/icon/Icon';
+import type { IconName } from '@/components/icon/icons';
 import { DiscordOnboardingWizard } from './DiscordOnboardingWizard';
 import { DiscordCommandsButton } from './DiscordCommandPalette';
 
@@ -222,13 +215,130 @@ function StatusBadge({ status }: { status: MessengerConnection['status'] }) {
   );
 }
 
-function formatRelative(ts: number | null | undefined): string {
-  if (!ts) return 'never';
+type TranslateFn = (key: I18nKey, params?: Record<string, string | number | boolean | null | undefined>) => string;
+
+function formatRelative(ts: number | null | undefined, t: TranslateFn): string {
+  if (!ts) return t('settings.integrations.discord.relative.never');
   const diff = Date.now() - ts;
-  if (diff < 60_000) return 'just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  if (diff < 60_000) return t('common.relative.justNow');
+  if (diff < 3_600_000) {
+    return t('common.relative.minutesAgoShort', { count: Math.floor(diff / 60_000) });
+  }
+  if (diff < 86_400_000) {
+    return t('common.relative.hoursAgoShort', { count: Math.floor(diff / 3_600_000) });
+  }
   return new Date(ts).toLocaleString();
+}
+
+/** Collapsible card used by Discord Advanced settings accordion sections. */
+function AdvancedSectionCard({
+  icon,
+  title,
+  meta,
+  badge,
+  open,
+  onOpenChange,
+  children,
+}: {
+  icon: IconName;
+  title: string;
+  meta?: React.ReactNode;
+  badge?: React.ReactNode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Collapsible open={open} onOpenChange={onOpenChange}>
+      <div className="overflow-hidden rounded-xl border border-[var(--interactive-border)] bg-[var(--surface-elevated)]">
+        <CollapsibleTrigger className="flex w-full items-center gap-2.5 rounded-none px-4 py-3 hover:bg-[var(--interactive-hover)]/50">
+          <Icon name={icon} className="size-4 shrink-0 text-primary" />
+          <span className="shrink-0 text-sm font-semibold text-foreground">{title}</span>
+          {badge}
+          {meta ? (
+            <span className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground">
+              {meta}
+            </span>
+          ) : (
+            <span className="flex-1" />
+          )}
+          <Icon
+            name={open ? 'arrow-up-s' : 'arrow-down-s'}
+            className="size-4 shrink-0 text-muted-foreground"
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="border-t border-[var(--interactive-border)] px-4 py-3">
+          {children}
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+/** Segmented picker matching the Discord Advanced settings mock (chip selection). */
+function DiscordSegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+  disabled,
+  ariaLabel,
+}: {
+  value: T;
+  options: Array<{ id: T; label: string }>;
+  onChange: (value: T) => void;
+  disabled?: boolean;
+  ariaLabel: string;
+}) {
+  return (
+    <div role="group" aria-label={ariaLabel} className="flex flex-wrap gap-1.5">
+      {options.map((opt) => (
+        <Button
+          key={opt.id}
+          type="button"
+          variant="chip"
+          size="xs"
+          disabled={disabled}
+          aria-pressed={value === opt.id}
+          className="!font-normal normal-case"
+          onClick={() => onChange(opt.id)}
+        >
+          {opt.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+type DangerZoneKey = 'fallback' | 'owner' | 'trusted' | 'slash';
+
+function DangerZoneRow({
+  label,
+  open,
+  onToggle,
+  children,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-[var(--interactive-hover)]/40"
+      >
+        <span className="text-sm font-medium text-foreground">{label}</span>
+        <Icon
+          name={open ? 'arrow-down-s' : 'arrow-right-s'}
+          className="size-4 shrink-0 text-muted-foreground"
+        />
+      </button>
+      {open ? <div className="space-y-2 px-4 pb-3">{children}</div> : null}
+    </div>
+  );
 }
 
 function severityClass(s: MessengerDiagnosisCheck['severity']) {
@@ -300,27 +410,10 @@ function DiscordListenerPanel({
   const historyTarget = conn.defaultChannelId;
 
   return (
-    <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-3">
+    <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 text-xs font-medium text-foreground">
-          <RiChatSmile3Line className="size-4 text-primary" />
           {t('settings.integrations.discord.listener.title')}
-          <span
-            className={cn(
-              'rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide',
-              connected
-                ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]'
-                : running
-                  ? 'bg-[var(--status-warning)]/20 text-[var(--status-warning)]'
-                  : 'bg-muted text-muted-foreground',
-            )}
-          >
-            {connected
-              ? t('settings.integrations.discord.listener.status.live')
-              : running
-                ? t('settings.integrations.discord.listener.status.connecting')
-                : t('settings.integrations.discord.listener.status.off')}
-          </span>
         </div>
         <div className="flex items-center gap-2">
           {!running ? (
@@ -328,10 +421,10 @@ function DiscordListenerPanel({
               type="button"
               variant="default"
               size="xs"
-              className="!font-normal"
+              className="!font-normal normal-case"
               onClick={() => void startListener()}
             >
-              <RiPlayCircleLine className="size-3.5" />
+              <Icon name="play" className="size-3.5" />
               {t('settings.integrations.discord.listener.start')}
             </Button>
           ) : (
@@ -339,39 +432,39 @@ function DiscordListenerPanel({
               type="button"
               variant="outline"
               size="xs"
-              className="!font-normal text-[var(--status-error)] hover:text-[var(--status-error)]"
+              className="!font-normal normal-case text-[var(--status-error)] hover:text-[var(--status-error)]"
               onClick={() => void stopListener()}
             >
-              <RiStopCircleLine className="size-3.5" />
+              <Icon name="stop" className="size-3.5" />
               {t('settings.integrations.discord.listener.stop')}
             </Button>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-2 text-[10px]">
-        <div className="rounded bg-background border border-border px-2 py-1.5">
+      <div className="grid grid-cols-2 gap-2 text-[10px] @xl:grid-cols-4">
+        <div className="rounded-lg border border-border bg-background px-2 py-1.5">
           <div className="text-muted-foreground">Gateway saw</div>
           <div className="text-foreground font-medium">
             {conn.discordListenerTotalRawMessages ?? 0}
           </div>
         </div>
-        <div className="rounded bg-background border border-border px-2 py-1.5">
+        <div className="rounded-lg border border-border bg-background px-2 py-1.5">
           <div className="text-muted-foreground">Forwarded</div>
           <div className="text-foreground font-medium">
             {conn.discordListenerTotalReceived ?? 0}
           </div>
         </div>
-        <div className="rounded bg-background border border-border px-2 py-1.5">
+        <div className="rounded-lg border border-border bg-background px-2 py-1.5">
           <div className="text-muted-foreground">Replied</div>
           <div className="text-foreground font-medium">
             {conn.discordListenerTotalReplied ?? 0}
           </div>
         </div>
-        <div className="rounded bg-background border border-border px-2 py-1.5">
+        <div className="rounded-lg border border-border bg-background px-2 py-1.5">
           <div className="text-muted-foreground">Last update</div>
           <div className="text-foreground font-medium">
-            {formatRelative(conn.discordListenerLastUpdateAt ?? null)}
+            {formatRelative(conn.discordListenerLastUpdateAt ?? null, t)}
           </div>
         </div>
       </div>
@@ -387,7 +480,7 @@ function DiscordListenerPanel({
 
       {conn.discordListenerError && (
         <div className="text-[11px] text-destructive flex items-start gap-1.5 leading-snug">
-          <RiAlertLine className="size-3.5 shrink-0 mt-0.5" />
+          <Icon name="alert" className="size-3.5 shrink-0 mt-0.5" />
           {conn.discordListenerError}
         </div>
       )}
@@ -494,39 +587,42 @@ function DiscordDiagnosePanel({
   running: boolean;
   runDiagnose: () => Promise<boolean>;
 }) {
+  const { t } = useI18n();
   const hasIssue = diagnosis?.checks?.some((c) => !c.ok && c.severity !== 'info') ?? false;
   return (
-    <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-2">
+    <div className="space-y-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 text-xs font-medium text-foreground">
-          <RiStethoscopeLine className="size-4 text-primary" />
+          <Icon name="pulse" className="size-4 text-primary" />
           Diagnose
           {diagnosis && (
             <span
               className={cn(
                 'rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide',
                 hasIssue
-                  ? 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-300'
-                  : 'bg-green-500/20 text-green-700 dark:text-green-400',
+                  ? 'bg-[var(--status-warning)]/20 text-[var(--status-warning)]'
+                  : 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
               )}
             >
               {hasIssue ? 'issues' : 'all clear'}
             </span>
           )}
         </div>
-        <button
+        <Button
           type="button"
+          variant="default"
+          size="xs"
+          className="!font-normal normal-case"
           onClick={() => runDiagnose()}
           disabled={running}
-          className="inline-flex items-center gap-1 rounded bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {running ? (
-            <RiLoader4Line className="size-3.5 animate-spin" />
+            <Icon name="loader-4" className="size-3.5 animate-spin" />
           ) : (
-            <RiStethoscopeLine className="size-3.5" />
+            <Icon name="pulse" className="size-3.5" />
           )}
           {running ? 'Running…' : diagnosis ? 'Re-run diagnose' : 'Run diagnose'}
-        </button>
+        </Button>
       </div>
       {!diagnosis && (
         <div className="text-[11px] text-muted-foreground leading-snug">
@@ -563,14 +659,15 @@ function DiscordDiagnosePanel({
       )}
       {diagnosis && (
         <div className="text-[10px] text-muted-foreground">
-          Last run {formatRelative(diagnosis.runAt)} for {conn.discordBotUsername ? `bot ${conn.discordBotUsername}` : 'this bot'}.
+          Last run {formatRelative(diagnosis.runAt, t)} for{' '}
+          {conn.discordBotUsername ? `bot ${conn.discordBotUsername}` : 'this bot'}.
         </div>
       )}
     </div>
   );
 }
 
-function BridgePanel({
+function BehaviorPanel({
   conn,
   type,
   bridgeStatus,
@@ -600,7 +697,6 @@ function BridgePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type]);
 
-  const bindings = bridgeStatus.bindings.filter((b) => b.type === type);
   const active = bridgeStatus.active.filter((a) => a.type === type);
   const currentVerbosity: MessengerVerbosity = bridgeVerbosity[type] ?? 'normal';
   const currentVerbosityOption =
@@ -612,125 +708,82 @@ function BridgePanel({
   const notifyOnComplete = bridgeNotifyOnComplete[type] ?? false;
   const interruptTimeoutMs =
     bridgeInterruptTimeoutMs[type] ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS;
+  const controlsDisabled = !bridgeStatus.enabled;
 
   return (
-    <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2 text-xs font-medium text-foreground">
-          <RiChatSmile3Line className="size-4 text-primary" />
-          OpenCode bridge
-          <span
-            className={cn(
-              'rounded-full px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide',
-              bridgeStatus.enabled && enabled
-                ? 'bg-green-500/20 text-green-700 dark:text-green-400'
-                : 'bg-muted text-muted-foreground',
-            )}
-          >
-            {!bridgeStatus.enabled ? 'unavailable' : enabled ? 'on' : 'off'}
+    <div className="space-y-4">
+      <label className="flex cursor-pointer items-start gap-2">
+        <Checkbox
+          checked={enabled}
+          onChange={onToggle}
+          disabled={controlsDisabled}
+          ariaLabel={t('settings.integrations.discord.wizard.step4.bridge')}
+        />
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-foreground">
+            {t('settings.integrations.discord.wizard.step4.bridge')}
           </span>
-        </div>
-        <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
-          <input
-            type="checkbox"
-            checked={enabled}
-            disabled={!bridgeStatus.enabled}
-            onChange={(e) => onToggle(e.target.checked)}
-            className="rounded border-border accent-primary"
-          />
-          Forward messages to OpenCode
-        </label>
-      </div>
-      <div className="text-[11px] text-muted-foreground leading-snug">
-        Forwards channel messages to an OpenCode session in the matching project and streams the
-        reply back, so the conversation is shared with the web UI.
-      </div>
-      <div data-settings-item="integrations.discord.proxy-worktrees" className="text-[10px] text-muted-foreground leading-snug">
-        {t('settings.integrations.discord.bridge.proxyNote')}
-      </div>
-      <div className="text-[10px] text-muted-foreground leading-snug">
-        {t('settings.integrations.discord.bridge.autoWorktreeNote')}
-      </div>
-      {!bridgeStatus.enabled && (
-        <div className="text-[10px] text-yellow-700 dark:text-yellow-400">
-          The web server reports the bridge is unavailable — OpenCode may not be reachable yet.
-        </div>
-      )}
+          {!bridgeStatus.enabled ? (
+            <span className="block text-xs text-[var(--status-warning)] leading-snug">
+              {t('settings.integrations.discord.bridge.unavailable')}
+            </span>
+          ) : null}
+        </span>
+      </label>
 
       {/* Output verbosity — how much of each OpenCode turn is mirrored back. */}
-      <div className="space-y-1.5 border-t border-border/60 pt-2">
-        <div className="text-[11px] font-medium text-foreground">
+      <div className="space-y-2">
+        <div className="text-sm font-medium text-foreground">
           {t('settings.integrations.discord.bridge.verbosity.title')}
         </div>
-        <div className="flex gap-1">
-          {VERBOSITY_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => setBridgeVerbosity(type, opt.id)}
-              disabled={!bridgeStatus.enabled}
-              className={cn(
-                'flex-1 rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors disabled:opacity-50',
-                currentVerbosity === opt.id
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
-              title={t(opt.descKey)}
-            >
-              {t(opt.labelKey)}
-            </button>
-          ))}
-        </div>
-        <div className="text-[10px] text-muted-foreground leading-snug">
+        <DiscordSegmentedControl
+          value={currentVerbosity}
+          disabled={controlsDisabled}
+          ariaLabel={t('settings.integrations.discord.bridge.verbosity.title')}
+          onChange={(id) => setBridgeVerbosity(type, id)}
+          options={VERBOSITY_OPTIONS.map((opt) => ({
+            id: opt.id,
+            label: t(opt.labelKey),
+          }))}
+        />
+        <div className="text-xs text-muted-foreground leading-snug">
           {t(currentVerbosityOption.descKey)}
         </div>
       </div>
 
       {/* Tool permission mode — same defaults as /yolo and /permissions. */}
-      <div className="space-y-1.5 border-t border-border/60 pt-2">
-        <div className="text-[11px] font-medium text-foreground">
+      <div className="space-y-2">
+        <div className="text-sm font-medium text-foreground">
           {t('settings.integrations.discord.bridge.permissionMode.title')}
         </div>
-        <div className="flex gap-1">
-          {PERMISSION_MODE_OPTIONS.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => setBridgePermissionMode(type, opt.id)}
-              disabled={!bridgeStatus.enabled}
-              className={cn(
-                'flex-1 rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors disabled:opacity-50',
-                currentPermissionMode === opt.id
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
-              title={t(opt.descKey)}
-            >
-              {t(opt.labelKey)}
-            </button>
-          ))}
-        </div>
-        <div className="text-[10px] text-muted-foreground leading-snug">
+        <DiscordSegmentedControl
+          value={currentPermissionMode}
+          disabled={controlsDisabled}
+          ariaLabel={t('settings.integrations.discord.bridge.permissionMode.title')}
+          onChange={(id) => setBridgePermissionMode(type, id)}
+          options={PERMISSION_MODE_OPTIONS.map((opt) => ({
+            id: opt.id,
+            label: t(opt.labelKey),
+          }))}
+        />
+        <div className="text-xs text-muted-foreground leading-snug">
           {t(currentPermissionOption.descKey)}
         </div>
       </div>
 
-      <div
-        data-settings-item="integrations.discord.notify-on-complete"
-        className="space-y-1.5 border-t border-border/60 pt-2"
-      >
-        <label className="flex cursor-pointer items-start gap-2 py-1">
+      <div data-settings-item="integrations.discord.notify-on-complete" className="space-y-1">
+        <label className="flex cursor-pointer items-start gap-2">
           <Checkbox
             checked={notifyOnComplete}
             onChange={(checked) => setBridgeNotifyOnComplete(type, checked)}
-            disabled={!bridgeStatus.enabled}
+            disabled={controlsDisabled}
             ariaLabel={t('settings.integrations.discord.bridge.notifyOnComplete.title')}
           />
           <span className="min-w-0">
-            <span className="block text-[11px] font-medium text-foreground">
+            <span className="block text-sm font-medium text-foreground">
               {t('settings.integrations.discord.bridge.notifyOnComplete.title')}
             </span>
-            <span className="block text-[10px] text-muted-foreground leading-snug">
+            <span className="block text-xs text-muted-foreground leading-snug">
               {t('settings.integrations.discord.bridge.notifyOnComplete.description')}
             </span>
           </span>
@@ -739,9 +792,12 @@ function BridgePanel({
 
       <div
         data-settings-item="integrations.discord.interrupt-timeout"
-        className="space-y-1.5 border-t border-border/60 pt-2"
+        className="space-y-2"
       >
-        <label className="text-[11px] font-medium text-foreground" htmlFor="discord-interrupt-timeout-ms">
+        <label
+          className="text-sm font-medium text-foreground"
+          htmlFor="discord-interrupt-timeout-ms"
+        >
           {t('settings.integrations.discord.bridge.interruptTimeout.title')}
         </label>
         <div className="flex items-center gap-2">
@@ -751,7 +807,7 @@ function BridgePanel({
             min={MESSENGER_INTERRUPT_TIMEOUT_MIN_MS}
             max={MESSENGER_INTERRUPT_TIMEOUT_MAX_MS}
             step={500}
-            disabled={!bridgeStatus.enabled}
+            disabled={controlsDisabled}
             value={interruptTimeoutMs}
             onChange={(event) => {
               const next = Number(event.target.value);
@@ -759,43 +815,69 @@ function BridgePanel({
                 setBridgeInterruptTimeoutMs(type, next);
               }
             }}
-            className="h-7 w-24 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+            className="h-8 w-28 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
           />
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {t('settings.integrations.discord.bridge.interruptTimeout.unit')}
           </span>
         </div>
-        <div className="text-[10px] text-muted-foreground leading-snug">
+        <div className="text-xs text-muted-foreground leading-snug">
           {t('settings.integrations.discord.bridge.interruptTimeout.description')}
         </div>
       </div>
 
-      {bindings.length > 0 && (
-        <div className="space-y-1">
-          <div className="text-[10px] font-medium text-foreground">
-            Channel ↔ session bindings ({bindings.length})
-          </div>
-          <ul className="space-y-0.5 max-h-32 overflow-y-auto">
-            {bindings.slice(0, 8).map((b) => (
-              <li
-                key={`${b.type}:${b.targetKey}:${b.sessionId}`}
-                className="text-[10px] text-muted-foreground"
-              >
-                <code className="bg-muted px-1 rounded">{b.targetKey}</code> →{' '}
-                <code className="bg-muted px-1 rounded">{b.sessionId.slice(0, 16)}…</code>
-                {b.projectLabel ? ` · ${b.projectLabel}` : ''}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       {active.length > 0 && (
-        <div className="text-[10px] text-muted-foreground">
-          <span className="text-primary">▶</span> {active.length} prompt
-          {active.length === 1 ? '' : 's'} streaming…
+        <div className="text-xs text-muted-foreground">
+          <span className="text-primary">▶</span>{' '}
+          {active.length === 1
+            ? t('settings.integrations.discord.bridge.activeOne')
+            : t('settings.integrations.discord.bridge.activeMany', { count: active.length })}
         </div>
       )}
+
+      <div
+        data-settings-item="integrations.discord.proxy-worktrees"
+        className="space-y-1 border-t border-border/60 pt-3 text-xs text-muted-foreground leading-snug"
+      >
+        <div>{t('settings.integrations.discord.bridge.proxyNote')}</div>
+        <div>{t('settings.integrations.discord.bridge.autoWorktreeNote')}</div>
+      </div>
     </div>
+  );
+}
+
+function SessionBindingsPanel({
+  type,
+  bridgeStatus,
+}: {
+  type: MessengerType;
+  bridgeStatus: ReturnType<typeof useMessengerStore.getState>['bridgeStatus'];
+}) {
+  const { t } = useI18n();
+  const bindings = bridgeStatus.bindings.filter((b) => b.type === type);
+  if (bindings.length === 0) {
+    return (
+      <div className="text-xs text-muted-foreground">
+        {t('settings.integrations.discord.advanced.sessionBindings.empty')}
+      </div>
+    );
+  }
+  return (
+    <ul className="max-h-48 space-y-1 overflow-y-auto">
+      {bindings.map((b) => (
+        <li
+          key={`${b.type}:${b.targetKey}:${b.sessionId}`}
+          className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground"
+        >
+          <code className="rounded bg-muted px-1 text-foreground">{b.targetKey}</code>
+          {' → '}
+          <code className="rounded bg-muted px-1 text-foreground">
+            {b.sessionId.slice(0, 16)}…
+          </code>
+          {b.projectLabel ? ` · ${b.projectLabel}` : ''}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -816,11 +898,7 @@ function DiscordSyncResults({
     }
   }
   return (
-    <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-2">
-      <div className="text-xs font-medium text-foreground flex items-center gap-1.5">
-        <RiCheckLine className="size-3.5 text-primary" />
-        Last sync result
-      </div>
+    <div className="space-y-2">
       {Array.from(groups.entries()).map(([groupKey, group]) => (
         <div key={groupKey || 'default'} className="space-y-1">
           {group.name && (
@@ -845,14 +923,14 @@ function DiscordSyncResults({
               return (
                 <li
                   key={`${c.guildId ?? ''}:${c.projectId}`}
-                  className="rounded bg-background border border-border px-2 py-1.5 text-[11px] flex items-start gap-2"
+                  className="rounded-lg bg-background border border-border px-2 py-1.5 text-[11px] flex items-start gap-2"
                 >
                   <span
                     className={cn(
                       'mt-0.5',
                       iconState === 'channel-error' && 'text-destructive',
-                      iconState === 'thread-error' && 'text-yellow-600 dark:text-yellow-400',
-                      iconState === 'new' && 'text-green-600 dark:text-green-400',
+                      iconState === 'thread-error' && 'text-[var(--status-warning)]',
+                      iconState === 'new' && 'text-[var(--status-success)]',
                       (iconState === 'reused' || iconState === 'idle') && 'text-muted-foreground',
                     )}
                   >
@@ -884,7 +962,7 @@ function DiscordSyncResults({
                     )}
                     {c.error && <div className="text-destructive leading-snug">{c.error}</div>}
                     {!c.error && c.threadError && (
-                      <div className="text-yellow-700 dark:text-yellow-400 leading-snug">
+                      <div className="text-[var(--status-warning)] leading-snug">
                         Thread skipped — {c.threadError}
                       </div>
                     )}
@@ -932,14 +1010,28 @@ function DiscordAdvancedSettings({
   const discordHistory = useMessengerStore((s) => s.discordHistory);
   const loadDiscordHistory = useMessengerStore((s) => s.loadDiscordHistory);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    void refreshBridgeStatus(conn.type);
+    const id = setInterval(() => void refreshBridgeStatus(conn.type), 8000);
+    return () => clearInterval(id);
+  }, [isOpen, conn.type, refreshBridgeStatus]);
+
   const inputClass =
-    'w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring';
+    'w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring';
 
   const meta = MESSENGER_META[conn.type];
   const target = conn.defaultChannelId;
   const hasTarget = Boolean(target);
 
   const [targetInput, setTargetInput] = useState('');
+  const [sectionOpen, setSectionOpen] = useState({
+    behavior: true,
+    diagnostics: false,
+    syncLog: false,
+    bindings: false,
+  });
+  const [dangerOpen, setDangerOpen] = useState<DangerZoneKey | null>(null);
 
   const handleSaveTarget = async () => {
     const value = targetInput.trim();
@@ -953,212 +1045,336 @@ function DiscordAdvancedSettings({
     setTargetInput('');
   };
 
-  return (
-    <Collapsible
-      open={isOpen}
-      onOpenChange={setOpen}
-      className={cn(!hideTrigger && 'border-t border-border/60 pt-3')}
-    >
-      {!hideTrigger && (
-        <label className="flex cursor-pointer select-none items-center gap-2">
-          <Checkbox
-            checked={isOpen}
-            onChange={setOpen}
-            ariaLabel={t('settings.integrations.discord.actions.advancedSettings')}
-          />
-          <span className="text-xs font-medium text-foreground">
-            {t('settings.integrations.discord.actions.advancedSettings')}
-          </span>
-          <span className="text-[10px] font-normal text-muted-foreground">
-            {t('settings.integrations.discord.actions.advancedSettingsHint')}
-          </span>
-        </label>
-      )}
-      <CollapsibleContent className="space-y-4 pt-3">
-        <p className="typography-meta text-muted-foreground/70 px-0.5">
-          {t('settings.integrations.discord.advanced.serversNote')}
-        </p>
+  const toggleDanger = (key: DangerZoneKey) => {
+    setDangerOpen((prev) => (prev === key ? null : key));
+  };
 
-        {/* Fallback single Channel ID — optional destination for test messages,
-            approvals and history when no project-sync server is configured. */}
-        <div
-          data-settings-item="integrations.discord.fallback-channel"
-          className="space-y-2"
+  const listenerConnected = Boolean(conn.discordListenerConnected);
+  const listenerRunning = Boolean(conn.discordListenerRunning);
+  const seen = conn.discordListenerTotalRawMessages ?? 0;
+  const forwarded = conn.discordListenerTotalReceived ?? 0;
+  const replied = conn.discordListenerTotalReplied ?? 0;
+  const syncChannels = conn.lastSyncChannels ?? [];
+  const syncFailed = syncChannels.filter((c) => Boolean(c.error) || Boolean(c.threadError)).length;
+  const bindingsCount = bridgeStatus.bindings.filter((b) => b.type === conn.type).length;
+
+  const listenerBadge = (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium',
+        listenerConnected
+          ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]'
+          : listenerRunning
+            ? 'bg-[var(--status-warning)]/15 text-[var(--status-warning)]'
+            : 'bg-muted text-muted-foreground',
+      )}
+    >
+      <span
+        className={cn(
+          'size-1.5 rounded-full',
+          listenerConnected
+            ? 'bg-[var(--status-success)]'
+            : listenerRunning
+              ? 'bg-[var(--status-warning)]'
+              : 'bg-muted-foreground',
+        )}
+      />
+      {listenerConnected
+        ? t('settings.integrations.discord.listener.status.live')
+        : listenerRunning
+          ? t('settings.integrations.discord.listener.status.connecting')
+          : t('settings.integrations.discord.listener.status.off')}
+    </span>
+  );
+
+  const fallbackFields = (
+    <div data-settings-item="integrations.discord.fallback-channel" className="space-y-2">
+      <div className="text-xs text-muted-foreground leading-snug">
+        {t('settings.integrations.discord.advanced.fallbackChannel.description')}
+      </div>
+      {!hasTarget ? (
+        <>
+          <div className="text-xs text-muted-foreground leading-snug">{meta.targetHelp}</div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={targetInput}
+              onChange={(e) => setTargetInput(e.target.value)}
+              placeholder={meta.targetPlaceholder}
+              className={inputClass}
+            />
+            <Button
+              type="button"
+              variant="default"
+              size="xs"
+              className="!font-normal normal-case shrink-0"
+              onClick={handleSaveTarget}
+              disabled={!targetInput.trim()}
+            >
+              {t('settings.integrations.discord.actions.saveToken')}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">{target}</code>
+          {hasTarget ? <Icon name="check" className="size-3 text-[var(--status-success)]" /> : null}
+          {conn.discordChannelName && (
+            <span className="text-muted-foreground">
+              #{conn.discordChannelName}
+              {conn.guildName ? ` · ${conn.guildName}` : ''}
+              {conn.discordChannelTypeLabel ? ` · ${conn.discordChannelTypeLabel}` : ''}
+            </span>
+          )}
+          {conn.botToken && conn.defaultChannelId && !conn.discordChannelName && (
+            <button
+              type="button"
+              onClick={() => resolveDiscordChannel()}
+              className="text-primary text-[10px] hover:underline"
+            >
+              {t('settings.integrations.discord.advanced.fallbackChannel.lookUp')}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              updateConnection('discord', {
+                defaultChannelId: undefined,
+                discordChannelName: undefined,
+                discordChannelType: undefined,
+                discordChannelTypeLabel: undefined,
+              });
+              setTimeout(() => saveDiscordConfig(), 0);
+            }}
+            className="text-primary text-[10px] hover:underline"
+          >
+            {t('settings.integrations.discord.advanced.primarySyncGuild.change')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  const content = (
+    <div className="space-y-4">
+      <div className="space-y-1 px-0.5">
+        <h3 className="text-lg font-semibold tracking-tight text-foreground">
+          {t('settings.integrations.discord.actions.advancedSettings')}
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          {t('settings.integrations.discord.advanced.description')}
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <AdvancedSectionCard
+          icon="settings-3"
+          title={t('settings.integrations.discord.advanced.behavior.title')}
+          open={sectionOpen.behavior}
+          onOpenChange={(next) => setSectionOpen((s) => ({ ...s, behavior: next }))}
         >
-          <div className="text-xs font-medium text-foreground flex items-center gap-2">
-            {t('settings.integrations.discord.advanced.fallbackChannel.title')}
-            {hasTarget && <RiCheckLine className="size-3 text-[var(--status-success)]" />}
+          <BehaviorPanel
+            conn={conn}
+            type={conn.type}
+            bridgeStatus={bridgeStatus}
+            refreshBridgeStatus={refreshBridgeStatus}
+            onToggle={(v) => {
+              updateConnection(conn.type, { bridgeEnabled: v });
+              setTimeout(() => saveDiscordConfig(), 0);
+            }}
+          />
+        </AdvancedSectionCard>
+
+        <AdvancedSectionCard
+          icon="pulse"
+          title={t('settings.integrations.discord.advanced.diagnostics.title')}
+          badge={listenerBadge}
+          meta={t('settings.integrations.discord.advanced.diagnostics.stats', {
+            seen,
+            forwarded,
+            replied,
+          })}
+          open={sectionOpen.diagnostics}
+          onOpenChange={(next) => setSectionOpen((s) => ({ ...s, diagnostics: next }))}
+        >
+          <div className="space-y-4">
+            <DiscordListenerPanel
+              conn={conn}
+              inbound={discordInbound}
+              history={discordHistory}
+              startListener={startDiscordListener}
+              stopListener={stopDiscordListener}
+              refreshStatus={refreshDiscordListenerStatus}
+              loadRecent={loadRecentDiscordMessages}
+              loadHistory={loadDiscordHistory}
+            />
+            <div className="border-t border-border/60 pt-3">
+              <DiscordDiagnosePanel
+                conn={conn}
+                diagnosis={discordDiagnosis}
+                running={discordDiagnosisRunning}
+                runDiagnose={diagnoseDiscord}
+              />
+            </div>
           </div>
-          <div className="text-[11px] text-muted-foreground leading-snug">
-            {t('settings.integrations.discord.advanced.fallbackChannel.description')}
-          </div>
-          {!hasTarget ? (
-            <>
-              <div className="text-[11px] text-muted-foreground leading-snug">
-                {meta.targetHelp}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={targetInput}
-                  onChange={(e) => setTargetInput(e.target.value)}
-                  placeholder={meta.targetPlaceholder}
-                  className={inputClass}
-                />
-                <Button
-                  type="button"
-                  variant="default"
-                  size="xs"
-                  className="!font-normal shrink-0"
-                  onClick={handleSaveTarget}
-                  disabled={!targetInput.trim()}
-                >
-                  {t('settings.integrations.discord.actions.saveToken')}
-                </Button>
-              </div>
-            </>
+        </AdvancedSectionCard>
+
+        <AdvancedSectionCard
+          icon="refresh"
+          title={t('settings.integrations.discord.advanced.syncLog.title')}
+          badge={
+            syncFailed > 0 ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--status-warning)]/15 px-2 py-0.5 text-[11px] font-medium text-[var(--status-warning)]">
+                <span className="size-1.5 rounded-full bg-[var(--status-warning)]" />
+                {t('settings.integrations.discord.advanced.syncLog.failed', { count: syncFailed })}
+              </span>
+            ) : undefined
+          }
+          meta={
+            conn.lastSyncAt
+              ? t('settings.integrations.discord.advanced.syncLog.lastSynced', {
+                  when: formatRelative(conn.lastSyncAt, t),
+                })
+              : t('settings.integrations.discord.advanced.syncLog.never')
+          }
+          open={sectionOpen.syncLog}
+          onOpenChange={(next) => setSectionOpen((s) => ({ ...s, syncLog: next }))}
+        >
+          {syncChannels.length > 0 ? (
+            <DiscordSyncResults channels={syncChannels} />
           ) : (
-            <div className="flex items-center gap-2 text-xs flex-wrap">
-              <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
-                {target}
-              </code>
-              {conn.discordChannelName && (
-                <span className="text-muted-foreground">
-                  #{conn.discordChannelName}
-                  {conn.guildName ? ` · ${conn.guildName}` : ''}
-                  {conn.discordChannelTypeLabel ? ` · ${conn.discordChannelTypeLabel}` : ''}
-                </span>
-              )}
-              {conn.botToken && conn.defaultChannelId && !conn.discordChannelName && (
-                <button
-                  type="button"
-                  onClick={() => resolveDiscordChannel()}
-                  className="text-primary text-[10px] hover:underline"
-                  title={t('settings.integrations.discord.advanced.fallbackChannel.lookUp')}
-                >
-                  {t('settings.integrations.discord.advanced.fallbackChannel.lookUp')}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  updateConnection('discord', {
-                    defaultChannelId: undefined,
-                    discordChannelName: undefined,
-                    discordChannelType: undefined,
-                    discordChannelTypeLabel: undefined,
-                  });
-                  // Persist to server-side settings.json so auto-start works on reboot
-                  setTimeout(() => saveDiscordConfig(), 0);
-                }}
-                className="text-primary text-[10px] hover:underline"
-              >
-                {t('settings.integrations.discord.advanced.primarySyncGuild.change')}
-              </button>
+            <div className="text-xs text-muted-foreground">
+              {t('settings.integrations.discord.advanced.syncLog.empty')}
             </div>
           )}
-        </div>
+        </AdvancedSectionCard>
 
-        {/* Optional: Discord owner user ID — auto-joins web-created threads so
-            they appear under the channel for you (a bot-only thread stays hidden). */}
-        <div className="space-y-2">
-          <div className="text-xs font-medium text-foreground">
-            {t('settings.integrations.discord.advanced.ownerUserId.title')}
-          </div>
-          <div className="text-[11px] text-muted-foreground leading-snug">
-            {t('settings.integrations.discord.advanced.ownerUserId.description')}
-          </div>
-          <input
-            type="text"
-            value={conn.defaultUserId ?? ''}
-            onChange={(e) => updateConnection('discord', { defaultUserId: e.target.value.trim() })}
-            onBlur={() => setTimeout(() => saveDiscordConfig(), 0)}
-            placeholder="e.g. 123456789012345678"
-            className={inputClass}
-          />
-        </div>
+        <AdvancedSectionCard
+          icon="apps"
+          title={t('settings.integrations.discord.advanced.sessionBindings.title')}
+          meta={
+            bindingsCount === 1
+              ? t('settings.integrations.discord.advanced.sessionBindings.countOne')
+              : t('settings.integrations.discord.advanced.sessionBindings.count', {
+                  count: bindingsCount,
+                })
+          }
+          open={sectionOpen.bindings}
+          onOpenChange={(next) => setSectionOpen((s) => ({ ...s, bindings: next }))}
+        >
+          <SessionBindingsPanel type={conn.type} bridgeStatus={bridgeStatus} />
+        </AdvancedSectionCard>
+      </div>
 
-        <div data-settings-item="integrations.discord.trusted-bots" className="space-y-2">
-          <div className="text-xs font-medium text-foreground">
-            {t('settings.integrations.discord.trustedBots.title')}
-          </div>
-          <div className="text-[11px] text-muted-foreground leading-snug">
-            {t('settings.integrations.discord.trustedBots.description')}
-          </div>
-          <textarea
-            value={(conn.trustedBotIds ?? []).join('\n')}
-            onChange={(e) => {
-              const trustedBotIds = e.target.value
-                .split(/[\s,]+/)
-                .map((id) => id.trim())
-                .filter(Boolean);
-              updateConnection('discord', { trustedBotIds });
-            }}
-            onBlur={() => setTimeout(() => saveDiscordConfig(), 0)}
-            placeholder={t('settings.integrations.discord.trustedBots.placeholder')}
-            className={cn(inputClass, 'min-h-16 resize-y')}
-          />
+      <div className="overflow-hidden rounded-xl border border-[var(--status-error)]/30 bg-[color-mix(in_srgb,var(--status-error)_6%,var(--background))]">
+        <div className="flex items-center gap-2 px-4 py-3">
+          <Icon name="alert" className="size-4 text-[var(--status-error)]" />
+          <span className="text-sm font-semibold text-[var(--status-error)]">
+            {t('settings.integrations.discord.advanced.dangerZone.title')}
+          </span>
         </div>
-
-        <div data-settings-item="integrations.discord.dynamic-slash" className="space-y-1.5">
-          <label className="flex cursor-pointer items-start gap-2 py-1">
-            <Checkbox
-              checked={Boolean(conn.registerDynamicSlashCommands)}
-              onChange={(checked) => {
-                updateConnection('discord', { registerDynamicSlashCommands: Boolean(checked) });
-                setTimeout(() => saveDiscordConfig(), 0);
-              }}
-              ariaLabel={t('settings.integrations.discord.dynamicSlash.title')}
-            />
-            <span className="min-w-0">
-              <span className="block text-xs font-medium text-foreground">
-                {t('settings.integrations.discord.dynamicSlash.title')}
-              </span>
-              <span className="block text-[11px] text-muted-foreground leading-snug">
-                {t('settings.integrations.discord.dynamicSlash.description')}
-              </span>
-            </span>
-          </label>
+        <div className="divide-y divide-border/60 border-t border-[var(--status-error)]/20">
+          <DangerZoneRow
+            label={t('settings.integrations.discord.advanced.dangerZone.fallbackChannel')}
+            open={dangerOpen === 'fallback'}
+            onToggle={() => toggleDanger('fallback')}
+          >
+            {fallbackFields}
+          </DangerZoneRow>
+          <DangerZoneRow
+            label={t('settings.integrations.discord.advanced.dangerZone.ownerUserId')}
+            open={dangerOpen === 'owner'}
+            onToggle={() => toggleDanger('owner')}
+          >
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground leading-snug">
+                {t('settings.integrations.discord.advanced.ownerUserId.description')}
+              </div>
+              <input
+                type="text"
+                value={conn.defaultUserId ?? ''}
+                onChange={(e) => updateConnection('discord', { defaultUserId: e.target.value.trim() })}
+                onBlur={() => setTimeout(() => saveDiscordConfig(), 0)}
+                placeholder="e.g. 123456789012345678"
+                className={inputClass}
+              />
+            </div>
+          </DangerZoneRow>
+          <DangerZoneRow
+            label={t('settings.integrations.discord.advanced.dangerZone.trustedBots')}
+            open={dangerOpen === 'trusted'}
+            onToggle={() => toggleDanger('trusted')}
+          >
+            <div data-settings-item="integrations.discord.trusted-bots" className="space-y-2">
+              <div className="text-xs text-muted-foreground leading-snug">
+                {t('settings.integrations.discord.trustedBots.description')}
+              </div>
+              <textarea
+                value={(conn.trustedBotIds ?? []).join('\n')}
+                onChange={(e) => {
+                  const trustedBotIds = e.target.value
+                    .split(/[\s,]+/)
+                    .map((id) => id.trim())
+                    .filter(Boolean);
+                  updateConnection('discord', { trustedBotIds });
+                }}
+                onBlur={() => setTimeout(() => saveDiscordConfig(), 0)}
+                placeholder={t('settings.integrations.discord.trustedBots.placeholder')}
+                className={cn(inputClass, 'min-h-16 resize-y')}
+              />
+            </div>
+          </DangerZoneRow>
+          <DangerZoneRow
+            label={t('settings.integrations.discord.advanced.dangerZone.registerSlash')}
+            open={dangerOpen === 'slash'}
+            onToggle={() => toggleDanger('slash')}
+          >
+            <div data-settings-item="integrations.discord.dynamic-slash" className="space-y-1.5">
+              <label className="flex cursor-pointer items-start gap-2 py-1">
+                <Checkbox
+                  checked={Boolean(conn.registerDynamicSlashCommands)}
+                  onChange={(checked) => {
+                    updateConnection('discord', { registerDynamicSlashCommands: Boolean(checked) });
+                    setTimeout(() => saveDiscordConfig(), 0);
+                  }}
+                  ariaLabel={t('settings.integrations.discord.dynamicSlash.title')}
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-foreground">
+                    {t('settings.integrations.discord.dynamicSlash.title')}
+                  </span>
+                  <span className="block text-xs text-muted-foreground leading-snug">
+                    {t('settings.integrations.discord.dynamicSlash.description')}
+                  </span>
+                </span>
+              </label>
+            </div>
+          </DangerZoneRow>
         </div>
+      </div>
+    </div>
+  );
 
-        {/* OpenCode bridge — routes inbound messages through OpenCode and streams
-            the response back. Global (per bot token). */}
-        <BridgePanel
-          conn={conn}
-          type={conn.type}
-          bridgeStatus={bridgeStatus}
-          refreshBridgeStatus={refreshBridgeStatus}
-          onToggle={(v) => {
-            updateConnection(conn.type, { bridgeEnabled: v });
-            // Persist to server-side settings.json when toggling the bridge
-            setTimeout(() => saveDiscordConfig(), 0);
-          }}
+  if (hideTrigger) {
+    return isOpen ? content : null;
+  }
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setOpen} className="border-t border-border/60 pt-3">
+      <label className="flex cursor-pointer select-none items-center gap-2">
+        <Checkbox
+          checked={isOpen}
+          onChange={setOpen}
+          ariaLabel={t('settings.integrations.discord.actions.advancedSettings')}
         />
-
-        {/* Discord Gateway listener diagnostics + channel history */}
-        <DiscordListenerPanel
-          conn={conn}
-          inbound={discordInbound}
-          history={discordHistory}
-          startListener={startDiscordListener}
-          stopListener={stopDiscordListener}
-          refreshStatus={refreshDiscordListenerStatus}
-          loadRecent={loadRecentDiscordMessages}
-          loadHistory={loadDiscordHistory}
-        />
-
-        {/* Discord diagnose */}
-        <DiscordDiagnosePanel
-          conn={conn}
-          diagnosis={discordDiagnosis}
-          running={discordDiagnosisRunning}
-          runDiagnose={diagnoseDiscord}
-        />
-
-        {conn.lastSyncChannels && conn.lastSyncChannels.length > 0 && (
-          <DiscordSyncResults channels={conn.lastSyncChannels} />
-        )}
-      </CollapsibleContent>
+        <span className="text-xs font-medium text-foreground">
+          {t('settings.integrations.discord.actions.advancedSettings')}
+        </span>
+        <span className="text-[10px] font-normal text-muted-foreground">
+          {t('settings.integrations.discord.actions.advancedSettingsHint')}
+        </span>
+      </label>
+      <CollapsibleContent className="pt-3">{content}</CollapsibleContent>
     </Collapsible>
   );
 }
