@@ -93,6 +93,7 @@ import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { getGitHubPrStatusKey, useGitHubPrStatusStore } from '@/stores/useGitHubPrStatusStore';
 import { subscribeOpenchamberEvents } from '@/lib/openchamberEvents';
 import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands';
+import { recordWorktreesSeen } from './sidebar/worktreeFirstSeen';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { streamPerfCount, streamPerfMark } from '@/stores/utils/streamDebug';
 
@@ -607,6 +608,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         }
       }
       const allWorktrees = [...worktreesByProject.values()].flat();
+      // Newly appearing worktrees sort to the top of their project's
+      // worktree list (see worktreeFirstSeen.ts).
+      recordWorktreesSeen(allWorktrees.map((worktree) => worktree.path), Date.now());
 
       // Skip update if nothing changed — see worktreeMapsEqual JSDoc.
       if (!worktreeMapsEqual(worktreesByProject, currentByProject)) {
