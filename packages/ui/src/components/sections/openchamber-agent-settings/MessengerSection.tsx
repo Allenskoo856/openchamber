@@ -1281,9 +1281,7 @@ function DiscordServerRow({
             className="data-[checked]:bg-[var(--status-success)]"
           />
           <span className="text-xs text-muted-foreground">
-            {respond
-              ? t('settings.integrations.discord.servers.enabled.on')
-              : t('settings.integrations.discord.servers.enabled.off')}
+            {t('settings.integrations.discord.servers.enabled.label')}
           </span>
         </label>
 
