@@ -177,7 +177,7 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
           <div key={section.key} className="relative space-y-1">
             {/* Zone header styled like a project header band; sticky with a
                 solid sidebar backing so rows never show through. */}
-            <div className="sticky top-0 z-10 -ml-2.5 -mr-2 bg-sidebar">
+            <div className="oc-zone-header-backing sticky top-0 z-10 -ml-2.5 -mr-2 bg-sidebar">
               <button
                 type="button"
                 onClick={() => toggleSection(section.key)}
