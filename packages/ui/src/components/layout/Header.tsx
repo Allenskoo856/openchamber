@@ -1322,7 +1322,7 @@ export const Header: React.FC<HeaderProps> = ({
     if (worktreesSurfaceProjectId) {
       return {
         title: t('sessions.worktreesPage.title', { project: worktreesSurfaceProjectLabel ?? '' }),
-        subtitle: t('sessions.worktreesPage.description'),
+        subtitle: null,
       };
     }
     if (isMultiRunSurfaceOpen) {

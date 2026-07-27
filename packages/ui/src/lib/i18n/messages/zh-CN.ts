@@ -427,7 +427,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.header.grouping.byWorktree': '按工作树',
   'sessions.sidebar.header.grouping.flat': '平铺列表',
   'sessions.sidebar.project.actions.manageWorktrees': '管理工作树',
-  'sessions.worktreesPage.title': '工作树 — {project}',
+  'sessions.worktreesPage.title': '{project} 的工作树',
   'sessions.worktreesPage.description': '创建、查看和删除此项目的 git 工作树。',
   'sessions.worktreesPage.closeAria': '关闭工作树',
   'sessions.scheduledTasks.page.closeAria': '关闭计划任务',

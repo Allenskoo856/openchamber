@@ -268,7 +268,7 @@ export const dict = {
   'sessions.sidebar.header.grouping.byWorktree': 'Par worktree',
   'sessions.sidebar.header.grouping.flat': 'Liste plate',
   'sessions.sidebar.project.actions.manageWorktrees': 'Gérer les worktrees',
-  'sessions.worktreesPage.title': 'Worktrees — {project}',
+  'sessions.worktreesPage.title': 'Worktrees dans {project}',
   'sessions.worktreesPage.description': 'Créez, inspectez et supprimez les worktrees git de ce projet.',
   'sessions.worktreesPage.closeAria': 'Fermer les worktrees',
   'sessions.scheduledTasks.page.closeAria': 'Fermer les tâches planifiées',
