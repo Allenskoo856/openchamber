@@ -192,7 +192,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 // the section band spans the entire sidebar width (ref: edge-
                 // to-edge section headers, not rounded pills).
                 <div
-                  className={cn('oc-zone-header-backing sticky top-0 z-10 -ml-2.5 -mr-2 bg-sidebar text-left group/project select-none')}
+                  className={cn('oc-zone-header-backing sticky top-0 z-20 -ml-2.5 -mr-2 bg-sidebar text-left group/project select-none')}
                   onContextMenu={(event) => {
                     // VS Code hides project actions entirely (hideDirectoryControls).
                     if (hideDirectoryControls) return;
