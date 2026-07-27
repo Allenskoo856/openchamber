@@ -3,6 +3,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -126,61 +127,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     <button
                       type="button"
                       className={headerActionButtonClass}
-                      aria-label={t('sessions.sidebar.header.actions.sortProjects')}
-                    >
-                      <Icon name="sort-desc" className={headerActionIconClass} />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.actions.sortProjects')}</p></TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="end" className="min-w-[160px]">
-                <DropdownMenuItem
-                  onClick={() => setProjectSortOrder('manual')}
-                  className="flex items-center justify-between"
-                >
-                  <span>{t('sessions.sidebar.header.projectSort.manual')}</span>
-                  {projectSortOrder === 'manual' ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setProjectSortOrder('a-z')}
-                  className="flex items-center justify-between"
-                >
-                  <span>{t('sessions.sidebar.header.projectSort.aToZ')}</span>
-                  {projectSortOrder === 'a-z' ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setProjectSortOrder('z-a')}
-                  className="flex items-center justify-between"
-                >
-                  <span>{t('sessions.sidebar.header.projectSort.zToA')}</span>
-                  {projectSortOrder === 'z-a' ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setProjectSortOrder('date-added')}
-                  className="flex items-center justify-between"
-                >
-                  <span>{t('sessions.sidebar.header.projectSort.dateAdded')}</span>
-                  {projectSortOrder === 'date-added' ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setProjectSortOrder('recent')}
-                  className="flex items-center justify-between"
-                >
-                  <span>{t('sessions.sidebar.header.projectSort.recent')}</span>
-                  {projectSortOrder === 'recent' ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className={headerActionButtonClass}
-                      aria-label={t('sessions.sidebar.header.actions.sessionDisplayMode')}
+                      aria-label={t('sessions.sidebar.header.displayMode.label')}
                     >
                       <Icon name="equalizer-2" className={headerActionIconClass} />
                     </button>
@@ -188,17 +135,37 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={4}><p>{t('sessions.sidebar.header.displayMode.label')}</p></TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="end" className="min-w-[160px]">
-                {showRecentControls ? (
+              <DropdownMenuContent align="end" className="min-w-[180px]">
+                <DropdownMenuLabel>{t('sessions.sidebar.header.actions.sortProjects')}</DropdownMenuLabel>
+                {([
+                  ['manual', 'sessions.sidebar.header.projectSort.manual'],
+                  ['a-z', 'sessions.sidebar.header.projectSort.aToZ'],
+                  ['z-a', 'sessions.sidebar.header.projectSort.zToA'],
+                  ['date-added', 'sessions.sidebar.header.projectSort.dateAdded'],
+                  ['recent', 'sessions.sidebar.header.projectSort.recent'],
+                ] as const).map(([order, labelKey]) => (
                   <DropdownMenuItem
-                    onClick={toggleRecentSection}
+                    key={order}
+                    onClick={() => setProjectSortOrder(order)}
                     className="flex items-center justify-between"
                   >
-                    <span>{t('sessions.sidebar.header.displayMode.showRecent')}</span>
-                    {showRecentSection ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                    <span>{t(labelKey)}</span>
+                    {projectSortOrder === order ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
                   </DropdownMenuItem>
+                ))}
+                {showRecentControls ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={toggleRecentSection}
+                      className="flex items-center justify-between"
+                    >
+                      <span>{t('sessions.sidebar.header.displayMode.showRecent')}</span>
+                      {showRecentSection ? <Icon name="check" className="h-4 w-4 text-primary" /> : null}
+                    </DropdownMenuItem>
+                  </>
                 ) : null}
-                {showRecentControls ? <DropdownMenuSeparator /> : null}
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={collapseAllProjects} className="flex items-center gap-2">
                   <Icon name="contract-up-down" className="h-4 w-4" />
                   <span>{t('sessions.sidebar.header.displayMode.collapseAll')}</span>
@@ -207,7 +174,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   <Icon name="expand-up-down" className="h-4 w-4" />
                   <span>{t('sessions.sidebar.header.displayMode.expandAll')}</span>
                 </DropdownMenuItem>
-
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

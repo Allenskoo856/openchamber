@@ -1519,6 +1519,19 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     ),
   );
 
+  // Selection scope is the project id; bulk folder actions need the project's
+  // directory scopes (root + worktrees) to resolve folders across worktrees.
+  const folderScopesByProject = React.useMemo(() => {
+    const map = new Map<string, Array<{ scopeKey: string; directory: string | null }>>();
+    flatSectionsForRender.forEach((section) => {
+      const flatGroup = section.groups.find((group) => !group.isArchivedBucket);
+      if (flatGroup?.folderScopes && flatGroup.folderScopes.length > 0) {
+        map.set(section.project.id, flatGroup.folderScopes);
+      }
+    });
+    return map;
+  }, [flatSectionsForRender]);
+
   const renderProjectStatusIndicator = React.useCallback((_projectId: string, groups: SessionGroup[]) => {
     const directories: Array<string | null> = [];
     groups.forEach((group) => {
@@ -1662,6 +1675,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     isInlineEditing,
     showDeletionDialog,
     foldersMap,
+    folderScopesByProject,
     addSessionsToFolder,
     removeSessionsFromFolders,
     createFolderAndStartRename,
@@ -1726,6 +1740,22 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         recentSessions={recentSessions}
         prefetchSession={sync.prefetchSession}
       />
+      {!hideDirectoryControls && !isVSCode ? (
+        <SidebarNav
+          onNewSession={handleOpenNewSessionDraftFromHeader}
+          onOpenScheduled={() => {
+            if (mobileVariant) setSessionSwitcherOpen(false);
+            setScheduledTasksDialogOpen(true);
+          }}
+          onOpenMultiRun={handleOpenMultiRunFromHeader}
+          canOpenMultiRun={projects.length > 0}
+          onOpenArchive={() => {
+            if (mobileVariant) setSessionSwitcherOpen(false);
+            setArchivePageOpen(true);
+          }}
+        />
+      ) : null}
+
       <SidebarHeader
         hideDirectoryControls={hideDirectoryControls}
         showRecentControls={!isVSCode}
@@ -1744,22 +1774,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         selectionModeEnabled={selectionModeEnabled}
         onToggleSelectionMode={handleToggleSelectionMode}
       />
-
-      {!hideDirectoryControls && !isVSCode ? (
-        <SidebarNav
-          onNewSession={handleOpenNewSessionDraftFromHeader}
-          onOpenScheduled={() => {
-            if (mobileVariant) setSessionSwitcherOpen(false);
-            setScheduledTasksDialogOpen(true);
-          }}
-          onOpenMultiRun={handleOpenMultiRunFromHeader}
-          canOpenMultiRun={projects.length > 0}
-          onOpenArchive={() => {
-            if (mobileVariant) setSessionSwitcherOpen(false);
-            setArchivePageOpen(true);
-          }}
-        />
-      ) : null}
 
       {isVisible ? <SidebarProjectsList
         topContent={topContent}

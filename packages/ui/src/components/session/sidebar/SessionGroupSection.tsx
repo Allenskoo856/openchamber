@@ -771,7 +771,17 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
       hasFolders={allFoldersForGroup.length > 0}
       onSessionDroppedOnFolder={(sessionId, folderId) => {
         const targetEntry = allFoldersForGroup.find(({ folder }) => folder.id === folderId);
-        if (targetEntry) addSessionToFolder(targetEntry.scopeKey, folderId, sessionId);
+        if (!targetEntry) return;
+        // Clear membership in other scopes first — the store only dedupes
+        // within one scope, and a session must live in a single folder.
+        const foldersStore = useSessionFoldersStore.getState();
+        for (const { scopeKey } of folderScopes) {
+          if (scopeKey === targetEntry.scopeKey) continue;
+          if (foldersStore.getSessionFolderId(scopeKey, sessionId)) {
+            foldersStore.removeSessionFromFolder(scopeKey, sessionId);
+          }
+        }
+        addSessionToFolder(targetEntry.scopeKey, folderId, sessionId);
       }}
     >
       {shouldVirtualize ? (

@@ -384,6 +384,10 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
   const sessionDirectory =
     normalizePath((session as Session & { directory?: string | null }).directory ?? null)
     ?? normalizePath(groupDirectory ?? null);
+  // Multi-select scope: sessions are flat per project, so selection groups by
+  // project (falling back to the directory when no project is known) — a
+  // selection must survive mixing sessions from different worktrees.
+  const selectionScopeKey = projectId ?? sessionDirectory ?? null;
   // Directory bootstrap is scheduled once at sidebar level. A row only needs
   // the lightweight store reference for scoped state and export actions.
   const directoryStore = useDirectoryStore(sessionDirectory ?? undefined, { bootstrap: false });
@@ -816,10 +820,10 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
         const currentAnchor = useSessionMultiSelectStore.getState().anchorId;
         const descendantsById = new Map<string, string[]>();
         descendantsById.set(session.id, collectNodeDescendantIds(node));
-        setRowRange(currentAnchor, session.id, orderedIds, sessionDirectory ?? null, descendantsById);
+        setRowRange(currentAnchor, session.id, orderedIds, selectionScopeKey, descendantsById);
         return;
       }
-      toggleRowSelected(session.id, sessionDirectory ?? null, collectNodeDescendantIds(node));
+      toggleRowSelected(session.id, selectionScopeKey, collectNodeDescendantIds(node));
       return;
     }
     if (event?.currentTarget) holdSessionRowPosition(event.currentTarget);
@@ -946,31 +950,72 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
       ) : null}
 
       {sessionDirectory && !archivedBucket ? (() => {
-        const scopeFolders = getFoldersForScope(sessionDirectory);
-        const currentFolderId = getSessionFolderId(sessionDirectory, session.id);
+        // Folders are flat per project: list folders from every scope of the
+        // owning project (root + all worktrees) so sessions can be filed
+        // across worktrees. Each action targets the folder's owning scope,
+        // and moving between scopes clears the previous membership first.
+        const scopes: string[] = [];
+        const pushScope = (candidate: string | null | undefined) => {
+          const normalized = normalizePath(candidate ?? null);
+          if (normalized && !scopes.includes(normalized)) scopes.push(normalized);
+        };
+        if (projectId && !isVSCode) {
+          const project = useProjectsStore.getState().projects.find((entry) => entry.id === projectId);
+          const projectRoot = normalizePath(project?.path ?? null);
+          pushScope(projectRoot);
+          if (projectRoot) {
+            (useSessionUIStore.getState().availableWorktreesByProject.get(projectRoot) ?? [])
+              .forEach((worktree) => pushScope(worktree.path));
+          }
+        }
+        pushScope(sessionDirectory);
+        const folderEntries = scopes.flatMap((scope) =>
+          getFoldersForScope(scope).map((folder) => ({ scope, folder })));
+        const currentEntry = folderEntries.find(({ scope, folder }) =>
+          getSessionFolderId(scope, session.id) === folder.id) ?? null;
+        const defaultScope = scopes[0] ?? sessionDirectory;
         return (
           <>
             <Separator />
             <Sub>
               <SubTrigger className="[&>svg]:mr-1"><Icon name="folder" className="h-4 w-4" />{t('sessions.sidebar.folders.moveToFolder')}</SubTrigger>
               <SubContent className="min-w-[180px]">
-                {scopeFolders.length === 0 ? (
+                {folderEntries.length === 0 ? (
                   <Item disabled className="text-muted-foreground">{t('sessions.sidebar.folders.none')}</Item>
                 ) : (
-                  scopeFolders.map((folder) => (
-                    <Item key={folder.id} onClick={() => { if (currentFolderId === folder.id) removeSessionFromFolder(sessionDirectory, session.id); else addSessionToFolder(sessionDirectory, folder.id, session.id); }}>
-                      <span className="flex-1 truncate">{folder.name}</span>
-                      {currentFolderId === folder.id ? <Icon name="check" className="ml-2 h-3.5 w-3.5 text-primary flex-shrink-0" /> : null}
-                    </Item>
-                  ))
+                  folderEntries.map(({ scope, folder }) => {
+                    const isCurrent = currentEntry?.folder.id === folder.id;
+                    return (
+                      <Item key={folder.id} onClick={() => {
+                        if (isCurrent) {
+                          removeSessionFromFolder(scope, session.id);
+                          return;
+                        }
+                        if (currentEntry && currentEntry.scope !== scope) {
+                          removeSessionFromFolder(currentEntry.scope, session.id);
+                        }
+                        addSessionToFolder(scope, folder.id, session.id);
+                      }}>
+                        <span className="flex-1 truncate">{folder.name}</span>
+                        {isCurrent ? <Icon name="check" className="ml-2 h-3.5 w-3.5 text-primary flex-shrink-0" /> : null}
+                      </Item>
+                    );
+                  })
                 )}
                 <Separator />
-                <Item onClick={() => { const newFolder = createFolderAndStartRename(sessionDirectory); if (!newFolder) return; addSessionToFolder(sessionDirectory, newFolder.id, session.id); }}>
+                <Item onClick={() => {
+                  const newFolder = createFolderAndStartRename(defaultScope);
+                  if (!newFolder) return;
+                  if (currentEntry && currentEntry.scope !== defaultScope) {
+                    removeSessionFromFolder(currentEntry.scope, session.id);
+                  }
+                  addSessionToFolder(defaultScope, newFolder.id, session.id);
+                }}>
                   <Icon name="add" className="mr-1 h-4 w-4" />
                   {t('sessions.sidebar.folders.newFolderEllipsis')}
                 </Item>
-                {currentFolderId ? (
-                  <Item onClick={() => { removeSessionFromFolder(sessionDirectory, session.id); }} className="text-destructive focus:text-destructive">
+                {currentEntry ? (
+                  <Item onClick={() => { removeSessionFromFolder(currentEntry.scope, session.id); }} className="text-destructive focus:text-destructive">
                     <Icon name="close" className="mr-1 h-4 w-4" />
                     {t('sessions.sidebar.folders.removeFromFolder')}
                   </Item>
@@ -1095,7 +1140,7 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
             render={
               <div
                 data-session-row={session.id}
-                data-session-scope={sessionDirectory ?? ''}
+                data-session-scope={selectionScopeKey ?? ''}
                 data-session-archived={archivedBucket ? '1' : '0'}
                 onClick={handleRowBackgroundClick}
                 // Row geometry mirrors the zone-header band: full container
