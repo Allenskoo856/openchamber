@@ -1102,31 +1102,31 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                   >
                     <div className="flex w-full items-center min-w-0 flex-1 gap-1 overflow-hidden">
                       <div className={cn('block min-w-0 flex-1 truncate typography-ui-label', needsAttention && !isActive ? 'font-medium' : 'font-normal', isActive ? 'text-primary' : 'text-foreground')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
-                      {tooltipBranchLabel ? (
-                        <span className="ml-1 inline-flex min-w-0 max-w-[45%] flex-shrink items-center gap-0.5 text-[0.72rem] text-muted-foreground/70">
-                          <Icon name="git-branch" className="h-3 w-3 flex-shrink-0" />
-                          <span className="truncate">{tooltipBranchLabel}</span>
-                        </span>
-                      ) : null}
                       {alwaysShowActions ? (
+                        // Touch runtimes have no hover tooltip, so the compact
+                        // date stays inline there.
                         <span className="ml-2 inline-flex flex-shrink-0 items-center gap-1 text-[0.72rem] text-muted-foreground/75">
                           {sessionGoalGlyph}
+                          {tooltipBranchLabel ? (
+                            <Icon name="git-branch" className="h-3 w-3 text-muted-foreground/60" />
+                          ) : null}
                           {sessionCompactUpdatedLabel}
                         </span>
-                      ) : null}
-                      {!alwaysShowActions ? (
+                      ) : (
                         <div className="relative ml-1 flex h-4 min-w-4 flex-shrink-0 items-center justify-end">
                           <span className={cn(
-                            'inline-flex items-center gap-1 whitespace-nowrap text-right text-[0.72rem] text-muted-foreground/75 transition-opacity duration-150',
+                            'inline-flex items-center gap-1 whitespace-nowrap text-right transition-opacity duration-150',
                             isSessionMenuOpen
                               ? 'opacity-0'
                               : hideOnHoverClass,
                           )}>
                             {sessionGoalGlyph}
-                            {sessionCompactUpdatedLabel}
+                            {tooltipBranchLabel ? (
+                              <Icon name="git-branch" className="h-3 w-3 text-muted-foreground/60" />
+                            ) : null}
                           </span>
                         </div>
-                      ) : null}
+                      )}
                       {pendingPermissionCount > 0 ? (
                         <span className="inline-flex items-center gap-1 rounded bg-destructive/10 px-1 py-0.5 text-[0.7rem] text-destructive flex-shrink-0" title={t('sessions.sidebar.session.status.permissionRequired')} aria-label={t('sessions.sidebar.session.status.permissionRequired')}>
                           <Icon name="shield" className="h-3 w-3" />
@@ -1140,16 +1140,21 @@ function SessionNodeItemComponent(props: Props): React.ReactNode {
                     the per-row metadata tooltip is redundant noise there. */}
                 {!isVSCode ? (
                 <TooltipContent side="right" sideOffset={8} className="max-w-xs text-left">
-                  <div className="flex flex-col gap-1 text-left text-xs">
-                    <div className={cn('flex items-center gap-3 text-left text-muted-foreground', tooltipProjectLabel ? 'justify-between' : 'justify-start')}>
-                      {tooltipProjectLabel ? <div className="min-w-0 truncate">{tooltipProjectLabel}</div> : null}
-                      <div className="flex-shrink-0">{sessionUpdatedLabel}</div>
+                  <div className="flex min-w-44 flex-col gap-1.5 text-left text-xs">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate font-medium text-foreground">{sessionTitle}</span>
+                      <span className="flex-shrink-0 text-muted-foreground" title={sessionUpdatedLabel}>{sessionCompactUpdatedLabel}</span>
                     </div>
+                    {tooltipProjectLabel ? (
+                      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                        <Icon name="folder" className="h-3 w-3 flex-shrink-0" />
+                        <span className="min-w-0 truncate">{tooltipProjectLabel}</span>
+                      </div>
+                    ) : null}
                     {tooltipBranchLabel ? (
-                      <div className="flex items-center gap-3 text-left text-muted-foreground justify-start">
-                        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-                          <span className="inline-flex min-w-0 items-center gap-0.5"><Icon name="git-branch" className="h-3 w-3 flex-shrink-0" /><span className="truncate">{tooltipBranchLabel}</span></span>
-                        </div>
+                      <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                        <Icon name="git-branch" className="h-3 w-3 flex-shrink-0" />
+                        <span className="min-w-0 truncate">{tooltipBranchLabel}</span>
                       </div>
                     ) : null}
                   </div>
