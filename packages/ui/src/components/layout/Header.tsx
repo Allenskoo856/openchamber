@@ -1314,10 +1314,7 @@ export const Header: React.FC<HeaderProps> = ({
   });
   const activeSurfaceHeader = React.useMemo<{ title: string; subtitle: string | null } | null>(() => {
     if (isScheduledSurfaceOpen) {
-      return {
-        title: t('sessions.scheduledTasks.dialog.title'),
-        subtitle: t('sessions.scheduledTasks.dialog.description'),
-      };
+      return { title: t('sessions.scheduledTasks.dialog.title'), subtitle: null };
     }
     if (isArchiveSurfaceOpen) {
       return { title: t('sessions.archivePage.title'), subtitle: null };

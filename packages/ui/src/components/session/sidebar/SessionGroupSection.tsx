@@ -873,7 +873,9 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
         }))
       )}
       {totalSessions === 0 && allFoldersForGroup.length === 0 ? (
-        <div className="py-1 text-left typography-micro text-muted-foreground">
+        // pl-[26px] lines the text up with the worktree sub-header label
+        // (gutter + icon + gap).
+        <div className="py-1 pl-[26px] text-left typography-micro text-muted-foreground">
           {group.isArchivedBucket
             ? t('sessions.sidebar.group.empty.noArchivedSessions')
             : bootstrapState === 'queued' || bootstrapState === 'running'

@@ -930,9 +930,21 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     });
   }, []);
 
+  // Collapse/expand covers both levels: projects and their worktree groups.
+  const projectSectionsRef = React.useRef<typeof projectSections>([]);
+
   const collapseAllProjects = React.useCallback(() => {
     ignoreIntersectionUntil.current = Date.now() + 150;
     setVisibleSessionCountByGroup(new Map());
+    setCollapsedGroups(() => {
+      const allGroupKeys = new Set<string>();
+      projectSectionsRef.current.forEach((section) => {
+        section.groups.forEach((group) => {
+          if (!group.isMain) allGroupKeys.add(`${section.project.id}:${group.id}`);
+        });
+      });
+      return allGroupKeys;
+    });
     setCollapsedProjects(() => {
       const allIds = new Set(projects.map((p) => p.id));
       try {
@@ -948,6 +960,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const expandAllProjects = React.useCallback(() => {
     ignoreIntersectionUntil.current = Date.now() + 150;
     setVisibleSessionCountByGroup(new Map());
+    setCollapsedGroups(new Set());
     setCollapsedProjects(() => {
       const empty = new Set<string>();
       try {
@@ -1239,6 +1252,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     buildGroupSearchText,
     foldersMap,
   });
+
+  projectSectionsRef.current = projectSections;
 
   const searchEmptyState = React.useMemo(() => (
     <div className="py-6 text-center text-muted-foreground">
