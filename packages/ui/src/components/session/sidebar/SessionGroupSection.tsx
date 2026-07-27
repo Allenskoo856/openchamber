@@ -963,7 +963,6 @@ function SessionGroupSectionBase(props: Props): React.ReactNode {
             // pl-1.5 lines the branch icon up with the project-zone header
             // icon (container pl-2.5 + 6px = band pl-4 past its -ml-2.5).
             'min-w-0 flex flex-1 items-start gap-1 overflow-hidden pl-1.5 transition-[padding]',
-            dragHandleProps ? 'cursor-grab active:cursor-grabbing' : '',
             groupHeaderRightPadding,
           )}
           {...(dragHandleProps?.listeners ?? {})}
