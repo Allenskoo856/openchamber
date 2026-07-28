@@ -473,6 +473,9 @@ export function createMessengerSyncRouter({
       }
     : null;
 
+  /** Set after autoCreateMessengerSurfacesForProject is defined — read at call time. */
+  let ensureProjectChannelForWorktree = null;
+
   const bridge =
     globalEventHub && buildOpenCodeUrl
       ? createMessengerOpencodeBridge({
@@ -493,6 +496,10 @@ export function createMessengerSyncRouter({
               },
             });
           },
+          // Worktree sync: resolve the project channel a worktree thread
+          // belongs to, and auto-create that channel on demand.
+          resolveProjectChannel,
+          getEnsureProjectChannel: () => ensureProjectChannelForWorktree,
           lookupMessengerTarget: makeLookupMessengerTarget(),
           getDefaultMessengerTarget: readSettings ? resolveDefaultDiscordTarget : null,
           // Settings access for voice-message STT (sttServerUrl/sttModel/sttLanguage).
@@ -1704,6 +1711,16 @@ export function createMessengerSyncRouter({
           upsertBinding(bindings, { channelId, projectPath: project.path, projectLabel }),
           discordSettings,
         );
+        // Keep the pinned worktree index in the project channel up to date.
+        if (bridge?.worktreeSync) {
+          void bridge.worktreeSync
+            .refreshProjectHub({
+              config: await bridge.worktreeSync.loadDiscordConfig(),
+              projectRoot: project.path,
+              projectLabel,
+            })
+            .catch(() => undefined);
+        }
       } else {
         results.push({ type: 'discord', ok: false, error: error ?? 'create-channel failed' });
       }
@@ -1716,6 +1733,18 @@ export function createMessengerSyncRouter({
     });
     return results;
   }
+
+  // Lazy hook the bridge's worktree sync uses to create a missing project
+  // channel while ensuring a worktree thread. Reads the freshest bindings.
+  ensureProjectChannelForWorktree = async (project, discord) => {
+    const results = await autoCreateMessengerSurfacesForProject(project, { discord });
+    const created = results.find((r) => r.ok && r.channelId);
+    if (!created?.channelId) return null;
+    return {
+      channelId: created.channelId,
+      projectLabel: project.label ?? project.path.split('/').pop() ?? project.path,
+    };
+  };
 
   /**
    * Explicit endpoint — the UI calls this right after a project is added so
@@ -1893,6 +1922,103 @@ export function createMessengerSyncRouter({
     });
 
     res.json({ ok: !error, channelId, deleted, error });
+  });
+
+  /**
+   * UI created a worktree → ensure a Discord thread + refresh the project hub index.
+   * Body: {
+   *   project: { id?, path, label? },
+   *   worktree: { path, branch?, label? },
+   *   sessionId?: string,
+   *   discord?: { token, guildId?, parentCategoryId?, projectBindings?, defaultChannelId? }
+   * }
+   */
+  router.post('/bridge/worktree-added', async (req, res) => {
+    const { project, worktree, sessionId, discord } = req.body ?? {};
+    if (!project?.path || !worktree?.path) {
+      return res.status(400).json({ ok: false, error: 'project.path and worktree.path required' });
+    }
+    if (!bridge?.worktreeSync) {
+      return res.json({ ok: false, error: 'worktree sync is not available on this server' });
+    }
+    const result = await bridge.worktreeSync.handleWorktreeAdded({
+      project,
+      worktree,
+      sessionId,
+      discord,
+    });
+    if (!result.ok && !result.skipped) {
+      console.warn('[MESSENGER] worktree-added failed:', result.error ?? result);
+    }
+    res.json(result);
+  });
+
+  /**
+   * UI removed a worktree → archive its Discord thread and refresh the hub index.
+   */
+  router.post('/bridge/worktree-removed', async (req, res) => {
+    const { project, worktree } = req.body ?? {};
+    if (!worktree?.path) {
+      return res.status(400).json({ ok: false, error: 'worktree.path required' });
+    }
+    if (!bridge?.worktreeSync) {
+      return res.json({ ok: false, error: 'worktree sync is not available on this server' });
+    }
+    const result = await bridge.worktreeSync.handleWorktreeRemoved({ project, worktree });
+    res.json(result);
+  });
+
+  /**
+   * Worktree merged (UI integrate flow or Discord command) → post summary, archive thread.
+   */
+  router.post('/bridge/worktree-merged', async (req, res) => {
+    const { project, worktree, summary } = req.body ?? {};
+    if (!worktree?.path) {
+      return res.status(400).json({ ok: false, error: 'worktree.path required' });
+    }
+    if (!bridge?.worktreeSync) {
+      return res.json({ ok: false, error: 'worktree sync is not available on this server' });
+    }
+    const result = await bridge.worktreeSync.handleWorktreeMerged({ project, worktree, summary });
+    res.json(result);
+  });
+
+  /**
+   * Lookup the Discord URL for a worktree path (UI "Open in Discord" link).
+   */
+  router.get('/bridge/worktree-discord-url', async (req, res) => {
+    const worktreePath = typeof req.query?.path === 'string' ? req.query.path : null;
+    if (!worktreePath) {
+      return res.status(400).json({ ok: false, error: 'path query parameter required' });
+    }
+    if (!bridge?.worktreeSync) {
+      return res.json({ ok: false, error: 'worktree sync is not available on this server' });
+    }
+    const discordUrl = await bridge.worktreeSync.lookupWorktreeDiscordUrl(worktreePath);
+    if (!discordUrl) {
+      return res.json({ ok: false, error: 'no Discord thread is bound to this worktree' });
+    }
+    return res.json({ ok: true, discordUrl, path: worktreePath });
+  });
+
+  /**
+   * Refresh the pinned worktree index message for a project channel.
+   */
+  router.post('/bridge/worktree-refresh-index', async (req, res) => {
+    const { project } = req.body ?? {};
+    if (!project?.path) {
+      return res.status(400).json({ ok: false, error: 'project.path required' });
+    }
+    if (!bridge?.worktreeSync) {
+      return res.json({ ok: false, error: 'worktree sync is not available on this server' });
+    }
+    const config = await bridge.worktreeSync.loadDiscordConfig();
+    const result = await bridge.worktreeSync.refreshProjectHub({
+      config,
+      projectRoot: project.path,
+      projectLabel: project.label ?? null,
+    });
+    res.json(result);
   });
 
   /**
@@ -2230,6 +2356,7 @@ export function createMessengerSyncRouter({
       projectBindings,
       defaultReplyMode,
       guildPolicies,
+      syncWorktrees,
     } = req.body ?? {};
     // TEMP DEBUG: capture what the browser actually posts when toggling reply modes
     try {
@@ -2293,6 +2420,10 @@ export function createMessengerSyncRouter({
             guildPolicies && typeof guildPolicies === 'object'
               ? guildPolicies
               : prev.guildPolicies || undefined,
+          // Preserve a previously saved choice when the caller didn't send the
+          // flag (older UIs / partial saves); default stays enabled.
+          syncWorktrees:
+            syncWorktrees === undefined ? prev.syncWorktrees : syncWorktrees !== false,
         },
       });
 

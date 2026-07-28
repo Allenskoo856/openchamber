@@ -47,6 +47,8 @@ import {
 } from './messenger-worktrees.js';
 import { buildMessengerGitDiffReply } from './messenger-git-diff.js';
 import { buildCritiqueInstructions } from './messenger-critique.js';
+import { createMessengerWorktreeSync } from './messenger-worktree-sync.js';
+import { resolvePrimaryWorktreeRoot } from '../git/service.js';
 import parser from 'cron-parser';
 
 /**
@@ -633,8 +635,27 @@ export function createMessengerOpencodeBridge({
    * sourced items still post the `» queued` marker and go through routeInbound.
    */
   messageQueueRuntime = null,
+  /**
+   * Resolve a project's Discord channel from persisted bindings (used by the
+   * worktree sync to pick the channel a worktree thread belongs to).
+   * Signature: ({ discord, projectPath, bridgeStore? }) => Promise<{ channelId, projectLabel } | null>
+   */
+  resolveProjectChannel = null,
+  /**
+   * Lazy accessor for auto-creating a project's Discord channel when a
+   * worktree thread is ensured but no project channel exists yet.
+   * Signature: () => (project, discordConfig) => Promise<{ channelId, projectLabel } | null>
+   */
+  getEnsureProjectChannel = null,
 }) {
   const bridgeStore = store ?? new MessengerBridgeStore();
+  const worktreeSync = createMessengerWorktreeSync({
+    store: bridgeStore,
+    readSettings,
+    broadcastEvent,
+    resolveProjectChannel,
+    getEnsureProjectChannel,
+  });
 
   /**
    * Resolve the OpenChamber-wide default model/agent (Settings → Defaults).
@@ -1588,6 +1609,16 @@ export function createMessengerOpencodeBridge({
     // No explicit title — OpenCode auto-generates one from the first
     // message and the bridge renames the Discord thread to match.
     const sessionId = await createOpencodeSession({ projectPath: effectivePath });
+    const projectRoot = effectivePath
+      ? (await resolvePrimaryWorktreeRoot(effectivePath).catch(() => ({ root: effectivePath }))).root
+      : null;
+    const normalizedPath = effectivePath?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null;
+    const normalizedRoot = projectRoot?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null;
+    const isWorktree =
+      normalizedPath &&
+      normalizedRoot &&
+      normalizedPath !== normalizedRoot &&
+      (await worktreeSync.isWorktreeDirectory(normalizedPath, normalizedRoot).catch(() => false));
     bridgeStore.bind({
       type,
       botTokenHash: hash,
@@ -1595,7 +1626,18 @@ export function createMessengerOpencodeBridge({
       sessionId,
       projectPath: effectivePath,
       projectLabel: effectiveLabel,
+      projectRoot: normalizedRoot,
+      worktreePath: isWorktree ? normalizedPath : null,
+      branch: null,
     });
+    // When the new session runs inside a linked worktree, make sure the
+    // worktree has its own Discord thread (and bind this session to it) so
+    // Discord mirrors the UI worktree model.
+    void worktreeSync.handleSessionDirectoryBound({
+      sessionId,
+      directory: effectivePath,
+      projectLabel: effectiveLabel,
+    }).catch(() => undefined);
     broadcastEvent?.('messenger.bridge.session_bound', {
       type,
       channelId,
@@ -2626,6 +2668,36 @@ export function createMessengerOpencodeBridge({
           // best-effort — fall through to creating a fresh thread
         }
         if (!threadId) {
+          // Sessions that run inside a linked worktree mirror into the
+          // worktree's own thread (created on demand) instead of a generic
+          // per-session thread — one thread per worktree across surfaces.
+          let worktreeThreadId = null;
+          if (effectiveProjectPath) {
+            try {
+              const root = (
+                await resolvePrimaryWorktreeRoot(effectiveProjectPath).catch(() => ({
+                  root: effectiveProjectPath,
+                }))
+              ).root;
+              const isWorktree = await worktreeSync
+                .isWorktreeDirectory(effectiveProjectPath, root)
+                .catch(() => false);
+              if (isWorktree) {
+                const ensured = await worktreeSync.ensureWorktreeThread({
+                  projectRoot: root,
+                  worktreePath: effectiveProjectPath,
+                  sessionId,
+                  projectLabel: target.projectLabel ?? null,
+                });
+                if (ensured.ok && ensured.threadId) worktreeThreadId = ensured.threadId;
+              }
+            } catch {
+              // best-effort — fall back to a generic mirror thread
+            }
+          }
+          if (worktreeThreadId) {
+            threadId = worktreeThreadId;
+          } else {
           // Thread name preference: the OpenCode-generated session title (when
           // it already exists — title generation often finishes before the
           // mirror thread is created), then the user's first line, then a
@@ -2675,6 +2747,7 @@ export function createMessengerOpencodeBridge({
           }
           // If thread creation failed, threadId stays null and we post into
           // the channel directly — degraded but functional.
+          }
         }
       }
 
@@ -3755,7 +3828,7 @@ export function createMessengerOpencodeBridge({
      * Used by /resume, /fork and /new-worktree. When the command ran inside
      * a thread we hop up to the parent channel first.
      */
-    const createBoundThread = async ({ name, sessionId, projectPath, projectLabel }) => {
+    const createBoundThread = async ({ name, sessionId, projectPath, projectLabel, projectRoot = null, worktreePath = null, branch = null }) => {
       let hostChannelId = channelId;
       const parentId = await resolveParentChannelId({ token, channelId });
       if (parentId) hostChannelId = parentId;
@@ -3768,6 +3841,16 @@ export function createMessengerOpencodeBridge({
       if (!thread.ok || !thread.threadId) {
         return { ok: false, error: thread.error ?? 'thread creation failed' };
       }
+      const normalizedPath = projectPath?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null;
+      const normalizedRoot =
+        projectRoot?.replace(/\\/g, '/').replace(/\/+$/, '') ??
+        (normalizedPath
+          ? (await resolvePrimaryWorktreeRoot(normalizedPath).catch(() => ({ root: normalizedPath }))).root
+          : null);
+      const normalizedWorktree = worktreePath?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null;
+      const effectiveWorktree =
+        normalizedWorktree ??
+        (normalizedPath && normalizedRoot && normalizedPath !== normalizedRoot ? normalizedPath : null);
       bridgeStore.bind({
         type,
         botTokenHash: hash,
@@ -3775,7 +3858,27 @@ export function createMessengerOpencodeBridge({
         sessionId,
         projectPath: projectPath ?? null,
         projectLabel: projectLabel ?? null,
+        projectRoot: normalizedRoot,
+        worktreePath: effectiveWorktree,
+        branch: branch ?? null,
       });
+      if (effectiveWorktree && normalizedRoot) {
+        bridgeStore.bindWorktree?.({
+          botTokenHash: hash,
+          projectRoot: normalizedRoot,
+          worktreePath: effectiveWorktree,
+          branch: branch ?? (name.replace(/^⬦\s*worktree:\s*/i, '').trim() || null),
+          channelId: hostChannelId,
+          threadId: thread.threadId,
+        });
+        void worktreeSync
+          .refreshProjectHub({
+            config: await worktreeSync.loadDiscordConfig(),
+            projectRoot: normalizedRoot,
+            projectLabel,
+          })
+          .catch(() => undefined);
+      }
       return { ok: true, threadId: thread.threadId };
     };
 
@@ -4310,7 +4413,93 @@ export function createMessengerOpencodeBridge({
 
       async listWorktrees() {
         const projectPath = await resolveSurfaceProjectPath();
-        return listBridgeWorktrees({ projectPath });
+        const result = await listBridgeWorktrees({ projectPath });
+        if (!result.ok || !Array.isArray(result.worktrees)) return result;
+        // Enrich with git status + the Discord thread each worktree is bound
+        // to (when worktree sync created one), so `/worktrees` can link out.
+        const hash = tokenHash(token);
+        const enriched = [];
+        for (const wt of result.worktrees) {
+          const binding = wt.path
+            ? bridgeStore.lookupWorktreeByPath?.({ botTokenHash: hash, worktreePath: wt.path })
+            : null;
+          const status = wt.path
+            ? await worktreeSync.readWorktreeGitStatus(wt.path).catch(() => null)
+            : null;
+          enriched.push({ ...wt, status, threadId: binding?.threadId ?? null });
+        }
+        return { ...result, worktrees: enriched };
+      },
+
+      async openWorktree({ query }) {
+        const boundPath = stored?.projectPath ?? null;
+        if (!boundPath) return { ok: false, error: 'no project bound to this conversation.' };
+        const projectRoot = (
+          await resolvePrimaryWorktreeRoot(boundPath).catch(() => ({ root: boundPath }))
+        ).root;
+        const worktrees = await worktreeSync.listProjectWorktrees(projectRoot);
+        const match = worktreeSync.findWorktreeMatch(worktrees, query);
+        if (!match) {
+          return { ok: false, error: `no worktree matched "${query}". Run \`/worktrees\` to see options.` };
+        }
+        let sessionId = stored?.sessionId ?? null;
+        if (!sessionId) {
+          try {
+            sessionId = await createOpencodeSession({ projectPath: match.path });
+          } catch (err) {
+            return { ok: false, error: `session creation failed: ${err?.message ?? 'unknown'}` };
+          }
+        }
+        const ensured = await worktreeSync.ensureWorktreeThread({
+          projectRoot,
+          worktreePath: match.path,
+          branch: match.branch,
+          label: match.label,
+          sessionId,
+          projectLabel: stored?.projectLabel ?? null,
+        });
+        if (!ensured.ok) return ensured;
+        bridgeStore.bind({
+          type,
+          botTokenHash: hash,
+          targetKey: targetKey({ type, channelId, threadId: ensured.threadId }),
+          sessionId,
+          projectPath: match.path,
+          projectLabel: `${stored?.projectLabel ?? 'project'} (${match.branch})`,
+          projectRoot,
+          worktreePath: match.path,
+          branch: match.branch,
+        });
+        return {
+          ok: true,
+          path: match.path,
+          branch: match.branch,
+          threadId: ensured.threadId,
+          created: ensured.created ?? false,
+        };
+      },
+
+      async worktreeStatus() {
+        const worktreeDir = stored?.projectPath ?? null;
+        if (!worktreeDir) return { ok: false, error: 'no project bound to this conversation.' };
+        const projectRoot = (
+          await resolvePrimaryWorktreeRoot(worktreeDir).catch(() => ({ root: worktreeDir }))
+        ).root;
+        const isWorktree = await worktreeSync.isWorktreeDirectory(worktreeDir, projectRoot);
+        const status = await worktreeSync.readWorktreeGitStatus(worktreeDir);
+        const binding = bridgeStore.lookupWorktreeByPath?.({
+          botTokenHash: hash,
+          worktreePath: worktreeDir,
+        });
+        return {
+          ok: true,
+          path: worktreeDir,
+          projectRoot,
+          isWorktree,
+          branch: stored?.branch ?? status.branch ?? null,
+          status,
+          threadId: binding?.threadId ?? null,
+        };
       },
 
       async toggleAutoWorktrees({ enabled }) {
@@ -4458,10 +4647,15 @@ export function createMessengerOpencodeBridge({
       },
 
       async newWorktree({ name }) {
-        const projectPath = stored?.projectPath ?? null;
-        if (!projectPath) return { ok: false, error: 'no project bound to this conversation.' };
+        const boundPath = stored?.projectPath ?? null;
+        if (!boundPath) return { ok: false, error: 'no project bound to this conversation.' };
+        // Create the worktree from the primary root even when this
+        // conversation is itself inside a linked worktree.
+        const projectRoot = (
+          await resolvePrimaryWorktreeRoot(boundPath).catch(() => ({ root: boundPath }))
+        ).root;
         const effectiveName = sanitizeWorktreeName(name || `wt-${Date.now().toString(36)}`);
-        const created = await createBridgeWorktree({ projectPath, name: effectiveName });
+        const created = await createBridgeWorktree({ projectPath: projectRoot, name: effectiveName });
         if (!created.ok) return created;
 
         // Bind a fresh session running inside the worktree to a new thread.
@@ -4477,6 +4671,9 @@ export function createMessengerOpencodeBridge({
           sessionId,
           projectPath: created.path,
           projectLabel: `${stored?.projectLabel ?? 'project'} (${created.branch})`,
+          projectRoot,
+          worktreePath: created.path,
+          branch: created.branch,
         });
         if (!thread.ok) {
           return { ok: false, error: `worktree + session ready, but thread creation failed: ${thread.error}` };
@@ -4579,6 +4776,18 @@ export function createMessengerOpencodeBridge({
         const worktreeDir = stored?.projectPath ?? null;
         if (!worktreeDir) return { ok: false, error: 'no project bound to this conversation.' };
         const result = await mergeBridgeWorktree({ worktreeDir });
+        if (result.ok) {
+          const projectRoot = (
+            await resolvePrimaryWorktreeRoot(worktreeDir).catch(() => ({ root: worktreeDir }))
+          ).root;
+          void worktreeSync
+            .handleWorktreeMerged({
+              project: { path: projectRoot, label: stored?.projectLabel ?? null },
+              worktree: { path: worktreeDir, branch: stored?.branch ?? null },
+              summary: result.summary ?? null,
+            })
+            .catch(() => undefined);
+        }
         if (result.ok || !result.conflict) return result;
 
         // Conflict — hand resolution to the model.
@@ -4607,6 +4816,9 @@ export function createMessengerOpencodeBridge({
         sessionId: stored?.sessionId || null,
         projectPath: stored?.projectPath ?? null,
         projectLabel: stored?.projectLabel ?? null,
+        projectRoot: stored?.projectRoot ?? null,
+        worktreePath: stored?.worktreePath ?? null,
+        branch: stored?.branch ?? null,
         modelOverride: stored?.modelOverride ?? null,
         agentOverride: stored?.agentOverride ?? null,
         variantOverride: stored?.variantOverride ?? null,
@@ -5911,6 +6123,8 @@ export function createMessengerOpencodeBridge({
     getMentionMode,
     /** Whether a surface already has a session binding (mention mode skips bound threads). */
     hasSurfaceBinding,
+    /** Git worktree ↔ Discord thread sync (UI notify endpoints + hub index). */
+    worktreeSync,
     /** Test seam — exposed so tests can drive events without an SSE stream. */
     _handleGlobalEvent: handleGlobalEvent,
     /** Test seam — run one thread-title polling sweep. */

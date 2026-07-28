@@ -596,6 +596,68 @@ describe('worktree commands', () => {
     expect(result.reply).toContain('Merge conflict detected');
     expect(result.reply).toContain('asked the model');
   });
+  it('worktrees renders status + thread links', async () => {
+    const { result } = await run('/worktrees', {
+      binding: { projectPath: '/repo' },
+      bridgeOps: {
+        listWorktrees: async () => ({
+          ok: true,
+          worktrees: [
+            {
+              branch: 'feature',
+              path: '/repo/wt/feature',
+              status: { ahead: 1, isDirty: true },
+              threadId: 'th-1',
+            },
+          ],
+        }),
+      },
+    });
+    expect(result.reply).toContain('feature');
+    expect(result.reply).toContain('+1·dirty');
+    expect(result.reply).toContain('<#th-1>');
+  });
+  it('open-worktree requires a query', async () => {
+    const { result } = await run('/open-worktree', {
+      binding: { projectPath: '/repo' },
+      bridgeOps: { openWorktree: vi.fn() },
+    });
+    expect(result.reply).toMatch(/Usage/);
+  });
+  it('open-worktree reports the opened thread', async () => {
+    const { result } = await run('/open-worktree feature', {
+      binding: { projectPath: '/repo' },
+      bridgeOps: {
+        openWorktree: async ({ query }) => ({
+          ok: true,
+          path: '/repo/wt/feature',
+          branch: query,
+          threadId: 'th-7',
+        }),
+      },
+    });
+    expect(result.reply).toContain('feature');
+    expect(result.reply).toContain('<#th-7>');
+  });
+  it('worktree-status reports git state', async () => {
+    const { result } = await run('/worktree-status', {
+      binding: { projectPath: '/repo/wt/feature', branch: 'feature' },
+      bridgeOps: {
+        worktreeStatus: async () => ({
+          ok: true,
+          path: '/repo/wt/feature',
+          projectRoot: '/repo',
+          isWorktree: true,
+          branch: 'feature',
+          status: { ahead: 2, behind: 0, isDirty: false },
+          threadId: 'th-9',
+        }),
+      },
+    });
+    expect(result.reply).toContain('feature');
+    expect(result.reply).toContain('+2 ahead');
+    expect(result.reply).toContain('<#th-9>');
+  });
 });
 
 describe('/shell command', () => {

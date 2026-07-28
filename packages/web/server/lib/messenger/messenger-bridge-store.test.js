@@ -111,3 +111,74 @@ describe('MessengerBridgeStore — permission mode persistence', () => {
     expect(store.getInterruptTimeoutMs('discord')).toBe(MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS);
   });
 });
+
+describe('MessengerBridgeStore — worktree bindings', () => {
+  let dbPath;
+  let store;
+
+  beforeEach(() => {
+    dbPath = path.join(os.tmpdir(), `openchamber-agent-store-${crypto.randomBytes(6).toString('hex')}.sqlite`);
+    store = new MessengerBridgeStore({ dbPath });
+  });
+
+  afterEach(() => {
+    try {
+      store.db.close();
+    } catch {
+      // ignore
+    }
+    for (const suffix of ['', '-wal', '-shm']) {
+      try {
+        fs.unlinkSync(dbPath + suffix);
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it('binds and looks up worktrees by path', () => {
+    store.bindWorktree({
+      botTokenHash: 'hash',
+      projectRoot: '/repo',
+      worktreePath: '/repo/.worktrees/feature',
+      branch: 'feature',
+      channelId: 'chan-1',
+      threadId: 'thread-1',
+    });
+    const row = store.lookupWorktreeByPath({
+      botTokenHash: 'hash',
+      worktreePath: '/repo/.worktrees/feature',
+    });
+    expect(row?.threadId).toBe('thread-1');
+    expect(row?.branch).toBe('feature');
+    expect(store.lookupWorktreeByThread({ botTokenHash: 'hash', threadId: 'thread-1' })?.worktreePath).toBe(
+      '/repo/.worktrees/feature',
+    );
+    expect(store.listWorktreesForProject({ botTokenHash: 'hash', projectRoot: '/repo' })).toHaveLength(1);
+    store.unbindWorktree({ botTokenHash: 'hash', worktreePath: '/repo/.worktrees/feature' });
+    expect(
+      store.lookupWorktreeByPath({ botTokenHash: 'hash', worktreePath: '/repo/.worktrees/feature' }),
+    ).toBeNull();
+  });
+
+  it('preserves worktree context on re-bind without worktree fields', () => {
+    const surface = { type: 'discord', botTokenHash: 'hash', targetKey: 'thread-1' };
+    store.bind({
+      ...surface,
+      sessionId: 'ses-1',
+      projectPath: '/repo/.worktrees/feature',
+      projectLabel: 'Repo (feature)',
+      projectRoot: '/repo',
+      worktreePath: '/repo/.worktrees/feature',
+      branch: 'feature',
+    });
+    // Older call sites re-bind with only session/project — the worktree
+    // columns must survive instead of being nulled.
+    store.bind({ ...surface, sessionId: 'ses-2', projectPath: '/repo/.worktrees/feature' });
+    const row = store.lookup(surface);
+    expect(row.sessionId).toBe('ses-2');
+    expect(row.projectRoot).toBe('/repo');
+    expect(row.worktreePath).toBe('/repo/.worktrees/feature');
+    expect(row.branch).toBe('feature');
+  });
+});
