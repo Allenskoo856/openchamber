@@ -1280,6 +1280,7 @@ export function createMessengerSyncRouter({
         permissionMode: {},
         notifyOnComplete: {},
         interruptTimeoutMs: {},
+        critique: {},
       });
     }
     const { type, token } = req.body ?? {};
@@ -1295,6 +1296,9 @@ export function createMessengerSyncRouter({
     const interruptTimeoutMs = {
       discord: bridge.store.getInterruptTimeoutMs?.('discord') ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
     };
+    const critique = {
+      discord: bridge.store.getCritiqueEnabled?.('discord') ?? false,
+    };
     return res.json({
       ok: true,
       enabled: true,
@@ -1302,6 +1306,7 @@ export function createMessengerSyncRouter({
       permissionMode,
       notifyOnComplete,
       interruptTimeoutMs,
+      critique,
       interruptTimeoutBounds: {
         min: MESSENGER_INTERRUPT_TIMEOUT_MIN_MS,
         max: MESSENGER_INTERRUPT_TIMEOUT_MAX_MS,
@@ -1423,6 +1428,37 @@ export function createMessengerSyncRouter({
       ok: true,
       notifyOnComplete: {
         discord: bridge.store.getNotifyOnComplete?.('discord') ?? false,
+      },
+    });
+  });
+
+  /**
+   * Opt-in for uploading diffs to critique.work (external service) from the
+   * bridge — gates the agent diff instructions, /diff, /undo and /redo.
+   * Off by default; the UI shows a code-sharing disclaimer next to the toggle.
+   *
+   * POST body: { type: 'discord', enabled }  GET query: ?type=discord
+   */
+  router.post('/bridge/critique', (req, res) => {
+    if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
+    const { type, enabled } = req.body ?? {};
+    if (type !== 'discord') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    }
+    bridge.store.setCritiqueEnabled?.(type, Boolean(enabled));
+    return res.json({ ok: true, type, enabled: bridge.store.getCritiqueEnabled?.(type) ?? false });
+  });
+
+  router.get('/bridge/critique', (req, res) => {
+    if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
+    const type = typeof req.query?.type === 'string' ? req.query.type : '';
+    if (type === 'discord') {
+      return res.json({ ok: true, type, enabled: bridge.store.getCritiqueEnabled?.(type) ?? false });
+    }
+    return res.json({
+      ok: true,
+      critique: {
+        discord: bridge.store.getCritiqueEnabled?.('discord') ?? false,
       },
     });
   });

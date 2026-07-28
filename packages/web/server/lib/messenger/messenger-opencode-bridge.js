@@ -742,6 +742,17 @@ export function createMessengerOpencodeBridge({
     }
   }
 
+  // critique.work diff uploads share code with an external service, so every
+  // critique call site (agent instructions, /diff, /undo, /redo) is gated on
+  // this explicit opt-in. Default (and any store failure) is OFF.
+  function isCritiqueEnabled(type = 'discord') {
+    try {
+      return Boolean(bridgeStore.getCritiqueEnabled?.(type));
+    } catch {
+      return false;
+    }
+  }
+
   /** Run (and clear) a stashed superseding send for a session, if any. */
   function runSupersede(sessionId, ctx) {
     const resume = pendingSupersede.get(sessionId);
@@ -3900,7 +3911,10 @@ export function createMessengerOpencodeBridge({
           const auto = await autoResolveProject({ type, token, channelId, threadId }).catch(() => null);
           projectPath = auto?.projectPath ?? null;
         }
-        return buildMessengerGitDiffReply({ projectPath });
+        return buildMessengerGitDiffReply({
+          projectPath,
+          critiqueEnabled: isCritiqueEnabled(type),
+        });
       },
 
       async startTunnel({ args }) {
@@ -4603,6 +4617,7 @@ export function createMessengerOpencodeBridge({
         projectDefaults,
         globalDefaultModel: globals.model,
         globalDefaultAgent: globals.agent,
+        critiqueEnabled: isCritiqueEnabled(type),
       },
       surfaceMutators: {
         async setOverrides(changes) {
@@ -4994,11 +5009,16 @@ export function createMessengerOpencodeBridge({
       if (discordInstructions) {
         contextSyntheticParts.push({ type: 'text', text: discordInstructions, synthetic: true });
       }
-      contextSyntheticParts.push({
-        type: 'text',
-        text: buildCritiqueInstructions(),
-        synthetic: true,
-      });
+      // Only teach the agent to upload diffs to critique.work when the user
+      // explicitly opted in — the instructions make it upload code to an
+      // external host after every edit.
+      if (isCritiqueEnabled(type)) {
+        contextSyntheticParts.push({
+          type: 'text',
+          text: buildCritiqueInstructions(),
+          synthetic: true,
+        });
+      }
     }
 
     // A new message supersedes unanswered permission requests for this

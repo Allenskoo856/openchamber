@@ -37,6 +37,7 @@ export async function buildMessengerGitDiffReply({
   getStatusFn = getStatus,
   getDiffFn = getDiff,
   uploadDiffFn = uploadGitDiffViaCritique,
+  critiqueEnabled = false,
 } = {}) {
   if (!projectPath) return { ok: false, error: 'no project bound to this conversation.' };
 
@@ -75,17 +76,24 @@ export async function buildMessengerGitDiffReply({
     }
   }
 
-  // Shareable critique.work URL (kimaki-style). Best-effort — keep the inline
-  // preview even when upload fails or critique/bunx is unavailable.
-  const projectName = path.basename(projectPath);
-  const uploaded = await uploadDiffFn({
-    title: `${projectName}: Discord /diff`,
-    cwd: projectPath,
-  }).catch(() => null);
-  if (uploaded?.url) {
-    lines.push('', `Review: ${uploaded.url}`);
-  } else if (uploaded?.error && uploaded.error !== 'critique not available (need bun/bunx)') {
-    lines.push('', `_Diff URL unavailable: ${escapeMd(clipBlock(uploaded.error, 120))}_`);
+  // Shareable critique.work URL (kimaki-style). Opt-in only: uploading sends
+  // the diff to an external service, so it runs solely when the user enabled
+  // critique in the OpenChamber Discord settings. Best-effort — keep the
+  // inline preview even when upload fails or critique/bunx is unavailable.
+  let uploaded = null;
+  if (critiqueEnabled) {
+    const projectName = path.basename(projectPath);
+    uploaded = await uploadDiffFn({
+      title: `${projectName}: Discord /diff`,
+      cwd: projectPath,
+    }).catch(() => null);
+    if (uploaded?.url) {
+      lines.push('', `Review: ${uploaded.url}`);
+    } else if (uploaded?.error && uploaded.error !== 'critique not available (need bun/bunx)') {
+      lines.push('', `_Diff URL unavailable: ${escapeMd(clipBlock(uploaded.error, 120))}_`);
+    }
+  } else {
+    lines.push('', '_Shareable URL upload is off — enable "Share diffs via critique.work" in OpenChamber → Settings → Integrations → Discord._');
   }
 
   if (preview) {

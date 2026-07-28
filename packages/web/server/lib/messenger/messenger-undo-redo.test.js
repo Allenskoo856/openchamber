@@ -72,10 +72,46 @@ describe('buildUndoRedoDiffSection', () => {
       projectPath: '/repo',
       title: 'undo',
       uploadPatchFn: vi.fn(async () => ({ url: 'https://critique.work/v/abc', id: 'abc' })),
+      critiqueEnabled: true,
     });
     expect(section).toContain('**Files touched**');
     expect(section).toContain('```diff');
     expect(section).toContain('Review: https://critique.work/v/abc');
+  });
+
+  it('never uploads when critique is disabled (default), keeping the inline diff', async () => {
+    const uploadPatchFn = vi.fn(async () => ({ url: 'https://critique.work/v/abc', id: 'abc' }));
+    const section = await buildUndoRedoDiffSection({
+      diff: 'diff --git a/a.ts b/a.ts\n+hi',
+      projectPath: '/repo',
+      title: 'undo',
+      uploadPatchFn,
+    });
+    // External upload is opt-in: the diff must not leave the machine by default.
+    expect(uploadPatchFn).not.toHaveBeenCalled();
+    expect(section).toContain('**Files touched**');
+    expect(section).toContain('```diff');
+    expect(section).not.toContain('Review:');
+  });
+
+  it('threads critiqueEnabled through executeMessengerUndo to the diff section', async () => {
+    const buildDiffSection = vi.fn(async () => '');
+    const result = await executeMessengerUndo({
+      sessionId: 'ses',
+      projectPath: '/repo',
+      opencode: {
+        abortSession: vi.fn(async () => ({ ok: true })),
+        getSession: vi.fn(async () => ({ id: 'ses', revert: null })),
+        listMessages: vi.fn(async () => [msg('user', 'msg_1'), msg('assistant', 'msg_2', 'msg_1'), msg('user', 'msg_3')]),
+        revertSession: vi.fn(async () => ({ ok: true, session: { revert: { messageID: 'msg_3', diff: '' } } })),
+      },
+      buildDiffSection,
+      critiqueEnabled: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(buildDiffSection).toHaveBeenCalledWith(
+      expect.objectContaining({ critiqueEnabled: true }),
+    );
   });
 });
 

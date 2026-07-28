@@ -74,13 +74,15 @@ export function formatRevertDiffBlock(diff, { limit = DIFF_PREVIEW_LIMIT } = {})
 /**
  * Build the trailing "files touched" section for undo/redo replies.
  * Prefer a critique.work URL when upload succeeds; always keep an inline
- * preview when a revert.diff is available.
+ * preview when a revert.diff is available. The upload is opt-in
+ * (`critiqueEnabled`) because it sends the diff to an external service.
  */
 export async function buildUndoRedoDiffSection({
   diff,
   projectPath,
   title,
   uploadPatchFn = uploadPatchViaCritique,
+  critiqueEnabled = false,
 } = {}) {
   const lines = [];
   const inline = formatRevertDiffBlock(diff);
@@ -88,7 +90,7 @@ export async function buildUndoRedoDiffSection({
     lines.push('', '**Files touched**', inline);
   }
 
-  if (projectPath && String(diff ?? '').trim()) {
+  if (critiqueEnabled && projectPath && String(diff ?? '').trim()) {
     const uploaded = await uploadPatchFn({
       patch: diff,
       title: title || 'OpenChamber undo/redo',
@@ -107,6 +109,7 @@ export async function executeMessengerUndo({
   projectPath = null,
   opencode,
   buildDiffSection = buildUndoRedoDiffSection,
+  critiqueEnabled = false,
 }) {
   if (!sessionId) return { ok: false, error: 'no session is active on this conversation.' };
   if (typeof opencode?.revertSession !== 'function' || typeof opencode?.listMessages !== 'function') {
@@ -138,6 +141,7 @@ export async function executeMessengerUndo({
     diff,
     projectPath,
     title: 'OpenChamber /undo',
+    critiqueEnabled,
   });
   return {
     ok: true,
@@ -152,6 +156,7 @@ export async function executeMessengerRedo({
   projectPath = null,
   opencode,
   buildDiffSection = buildUndoRedoDiffSection,
+  critiqueEnabled = false,
 }) {
   if (!sessionId) return { ok: false, error: 'no session is active on this conversation.' };
   if (
@@ -185,6 +190,7 @@ export async function executeMessengerRedo({
       diff,
       projectPath,
       title: 'OpenChamber /redo',
+      critiqueEnabled,
     });
     return {
       ok: true,
@@ -207,6 +213,7 @@ export async function executeMessengerRedo({
     diff,
     projectPath,
     title: 'OpenChamber /redo',
+    critiqueEnabled,
   });
   return {
     ok: true,

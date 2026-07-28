@@ -33,6 +33,7 @@ describe('buildMessengerGitDiffReply', () => {
           : 'diff --git a/src/app.ts b/src/app.ts\n-const old = false;\n+const next = true;',
       ),
       uploadDiffFn,
+      critiqueEnabled: true,
     });
 
     expect(result.ok).toBe(true);
@@ -59,9 +60,34 @@ describe('buildMessengerGitDiffReply', () => {
       })),
       getDiffFn: vi.fn(async () => 'diff --git a/a.ts b/a.ts\n+x'),
       uploadDiffFn: vi.fn(async () => ({ error: 'critique not available (need bun/bunx)' })),
+      critiqueEnabled: true,
     });
     expect(result.ok).toBe(true);
     expect(result.reply).toContain('```diff');
     expect(result.reply).not.toContain('Review:');
+  });
+
+  it('never uploads when critique is disabled (default) and says how to enable', async () => {
+    const uploadDiffFn = vi.fn(async () => ({
+      url: 'https://critique.work/v/abc123',
+      id: 'abc123',
+    }));
+    const result = await buildMessengerGitDiffReply({
+      projectPath: '/repo/project',
+      getStatusFn: vi.fn(async () => ({
+        isClean: false,
+        files: [{ path: 'a.ts', index: ' ', working_dir: 'M' }],
+        diffStats: {},
+      })),
+      getDiffFn: vi.fn(async () => 'diff --git a/a.ts b/a.ts\n+x'),
+      uploadDiffFn,
+    });
+    expect(result.ok).toBe(true);
+    // External upload is opt-in: the diff must not leave the machine by default.
+    expect(uploadDiffFn).not.toHaveBeenCalled();
+    expect(result.critiqueUrl).toBeNull();
+    expect(result.reply).toContain('```diff');
+    expect(result.reply).not.toContain('Review:');
+    expect(result.reply).toContain('Shareable URL upload is off');
   });
 });

@@ -683,6 +683,8 @@ function BehaviorPanel({
   const setBridgePermissionMode = useMessengerStore((s) => s.setBridgePermissionMode);
   const bridgeNotifyOnComplete = useMessengerStore((s) => s.bridgeNotifyOnComplete);
   const setBridgeNotifyOnComplete = useMessengerStore((s) => s.setBridgeNotifyOnComplete);
+  const bridgeCritiqueEnabled = useMessengerStore((s) => s.bridgeCritiqueEnabled);
+  const setBridgeCritiqueEnabled = useMessengerStore((s) => s.setBridgeCritiqueEnabled);
   const bridgeInterruptTimeoutMs = useMessengerStore((s) => s.bridgeInterruptTimeoutMs);
   const setBridgeInterruptTimeoutMs = useMessengerStore((s) => s.setBridgeInterruptTimeoutMs);
   useEffect(() => {
@@ -701,6 +703,7 @@ function BehaviorPanel({
     PERMISSION_MODE_OPTIONS.find((o) => o.id === currentPermissionMode) ??
     PERMISSION_MODE_OPTIONS[0];
   const notifyOnComplete = bridgeNotifyOnComplete[type] ?? false;
+  const critiqueEnabled = bridgeCritiqueEnabled[type] ?? false;
   const interruptTimeoutMs =
     bridgeInterruptTimeoutMs[type] ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS;
   const controlsDisabled = !bridgeStatus.enabled;
@@ -767,6 +770,25 @@ function BehaviorPanel({
             </span>
             <span className="block text-xs text-muted-foreground leading-snug">
               {t('settings.integrations.discord.bridge.notifyOnComplete.description')}
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div data-settings-item="integrations.discord.critique" className="space-y-1">
+        <label className="flex cursor-pointer items-start gap-2">
+          <Checkbox
+            checked={critiqueEnabled}
+            onChange={(checked) => setBridgeCritiqueEnabled(type, checked)}
+            disabled={controlsDisabled}
+            ariaLabel={t('settings.integrations.discord.bridge.critique.title')}
+          />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-foreground">
+              {t('settings.integrations.discord.bridge.critique.title')}
+            </span>
+            <span className="block text-xs text-muted-foreground leading-snug">
+              {t('settings.integrations.discord.bridge.critique.description')}
             </span>
           </span>
         </label>

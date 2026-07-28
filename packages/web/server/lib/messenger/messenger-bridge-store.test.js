@@ -90,6 +90,15 @@ describe('MessengerBridgeStore — permission mode persistence', () => {
     expect(store.getNotifyOnComplete('discord')).toBe(false);
   });
 
+  it('keeps critique uploads off by default and round-trips the opt-in', () => {
+    // External code sharing must be opt-in: never enabled before the user acts.
+    expect(store.getCritiqueEnabled('discord')).toBe(false);
+    store.setCritiqueEnabled('discord', true);
+    expect(store.getCritiqueEnabled('discord')).toBe(true);
+    store.setCritiqueEnabled('discord', false);
+    expect(store.getCritiqueEnabled('discord')).toBe(false);
+  });
+
   it('normalizes and persists the interrupt timeout setting', () => {
     expect(store.getInterruptTimeoutMs('discord')).toBe(MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS);
     store.setInterruptTimeoutMs('discord', 1234.6);

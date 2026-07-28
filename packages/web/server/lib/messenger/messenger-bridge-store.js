@@ -216,6 +216,21 @@ export class MessengerBridgeStore {
     this.setSetting(`notify-on-complete:${type}`, enabled ? '1' : null);
   }
 
+  /**
+   * Whether the bridge may upload diffs to critique.work (external service)
+   * for shareable review URLs. Opt-in — OFF unless explicitly enabled,
+   * because enabling it sends code to a third-party host.
+   */
+  getCritiqueEnabled(type) {
+    if (!type) return false;
+    return this.getSetting(`critique:${type}`) === '1';
+  }
+
+  setCritiqueEnabled(type, enabled) {
+    if (!type) return;
+    this.setSetting(`critique:${type}`, enabled ? '1' : null);
+  }
+
   getInterruptTimeoutMs(type) {
     if (!type) return MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS;
     return normalizeMessengerInterruptTimeoutMs(this.getSetting(`interrupt-timeout-ms:${type}`));

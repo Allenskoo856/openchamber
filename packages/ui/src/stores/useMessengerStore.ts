@@ -346,6 +346,11 @@ interface MessengerState {
 
   bridgeNotifyOnComplete: Partial<Record<MessengerType, boolean>>;
   bridgeInterruptTimeoutMs: Partial<Record<MessengerType, number>>;
+  /**
+   * Opt-in for uploading diffs to critique.work (external service) from the
+   * bridge — off by default; refreshed from /bridge/status.
+   */
+  bridgeCritiqueEnabled: Partial<Record<MessengerType, boolean>>;
 
   addConnection: (type: MessengerType) => void;
   updateConnection: (type: MessengerType, updates: Partial<MessengerConnection>) => void;
@@ -376,6 +381,10 @@ interface MessengerState {
     mode: MessengerPermissionMode,
   ) => Promise<boolean>;
   setBridgeNotifyOnComplete: (
+    type: MessengerType,
+    enabled: boolean,
+  ) => Promise<boolean>;
+  setBridgeCritiqueEnabled: (
     type: MessengerType,
     enabled: boolean,
   ) => Promise<boolean>;
@@ -752,6 +761,7 @@ export const useMessengerStore = create<MessengerState>()(
       bridgePermissionMode: {},
       bridgeNotifyOnComplete: {},
       bridgeInterruptTimeoutMs: {},
+      bridgeCritiqueEnabled: {},
 
       addConnection: (type) => {
         const existing = get().connections.find((c) => c.type === type);
@@ -1200,6 +1210,7 @@ export const useMessengerStore = create<MessengerState>()(
             permissionMode?: Partial<Record<MessengerType, MessengerPermissionMode | null>>;
             notifyOnComplete?: Partial<Record<MessengerType, boolean>>;
             interruptTimeoutMs?: Partial<Record<MessengerType, number>>;
+            critique?: Partial<Record<MessengerType, boolean>>;
           }>('/api/messenger/bridge/status', { type, token });
           set({
             bridgeStatus: {
@@ -1211,6 +1222,7 @@ export const useMessengerStore = create<MessengerState>()(
             bridgePermissionMode: data.permissionMode ?? get().bridgePermissionMode,
             bridgeNotifyOnComplete: data.notifyOnComplete ?? get().bridgeNotifyOnComplete,
             bridgeInterruptTimeoutMs: data.interruptTimeoutMs ?? get().bridgeInterruptTimeoutMs,
+            bridgeCritiqueEnabled: data.critique ?? get().bridgeCritiqueEnabled,
           });
         } catch {
           // ignore
@@ -1262,6 +1274,25 @@ export const useMessengerStore = create<MessengerState>()(
           set({
             bridgeNotifyOnComplete: {
               ...get().bridgeNotifyOnComplete,
+              [type]: data.enabled ?? enabled,
+            },
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+
+      setBridgeCritiqueEnabled: async (type, enabled) => {
+        try {
+          const data = await postJson<{ ok: boolean; enabled?: boolean }>(
+            '/api/messenger/bridge/critique',
+            { type, enabled },
+          );
+          if (!data.ok) return false;
+          set({
+            bridgeCritiqueEnabled: {
+              ...get().bridgeCritiqueEnabled,
               [type]: data.enabled ?? enabled,
             },
           });

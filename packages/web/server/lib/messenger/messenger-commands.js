@@ -341,7 +341,9 @@ function fmtTable(rows, columns) {
  *   sendPrompt: (sessionId: string, projectPath: string | null, text: string) => Promise<{ ok, error? }>,
  * }} args.opencode - small adapter passed in by the bridge
  * @param {object} args.binding - current binding for this surface
- *   { sessionId?, projectPath?, projectLabel?, modelOverride?, agentOverride? }
+ *   { sessionId?, projectPath?, projectLabel?, modelOverride?, agentOverride?, critiqueEnabled? }
+ *   `critiqueEnabled` is the server-side opt-in for uploading diffs to
+ *   critique.work (external service) — off unless the user enabled it.
  * @param {{
  *   setOverrides: (changes: { modelOverride?: string|null, agentOverride?: string|null }) => Promise<void>,
  *   unbindSession: () => Promise<void>,
@@ -525,6 +527,7 @@ export async function executeMessengerCommand({
         sessionId,
         projectPath: binding?.projectPath ?? null,
         opencode,
+        critiqueEnabled: binding?.critiqueEnabled === true,
       });
       return { reply: r.ok ? r.reply : `✗ Revert failed: ${r.error ?? 'unknown error'}` };
     }
@@ -535,6 +538,7 @@ export async function executeMessengerCommand({
         sessionId,
         projectPath: binding?.projectPath ?? null,
         opencode,
+        critiqueEnabled: binding?.critiqueEnabled === true,
       });
       return { reply: r.ok ? r.reply : `✗ Redo failed: ${r.error ?? 'unknown error'}` };
     }
