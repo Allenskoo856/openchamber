@@ -470,8 +470,10 @@ async function dispatchMessageCreate(state, message, broadcastEvent, bridge) {
   // OpenChamber chat surface. Attachment-only messages (e.g. "send message
   // as file", screenshots, voice messages) are bridged too.
   // Empty @mentions become bridgeable after channel-history injection above.
+  // Always bridge when the OpenCode bridge is wired. Per-server mute is
+  // guildPolicies[*].enabled (filtered earlier); there is no global off switch.
   const isBridgeable =
-    bridge && state.bridgeEnabled !== false &&
+    bridge &&
     (text.length > 0 || attachments.length > 0) &&
     (!text.startsWith('!') || isKnownBangCommand);
   if (isBridgeable) {
@@ -1228,7 +1230,7 @@ export function createDiscordListenerRegistry({ broadcastEvent, bridge = null } 
       guildPolicies: (opts.guildPolicies && typeof opts.guildPolicies === 'object') ? opts.guildPolicies : {},
       intents: opts.intents ?? DEFAULT_INTENTS,
       autoReply: opts.autoReply !== false,
-      bridgeEnabled: opts.bridgeEnabled !== false,
+      bridgeEnabled: true,
       resolveProject: opts.resolveProject ?? null,
       trustedBotIds: normalizeDiscordAccessSettings({ trustedBotIds: opts.trustedBotIds }).trustedBotIds,
       // Opt-in: register OpenCode commands/skills as Discord `-cmd`/`-skill` slash commands.
@@ -1368,9 +1370,8 @@ export function createDiscordListenerRegistry({ broadcastEvent, bridge = null } 
     if (Object.prototype.hasOwnProperty.call(opts, 'guildId')) {
       state.guildId = opts.guildId ?? null;
     }
-    if (typeof opts.bridgeEnabled === 'boolean') {
-      state.bridgeEnabled = opts.bridgeEnabled;
-    }
+    // bridgeEnabled is not user-configurable; keep the live listener bridged.
+    state.bridgeEnabled = true;
     if (Object.prototype.hasOwnProperty.call(opts, 'trustedBotIds')) {
       state.trustedBotIds = normalizeDiscordAccessSettings({
         trustedBotIds: opts.trustedBotIds,

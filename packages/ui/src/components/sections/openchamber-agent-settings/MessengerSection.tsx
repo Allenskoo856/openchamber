@@ -668,20 +668,15 @@ function DiscordDiagnosePanel({
 }
 
 function BehaviorPanel({
-  conn,
   type,
   bridgeStatus,
   refreshBridgeStatus,
-  onToggle,
 }: {
-  conn: MessengerConnection;
   type: MessengerType;
   bridgeStatus: ReturnType<typeof useMessengerStore.getState>['bridgeStatus'];
   refreshBridgeStatus: (t?: MessengerType) => Promise<void>;
-  onToggle: (v: boolean) => void;
 }) {
   const { t } = useI18n();
-  const enabled = conn.bridgeEnabled !== false;
   const bridgeVerbosity = useMessengerStore((s) => s.bridgeVerbosity);
   const setBridgeVerbosity = useMessengerStore((s) => s.setBridgeVerbosity);
   const bridgePermissionMode = useMessengerStore((s) => s.bridgePermissionMode);
@@ -712,24 +707,11 @@ function BehaviorPanel({
 
   return (
     <div className="space-y-4">
-      <label className="flex cursor-pointer items-start gap-2">
-        <Checkbox
-          checked={enabled}
-          onChange={onToggle}
-          disabled={controlsDisabled}
-          ariaLabel={t('settings.integrations.discord.wizard.step4.bridge')}
-        />
-        <span className="min-w-0">
-          <span className="block text-sm font-medium text-foreground">
-            {t('settings.integrations.discord.wizard.step4.bridge')}
-          </span>
-          {!bridgeStatus.enabled ? (
-            <span className="block text-xs text-[var(--status-warning)] leading-snug">
-              {t('settings.integrations.discord.bridge.unavailable')}
-            </span>
-          ) : null}
-        </span>
-      </label>
+      {!bridgeStatus.enabled ? (
+        <p className="text-xs text-[var(--status-warning)] leading-snug">
+          {t('settings.integrations.discord.bridge.unavailable')}
+        </p>
+      ) : null}
 
       {/* Output verbosity — how much of each OpenCode turn is mirrored back. */}
       <div className="space-y-2">
@@ -1174,14 +1156,9 @@ function DiscordAdvancedSettings({
           onOpenChange={(next) => setSectionOpen((s) => ({ ...s, behavior: next }))}
         >
           <BehaviorPanel
-            conn={conn}
             type={conn.type}
             bridgeStatus={bridgeStatus}
             refreshBridgeStatus={refreshBridgeStatus}
-            onToggle={(v) => {
-              updateConnection(conn.type, { bridgeEnabled: v });
-              setTimeout(() => saveDiscordConfig(), 0);
-            }}
           />
         </AdvancedSectionCard>
 

@@ -383,7 +383,13 @@ interface MessengerState {
     type: MessengerType,
     timeoutMs: number,
   ) => Promise<boolean>;
-  saveDiscordConfig: () => Promise<void>;
+  /**
+   * Persist Discord settings. Pass `{ bridgeEnabled }` only when the Advanced
+   * bridge checkbox (or an explicit re-enable) changed that flag — routine
+   * policy/resync saves must omit it so a stale localStorage value cannot mute
+   * a live gateway.
+   */
+  saveDiscordConfig: (opts?: { bridgeEnabled?: boolean }) => Promise<void>;
   startDiscordListener: () => Promise<boolean>;
   stopDiscordListener: () => Promise<boolean>;
   refreshDiscordListenerStatus: () => Promise<void>;
@@ -608,6 +614,7 @@ type DiscordListenerStatusPayload = {
   running?: boolean;
   connected?: boolean;
   autoReply?: boolean;
+  bridgeEnabled?: boolean;
   scopeToGuild?: boolean;
   guildId?: string | null;
   botId?: string | null;
@@ -1330,7 +1337,7 @@ export const useMessengerStore = create<MessengerState>()(
         }
       },
 
-      saveDiscordConfig: async () => {
+      saveDiscordConfig: async (opts) => {
         const conn = get().connections.find((c) => c.type === 'discord');
         if (!conn) return;
         // Tokenless clients (second device, cleared localStorage) must still
@@ -1352,6 +1359,8 @@ export const useMessengerStore = create<MessengerState>()(
               },
             ];
           });
+        const hasBridgeEnabled =
+          opts != null && Object.prototype.hasOwnProperty.call(opts, 'bridgeEnabled');
         try {
           await postJson('/api/messenger/discord/save-config', {
             ...(conn.botToken ? { botToken: conn.botToken } : {}),
@@ -1360,7 +1369,10 @@ export const useMessengerStore = create<MessengerState>()(
             // Listening is governed per-server via guildPolicies[*].enabled now,
             // so the gateway always hears every server and never scopes to one.
             scopeToGuild: false,
-            bridgeEnabled: conn.bridgeEnabled !== false,
+            // Omit bridgeEnabled unless the caller explicitly changed it —
+            // otherwise a stale localStorage `false` re-mutes the live gateway
+            // on every policy toggle / resync.
+            ...(hasBridgeEnabled ? { bridgeEnabled: Boolean(opts?.bridgeEnabled) } : {}),
             defaultChannelId: conn.defaultChannelId,
             defaultUserId: conn.defaultUserId,
             trustedBotIds: conn.trustedBotIds ?? [],
@@ -1419,13 +1431,20 @@ export const useMessengerStore = create<MessengerState>()(
             // filtered downstream instead of scoping the whole connection.
             scopeToGuild: false,
             autoReply: conn.discordListenerAutoReply !== false,
-            bridgeEnabled: conn.bridgeEnabled !== false,
+            // Starting because at least one server is Enabled — never inherit a
+            // stale localStorage mute that would leave the gateway Connected
+            // but silent.
+            bridgeEnabled:
+              anyDiscordGuildResponds(conn) || conn.bridgeEnabled !== false,
             projectBindings,
             defaultReplyMode: conn.discordDefaultReplyMode ?? 'always',
             guildPolicies: conn.discordGuildPolicies ?? {},
           });
           if (!data.ok) return false;
           get().updateConnection('discord', {
+            bridgeEnabled:
+              data.bridgeEnabled ??
+              (anyDiscordGuildResponds(conn) || conn.bridgeEnabled !== false),
             discordListenerEnabled: true,
             discordListenerRunning: data.running ?? true,
             discordListenerConnected: data.connected ?? false,
@@ -1505,8 +1524,19 @@ export const useMessengerStore = create<MessengerState>()(
         if (patch.syncProjects === true && !conn.discordGuildId) {
           updates.discordGuildId = guildId;
         }
+        // Turning a server "Enabled" means the user wants responses there —
+        // clear a stale Advanced bridge mute so Connected servers actually reply.
+        if (patch.enabled === true) {
+          updates.bridgeEnabled = true;
+        }
         get().updateConnection('discord', updates);
-        setTimeout(() => get().saveDiscordConfig(), 0);
+        setTimeout(
+          () =>
+            get().saveDiscordConfig(
+              patch.enabled === true ? { bridgeEnabled: true } : undefined,
+            ),
+          0,
+        );
 
         // Resolve the server's channels/categories so the category picker +
         // thread toggle can render right after "Sync projects here" is enabled.
@@ -1596,6 +1626,9 @@ export const useMessengerStore = create<MessengerState>()(
               data.defaultReplyMode ?? conn?.discordDefaultReplyMode ?? 'always',
             discordGuildPolicies: data.guildPolicies ?? conn?.discordGuildPolicies ?? {},
           };
+          if (typeof data.bridgeEnabled === 'boolean') {
+            updates.bridgeEnabled = data.bridgeEnabled;
+          }
           if (data.botId) updates.discordBotId = data.botId;
           if (data.botUsername) updates.discordBotUsername = data.botUsername;
           // Authoritative live gateway → keep the header badge in sync even

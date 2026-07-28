@@ -1964,7 +1964,8 @@ export function createMessengerSyncRouter({
       guildId,
       autoReply: autoReply !== false,
       scopeToGuild: Boolean(scopeToGuild),
-      bridgeEnabled: bridgeEnabled !== false && Boolean(bridge),
+      // Always bridge: per-server guildPolicies[*].enabled is the only mute.
+      bridgeEnabled: Boolean(bridge),
       resolveProject,
       trustedBotIds: normalizeTrustedBotIds(trustedBotIds),
       registerDynamicSlashCommands: Boolean(registerDynamicSlashCommands),
@@ -2015,7 +2016,7 @@ export function createMessengerSyncRouter({
             guildId: guildId || prev.guildId || undefined,
             autoReply: autoReply !== false,
             scopeToGuild: Boolean(scopeToGuild),
-            bridgeEnabled: bridgeEnabled !== false,
+            bridgeEnabled: true,
             // Explicit start always re-enables listening for future boots /
             // health-check recovery. Stop persists `false` and must not be
             // undone by a later start-config merge that omitted the flag.
@@ -2225,6 +2226,9 @@ export function createMessengerSyncRouter({
         req.body ?? {},
         'registerDynamicSlashCommands',
       );
+      // bridgeEnabled is no longer a user setting — responding is governed
+      // only by guildPolicies[*].enabled. Always persist true so a stale
+      // false can never mute Enabled servers.
       await persistSettings({
         discord: {
           ...prev,
@@ -2232,7 +2236,7 @@ export function createMessengerSyncRouter({
           guildId: guildId || prev.guildId || undefined,
           autoReply: autoReply !== false,
           scopeToGuild: Boolean(scopeToGuild),
-          bridgeEnabled: bridgeEnabled !== false,
+          bridgeEnabled: true,
           defaultChannelId: defaultChannelId || prev.defaultChannelId || undefined,
           defaultUserId: defaultUserId || prev.defaultUserId || undefined,
           trustedBotIds: hasTrustedBotIds
@@ -2272,7 +2276,7 @@ export function createMessengerSyncRouter({
           autoReply: autoReply !== false,
           scopeToGuild: Boolean(scopeToGuild),
           guildId: guildId || prev.guildId || undefined,
-          bridgeEnabled: bridgeEnabled !== false,
+          bridgeEnabled: true,
         };
         if (Object.prototype.hasOwnProperty.call(req.body ?? {}, 'trustedBotIds')) {
           persisted.trustedBotIds = normalizeTrustedBotIds(trustedBotIds);
@@ -2325,7 +2329,10 @@ export function createMessengerSyncRouter({
         guildId: discord.guildId || undefined,
         autoReply: discord.autoReply !== false,
         scopeToGuild: Boolean(discord.scopeToGuild),
-        bridgeEnabled: discord.bridgeEnabled !== false && Boolean(bridge),
+        // Match boot auto-start in server/index.js: always bridge inbound
+        // messages. A stale settings.bridgeEnabled:false must not leave the
+        // gateway Connected-but-silent after restart.
+        bridgeEnabled: Boolean(bridge),
         // Restore the persisted project→channel bindings so each Discord
         // channel keeps routing to its own project after a server restart.
         // Without this, every channel fell back to the first project until

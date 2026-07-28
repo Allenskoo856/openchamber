@@ -13,9 +13,9 @@ const SETTINGS_TOKEN = 'settings-bot-token';
 const GUILD = '111111111111111111';
 const CHANNEL = '222222222222222222';
 
-function createApp({ readSettings } = {}) {
+function createApp({ readSettings, persistSettings } = {}) {
   const app = express();
-  const { router } = createMessengerSyncRouter({ readSettings });
+  const { router } = createMessengerSyncRouter({ readSettings, persistSettings });
   // The router mounts its own express.json() parser, matching production.
   app.use('/api/messenger', router);
   return app;
@@ -151,5 +151,48 @@ describe('messenger /discord/sync-projects token fallback', () => {
       .send({ type: 'discord', guildId: GUILD, projects: [] });
 
     expect(res.status).toBe(400);
+  });
+});
+
+describe('messenger /discord/save-config always bridges', () => {
+  it('coerces a stale saved bridgeEnabled:false to true on policy save', async () => {
+    // Responding is governed only by guildPolicies[*].enabled. A global
+    // bridgeEnabled:false must never mute an Enabled server.
+    const persistSettings = vi.fn(async () => {});
+    const readSettings = vi.fn(async () => ({
+      discord: {
+        botToken: SETTINGS_TOKEN,
+        bridgeEnabled: false,
+        guildPolicies: { [GUILD]: { enabled: true, replyMode: 'always' } },
+      },
+    }));
+
+    const res = await request(createApp({ readSettings, persistSettings }))
+      .post('/api/messenger/discord/save-config')
+      .send({
+        guildPolicies: { [GUILD]: { enabled: true, replyMode: 'mention' } },
+        defaultReplyMode: 'always',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(persistSettings).toHaveBeenCalled();
+    const saved = persistSettings.mock.calls.at(-1)[0].discord;
+    expect(saved.bridgeEnabled).toBe(true);
+    expect(saved.guildPolicies[GUILD].replyMode).toBe('mention');
+  });
+
+  it('ignores an explicit bridgeEnabled:false in the body', async () => {
+    const persistSettings = vi.fn(async () => {});
+    const readSettings = vi.fn(async () => ({
+      discord: { botToken: SETTINGS_TOKEN, bridgeEnabled: true },
+    }));
+
+    const res = await request(createApp({ readSettings, persistSettings }))
+      .post('/api/messenger/discord/save-config')
+      .send({ bridgeEnabled: false });
+
+    expect(res.status).toBe(200);
+    expect(persistSettings.mock.calls.at(-1)[0].discord.bridgeEnabled).toBe(true);
   });
 });

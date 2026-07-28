@@ -900,8 +900,10 @@ export const createSettingsHelpers = (dependencies) => {
         result.guildPolicies = guildPolicies;
       }
     }
-    if (typeof value.bridgeEnabled === 'boolean') {
-      result.bridgeEnabled = value.bridgeEnabled;
+    // Global bridge mute removed — responding is per-server only.
+    // Coerce any legacy false to true so stale settings cannot mute replies.
+    if (Object.prototype.hasOwnProperty.call(value, 'bridgeEnabled')) {
+      result.bridgeEnabled = true;
     }
     // Absent means "start by default"; only an explicit false is sticky-stopped.
     if (typeof value.listenerEnabled === 'boolean') {

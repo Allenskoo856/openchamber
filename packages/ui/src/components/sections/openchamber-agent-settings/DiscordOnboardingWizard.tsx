@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
-import { Checkbox } from '@/components/ui/checkbox';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import {
@@ -43,8 +42,6 @@ export function DiscordOnboardingWizard({
   const syncDiscordGuildProjects = useMessengerStore((s) => s.syncDiscordGuildProjects);
   const startDiscordListener = useMessengerStore((s) => s.startDiscordListener);
   const refreshDiscordListenerStatus = useMessengerStore((s) => s.refreshDiscordListenerStatus);
-  const refreshBridgeStatus = useMessengerStore((s) => s.refreshBridgeStatus);
-  const bridgeStatus = useMessengerStore((s) => s.bridgeStatus);
   const projects = useProjectsStore((s) => s.projects);
 
   const [tokenInput, setTokenInput] = useState('');
@@ -59,7 +56,6 @@ export function DiscordOnboardingWizard({
   const hasToken = Boolean(conn.botToken);
   const isConnected = conn.status === 'connected';
   const hasTarget = Boolean(conn.defaultChannelId) || Boolean(conn.discordGuildId);
-  const bridgeOn = conn.bridgeEnabled !== false;
   const listenerRunning = Boolean(conn.discordListenerRunning);
   const listenerLive = Boolean(conn.discordListenerRunning && conn.discordListenerConnected);
   const listenerStuck = listenerRunning && !listenerLive && !startingListener;
@@ -74,7 +70,7 @@ export function DiscordOnboardingWizard({
     if (step === 0) return hasToken && isConnected;
     if (step === 1) return isConnected;
     if (step === 2) return hasTarget;
-    if (step === 3) return bridgeOn && listenerRunning;
+    if (step === 3) return listenerRunning;
     return false;
   })();
 
@@ -118,12 +114,6 @@ export function DiscordOnboardingWizard({
       return;
     }
     nextOnboardingStep();
-  };
-
-  const handleEnableBridge = (enabled: boolean) => {
-    updateConnection('discord', { bridgeEnabled: enabled });
-    setTimeout(() => saveDiscordConfig(), 0);
-    setTimeout(() => void refreshBridgeStatus('discord'), 0);
   };
 
   const handleStartListener = async () => {
@@ -513,7 +503,7 @@ export function DiscordOnboardingWizard({
         </div>
       )}
 
-      {/* Step 3: Bridge + Listener */}
+      {/* Step 3: Start listener (bridging is always on; mute is per-server) */}
       {step === 3 && (
         <div className="space-y-3">
           <div>
@@ -524,17 +514,6 @@ export function DiscordOnboardingWizard({
               {t('settings.integrations.discord.wizard.step4.description')}
             </p>
           </div>
-          <label className="flex cursor-pointer items-center gap-2 py-1">
-            <Checkbox
-              checked={bridgeOn}
-              disabled={!bridgeStatus.enabled}
-              onChange={handleEnableBridge}
-              ariaLabel={t('settings.integrations.discord.wizard.step4.bridge')}
-            />
-            <span className="text-xs text-foreground">
-              {t('settings.integrations.discord.wizard.step4.bridge')}
-            </span>
-          </label>
           <div className="flex items-center gap-2">
             <Button
               type="button"

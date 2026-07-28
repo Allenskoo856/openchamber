@@ -1758,6 +1758,18 @@ async function main(options = {}) {
             defaultReplyMode: discordConfig.defaultReplyMode,
             guildPolicies: discordConfig.guildPolicies,
           });
+          // Persist the heal: a stale settings.bridgeEnabled:false (from an old
+          // UI localStorage overwrite) must not survive the next boot path that
+          // still reads settings.json (e.g. /discord/auto-start).
+          if (discordConfig.bridgeEnabled === false) {
+            try {
+              await persistSettings({
+                discord: { ...discordConfig, bridgeEnabled: true },
+              });
+            } catch {
+              // best-effort — live listener is already bridged
+            }
+          }
           console.log(
             '[Discord] Listener auto-start:',
             result?.alreadyRunning ? 'already running' : 'started',
