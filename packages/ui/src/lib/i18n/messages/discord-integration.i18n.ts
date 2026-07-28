@@ -139,6 +139,9 @@ export const discordIntegrationI18n = {
     'settings.integrations.discord.bridge.critique.title': 'Share diffs via critique.work',
     'settings.integrations.discord.bridge.critique.description':
       'Uploads your code diffs to critique.work — an external third-party service — to create shareable review links. Off by default.',
+    'settings.integrations.discord.bridge.syncWorktrees.title': 'Sync worktrees to Discord',
+    'settings.integrations.discord.bridge.syncWorktrees.description':
+      'Mirror git worktrees as threads under each project channel, with a pinned index. On by default.',
     'settings.integrations.discord.bridge.interruptTimeout.title': 'Interrupt timeout',
     'settings.integrations.discord.bridge.interruptTimeout.description':
       'How long to wait for an interrupted turn to settle before sending the superseding prompt. Default is 8000 ms.',
@@ -392,6 +395,9 @@ export const discordIntegrationI18n = {
     'settings.integrations.discord.bridge.notifyOnComplete.description': 'Si está activado, Discord menciona al último usuario que envió un prompt después de que termine una respuesta real del asistente. Desactivado por defecto.',
     'settings.integrations.discord.bridge.critique.title': 'Compartir diffs vía critique.work',
     'settings.integrations.discord.bridge.critique.description': 'Sube tus diffs de código a critique.work, un servicio externo de terceros, para crear enlaces de revisión compartibles. Desactivado por defecto.',
+    'settings.integrations.discord.bridge.syncWorktrees.title': 'Sincronizar worktrees con Discord',
+    'settings.integrations.discord.bridge.syncWorktrees.description':
+      'Refleja los worktrees de git como hilos dentro del canal de cada proyecto, con un índice fijado. Activado por defecto.',
     'settings.integrations.discord.bridge.interruptTimeout.title': 'Tiempo de espera de interrupción',
     'settings.integrations.discord.bridge.interruptTimeout.description': 'Cuánto esperar a que un turno interrumpido se estabilice antes de enviar el prompt que lo reemplaza. El valor predeterminado es 8000 ms.',
     'settings.integrations.discord.bridge.interruptTimeout.unit': 'ms',
@@ -642,6 +648,9 @@ export const discordIntegrationI18n = {
     'settings.integrations.discord.bridge.notifyOnComplete.description': 'Lorsque cette option est activée, Discord mentionne le dernier utilisateur ayant envoyé un prompt après la fin d’une vraie réponse de l’assistant. Désactivé par défaut.',
     'settings.integrations.discord.bridge.critique.title': 'Partager les diffs via critique.work',
     'settings.integrations.discord.bridge.critique.description': 'Envoie vos diffs de code vers critique.work — un service tiers externe — pour créer des liens de révision partageables. Désactivé par défaut.',
+    'settings.integrations.discord.bridge.syncWorktrees.title': 'Synchroniser les worktrees avec Discord',
+    'settings.integrations.discord.bridge.syncWorktrees.description':
+      'Reflète les worktrees git en fils sous le canal de chaque projet, avec un index épinglé. Activé par défaut.',
     'settings.integrations.discord.bridge.interruptTimeout.title': 'Délai d’interruption',
     'settings.integrations.discord.bridge.interruptTimeout.description': 'Durée d’attente pour qu’un tour interrompu se stabilise avant l’envoi du prompt de remplacement. Par défaut : 8000 ms.',
     'settings.integrations.discord.bridge.interruptTimeout.unit': 'ms',
@@ -892,6 +901,9 @@ export const discordIntegrationI18n = {
     'settings.integrations.discord.bridge.notifyOnComplete.description': '有効にすると、実際のアシスタント応答が完了した後、Discord が最後にプロンプトを送ったユーザーをメンションします。既定ではオフです。',
     'settings.integrations.discord.bridge.critique.title': 'critique.work で diff を共有',
     'settings.integrations.discord.bridge.critique.description': 'コードの diff を外部サードパーティサービス critique.work にアップロードし、共有可能なレビューリンクを作成します。既定ではオフです。',
+    'settings.integrations.discord.bridge.syncWorktrees.title': 'worktree を Discord に同期',
+    'settings.integrations.discord.bridge.syncWorktrees.description':
+      'git worktree を各プロジェクトチャンネル内のスレッドとして同期し、ピン留めされたインデックスを表示します。デフォルトで有効。',
     'settings.integrations.discord.bridge.interruptTimeout.title': '割り込みタイムアウト',
     'settings.integrations.discord.bridge.interruptTimeout.description': '中断されたターンが落ち着くまで、置き換えプロンプトを送る前に待つ時間です。既定は 8000 ms です。',
     'settings.integrations.discord.bridge.interruptTimeout.unit': 'ms',
@@ -1142,6 +1154,9 @@ export const discordIntegrationI18n = {
     'settings.integrations.discord.bridge.notifyOnComplete.description': '활성화하면 실제 어시스턴트 응답이 끝난 뒤 Discord가 마지막으로 프롬프트를 보낸 사용자를 멘션합니다. 기본값은 꺼짐입니다.',
     'settings.integrations.discord.bridge.critique.title': 'critique.work로 diff 공유',
     'settings.integrations.discord.bridge.critique.description': '코드 diff를 외부 타사 서비스인 critique.work에 업로드하여 공유 가능한 리뷰 링크를 만듭니다. 기본값은 꺼짐입니다.',
+    'settings.integrations.discord.bridge.syncWorktrees.title': 'worktree를 Discord에 동기화',
+    'settings.integrations.discord.bridge.syncWorktrees.description':
+      'git worktree를 각 프로젝트 채널의 스레드로 미러링하고 고정된 인덱스를 표시합니다. 기본적으로 활성화됨.',
     'settings.integrations.discord.bridge.interruptTimeout.title': '인터럽트 제한 시간',
     'settings.integrations.discord.bridge.interruptTimeout.description': '중단된 턴이 안정될 때까지 대체 프롬프트를 보내기 전에 기다리는 시간입니다. 기본값은 8000 ms입니다.',
     'settings.integrations.discord.bridge.interruptTimeout.unit': 'ms',
@@ -1392,6 +1407,9 @@ export const discordIntegrationI18n = {
     'settings.integrations.discord.bridge.notifyOnComplete.description': 'Gdy włączone, Discord wspomina ostatniego użytkownika, który wysłał prompt, po zakończeniu rzeczywistej odpowiedzi asystenta. Domyślnie wyłączone.',
     'settings.integrations.discord.bridge.critique.title': 'Udostępniaj diffy przez critique.work',
     'settings.integrations.discord.bridge.critique.description': 'Wysyła diffy kodu do critique.work — zewnętrznej usługi firmy trzeciej — aby tworzyć linki do przeglądu, które można udostępniać. Domyślnie wyłączone.',
+    'settings.integrations.discord.bridge.syncWorktrees.title': 'Synchronizuj worktree z Discordem',
+    'settings.integrations.discord.bridge.syncWorktrees.description':
+      'Odzwierciedla worktree git jako wątki w kanale każdego projektu, z przypiętym indeksem. Domyślnie włączone.',
     'settings.integrations.discord.bridge.interruptTimeout.title': 'Limit czasu przerwania',
     'settings.integrations.discord.bridge.interruptTimeout.description': 'Jak długo czekać, aż przerwany krok się ustabilizuje, zanim zostanie wysłany zastępujący prompt. Domyślnie 8000 ms.',
     'settings.integrations.discord.bridge.interruptTimeout.unit': 'ms',
@@ -1642,6 +1660,9 @@ export const discordIntegrationI18n = {
     'settings.integrations.discord.bridge.notifyOnComplete.description': 'Quando ativado, o Discord menciona o último usuário que enviou um prompt depois que uma resposta real do assistente termina. Desativado por padrão.',
     'settings.integrations.discord.bridge.critique.title': 'Compartilhar diffs via critique.work',
     'settings.integrations.discord.bridge.critique.description': 'Envia seus diffs de código para o critique.work — um serviço externo de terceiros — para criar links de revisão compartilháveis. Desativado por padrão.',
+    'settings.integrations.discord.bridge.syncWorktrees.title': 'Sincronizar worktrees com o Discord',
+    'settings.integrations.discord.bridge.syncWorktrees.description':
+      'Espelha worktrees git como threads no canal de cada projeto, com um índice fixado. Ativado por padrão.',
     'settings.integrations.discord.bridge.interruptTimeout.title': 'Tempo limite de interrupção',
     'settings.integrations.discord.bridge.interruptTimeout.description': 'Quanto tempo esperar um turno interrompido estabilizar antes de enviar o prompt substituto. O padrão é 8000 ms.',
     'settings.integrations.discord.bridge.interruptTimeout.unit': 'ms',
@@ -1891,6 +1912,9 @@ export const discordIntegrationI18n = {
     'settings.integrations.discord.bridge.notifyOnComplete.description': '启用后，Discord 会在真实助手回复完成后提及最后发送提示词的用户。默认关闭。',
     'settings.integrations.discord.bridge.critique.title': '通过 critique.work 分享 diff',
     'settings.integrations.discord.bridge.critique.description': '将你的代码 diff 上传到外部第三方服务 critique.work，以创建可分享的审阅链接。默认关闭。',
+    'settings.integrations.discord.bridge.syncWorktrees.title': '将 worktree 同步到 Discord',
+    'settings.integrations.discord.bridge.syncWorktrees.description':
+      '将 git worktree 镜像为每个项目频道下的线程，并显示置顶索引。默认启用。',
     'settings.integrations.discord.bridge.interruptTimeout.title': '中断超时',
     'settings.integrations.discord.bridge.interruptTimeout.description': '在发送替代提示词前，等待被中断回合稳定的时间。默认 8000 ms。',
     'settings.integrations.discord.bridge.interruptTimeout.unit': 'ms',
@@ -2137,6 +2161,9 @@ export const discordIntegrationI18n = {
     'settings.integrations.discord.bridge.notifyOnComplete.description': '啟用後，Discord 會在真正的助理回覆完成後提及最後送出提示詞的使用者。預設關閉。',
     'settings.integrations.discord.bridge.critique.title': '透過 critique.work 分享 diff',
     'settings.integrations.discord.bridge.critique.description': '將你的程式碼 diff 上傳到外部第三方服務 critique.work，以建立可分享的審閱連結。預設關閉。',
+    'settings.integrations.discord.bridge.syncWorktrees.title': '將 worktree 同步到 Discord',
+    'settings.integrations.discord.bridge.syncWorktrees.description':
+      '將 git worktree 鏡像為每個專案頻道下的討論串，並顯示置頂索引。預設啟用。',
     'settings.integrations.discord.bridge.interruptTimeout.title': '中斷逾時',
     'settings.integrations.discord.bridge.interruptTimeout.description': '送出取代提示詞前，等待被中斷回合穩定的時間。預設為 8000 ms。',
     'settings.integrations.discord.bridge.interruptTimeout.unit': 'ms',
@@ -2400,6 +2427,9 @@ export const discordIntegrationI18n = {
       'Коли увімкнено, Discord згадує останнього користувача, який надіслав промпт, після завершення реальної відповіді асистента. Типово вимкнено.',
     'settings.integrations.discord.bridge.critique.title': 'Ділитися diff через critique.work',
     'settings.integrations.discord.bridge.critique.description': 'Надсилає ваші diff-зміни коду до critique.work — зовнішнього стороннього сервісу — для створення посилань на рецензію, якими можна ділитися. Типово вимкнено.',
+    'settings.integrations.discord.bridge.syncWorktrees.title': 'Синхронізувати worktree з Discord',
+    'settings.integrations.discord.bridge.syncWorktrees.description':
+      'Відображає git worktree як гілки в каналі кожного проєкту, із закріпленим індексом. Увімкнено за замовчуванням.',
     'settings.integrations.discord.bridge.interruptTimeout.title': 'Таймаут переривання',
     'settings.integrations.discord.bridge.interruptTimeout.description':
       'Скільки чекати, поки перервана відповідь завершиться, перед надсиланням нового промпта. Типово 8000 мс.',

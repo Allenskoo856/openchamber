@@ -687,6 +687,9 @@ function BehaviorPanel({
   const setBridgeCritiqueEnabled = useMessengerStore((s) => s.setBridgeCritiqueEnabled);
   const bridgeInterruptTimeoutMs = useMessengerStore((s) => s.bridgeInterruptTimeoutMs);
   const setBridgeInterruptTimeoutMs = useMessengerStore((s) => s.setBridgeInterruptTimeoutMs);
+  const syncWorktrees = useMessengerStore(
+    (s) => s.connections.find((c) => c.type === 'discord')?.syncWorktrees !== false,
+  );
   useEffect(() => {
     refreshBridgeStatus(type);
     const id = setInterval(() => refreshBridgeStatus(type), 8000);
@@ -789,6 +792,27 @@ function BehaviorPanel({
             </span>
             <span className="block text-xs text-muted-foreground leading-snug">
               {t('settings.integrations.discord.bridge.critique.description')}
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div data-settings-item="integrations.discord.sync-worktrees" className="space-y-1">
+        <label className="flex cursor-pointer items-start gap-2">
+          <Checkbox
+            checked={syncWorktrees}
+            onChange={(checked) => {
+              useMessengerStore.getState().updateConnection('discord', { syncWorktrees: checked });
+              setTimeout(() => useMessengerStore.getState().saveDiscordConfig(), 0);
+            }}
+            ariaLabel={t('settings.integrations.discord.bridge.syncWorktrees.title')}
+          />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-foreground">
+              {t('settings.integrations.discord.bridge.syncWorktrees.title')}
+            </span>
+            <span className="block text-xs text-muted-foreground leading-snug">
+              {t('settings.integrations.discord.bridge.syncWorktrees.description')}
             </span>
           </span>
         </label>

@@ -187,7 +187,17 @@ const COMMAND_HELP = [
   {
     name: 'worktrees',
     usage: '/worktrees',
-    summary: 'List git worktrees for this channel project',
+    summary: 'List git worktrees for this channel project (with Discord thread links)',
+  },
+  {
+    name: 'open-worktree',
+    usage: '/open-worktree <branch-or-name>',
+    summary: 'Open an existing worktree in its Discord thread (UI-created worktrees included)',
+  },
+  {
+    name: 'worktree-status',
+    usage: '/worktree-status',
+    summary: 'Show git status for the worktree bound to this conversation',
   },
   {
     name: 'toggle-worktrees',
@@ -1171,18 +1181,78 @@ export async function executeMessengerCommand({
       }
       const r = await bridgeOps.listWorktrees();
       if (!r.ok) return { reply: `✗ Could not list worktrees: ${r.error ?? 'unknown error'}` };
-      const rows = (r.worktrees ?? []).map((wt, index) => ({
-        n: String(index + 1),
-        branch: wt.branch ?? (wt.detached ? '(detached)' : '(unknown)'),
-        path: wt.path,
-      }));
-      if (rows.length === 0) return { reply: '_(no git worktrees found for this project)_' };
+      const list = r.worktrees ?? [];
+      if (list.length === 0) return { reply: '_(no git worktrees found for this project)_' };
+      const rows = list.map((wt, index) => {
+        const statusParts = [];
+        if (wt.status?.ahead) statusParts.push(`+${wt.status.ahead}`);
+        if (wt.status?.behind) statusParts.push(`-${wt.status.behind}`);
+        if (wt.status?.isDirty) statusParts.push('dirty');
+        return {
+          n: String(index + 1),
+          branch: wt.branch ?? (wt.detached ? '(detached)' : '(unknown)'),
+          status: wt.status ? (statusParts.length > 0 ? statusParts.join('·') : 'clean') : '',
+          thread: wt.threadId ? `<#${wt.threadId}>` : '',
+          path: wt.path,
+        };
+      });
       return {
-        reply: ['**Project worktrees**', '', fmtTable(rows, [
-          { key: 'n' },
-          { key: 'branch', code: true },
-          { key: 'path', code: true },
-        ])].join('\n'),
+        reply: [
+          '**Project worktrees**',
+          '',
+          fmtTable(rows, [
+            { key: 'n' },
+            { key: 'branch', code: true },
+            { key: 'status' },
+            { key: 'thread' },
+            { key: 'path', code: true },
+          ]),
+          '',
+          'Open one with `/open-worktree <branch>`.',
+        ].join('\n'),
+      };
+    }
+
+    case 'open-worktree': {
+      if (!bridgeOps?.openWorktree) {
+        return { reply: '✗ `/open-worktree` is not available on this surface.' };
+      }
+      const query = command.args.trim();
+      if (!query) {
+        return { reply: '✗ Usage: `/open-worktree <branch-or-name>` — run `/worktrees` to see options.' };
+      }
+      const r = await bridgeOps.openWorktree({ query });
+      if (!r.ok) return { reply: `✗ ${r.error ?? 'could not open worktree.'}` };
+      return {
+        reply: [
+          `🌿 Opened worktree \`${r.branch}\``,
+          `📁 \`${r.path}\``,
+          r.threadId ? `Continue in <#${r.threadId}>.` : '',
+        ].filter(Boolean).join('\n'),
+      };
+    }
+
+    case 'worktree-status': {
+      if (!bridgeOps?.worktreeStatus) {
+        return { reply: '✗ `/worktree-status` is not available on this surface.' };
+      }
+      const r = await bridgeOps.worktreeStatus();
+      if (!r.ok) return { reply: `✗ ${r.error ?? 'could not read worktree status.'}` };
+      const statusParts = [];
+      if (r.status?.ahead) statusParts.push(`+${r.status.ahead} ahead`);
+      if (r.status?.behind) statusParts.push(`${r.status.behind} behind`);
+      if (r.status?.isDirty) statusParts.push('dirty');
+      const statusText = statusParts.length > 0 ? statusParts.join(', ') : 'clean';
+      return {
+        reply: [
+          `**Worktree status**`,
+          `Path: \`${r.path}\``,
+          `Project root: \`${r.projectRoot}\``,
+          `Branch: \`${r.branch ?? 'unknown'}\``,
+          `Git: ${statusText}`,
+          r.isWorktree ? '' : '_This conversation is not inside a secondary worktree._',
+          r.threadId ? `Thread: <#${r.threadId}>` : '',
+        ].filter(Boolean).join('\n'),
       };
     }
 

@@ -179,6 +179,8 @@ export interface MessengerConnection {
   // Sync config
   syncMode: SyncMode;
   syncProjects: boolean;
+  /** Mirror git worktrees to Discord threads under each project channel. */
+  syncWorktrees: boolean;
   syncTasks: boolean;
   syncSchedule: boolean;
   autoCreateThreads: boolean;
@@ -451,6 +453,28 @@ interface MessengerState {
   ensureProjectChannel: (project: ProjectEntry) => Promise<void>;
   renameProjectChannel: (project: ProjectEntry) => Promise<void>;
   removeProjectChannel: (projectId: string, projectPath: string) => Promise<void>;
+  /**
+   * Worktree lifecycle → Discord thread sync. Called when the UI creates /
+   * removes / merges a worktree so each worktree gets (or loses) its own
+   * thread under the project channel. Best-effort: no-ops unless Discord is
+   * configured and worktree sync is enabled.
+   */
+  notifyWorktreeAdded: (
+    project: ProjectEntry,
+    worktree: { path: string; branch?: string; label?: string },
+    sessionId?: string | null,
+  ) => Promise<void>;
+  notifyWorktreeRemoved: (
+    project: ProjectEntry,
+    worktree: { path: string; branch?: string; label?: string },
+  ) => Promise<void>;
+  notifyWorktreeMerged: (
+    project: ProjectEntry,
+    worktree: { path: string; branch?: string; label?: string },
+    summary?: string | null,
+  ) => Promise<void>;
+  /** Resolve the Discord thread URL for a worktree (null when none is bound). */
+  fetchWorktreeDiscordUrl: (worktreePath: string) => Promise<string | null>;
   startOnboarding: (type: MessengerType) => void;
   nextOnboardingStep: () => void;
   prevOnboardingStep: () => void;
@@ -467,6 +491,7 @@ const DEFAULT_CONNECTION: Omit<MessengerConnection, 'type'> = {
   lastSyncMessage: null,
   syncMode: 'full',
   syncProjects: true,
+  syncWorktrees: true,
   syncTasks: true,
   syncSchedule: true,
   autoCreateThreads: true,
@@ -505,6 +530,50 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 async function getJson<T>(url: string): Promise<T> {
   const res = await runtimeFetch(url);
   return parseRuntimeJson<T>(res, url);
+}
+
+/**
+ * Full Discord context for the bridge worktree endpoints: the server merges
+ * this with its own settings.json values, so UI-side bindings and the default
+ * channel resolve even before a "Sync now" round persisted them.
+ */
+function buildDiscordBridgePayload(
+  conn: MessengerConnection,
+  projectMappings: ProjectMessengerMapping[],
+): {
+  token: string;
+  guildId?: string;
+  parentCategoryId?: string;
+  defaultUserId?: string;
+  defaultChannelId?: string;
+  syncWorktrees: boolean;
+  projectBindings: { channelId: string; projectPath: string; projectLabel?: string }[];
+} {
+  const projects = useProjectsStore.getState().projects;
+  const projectBindings = projectMappings.flatMap((m) => {
+    if (!m.discord?.channelId) return [];
+    const project = projects.find((p) => p.id === m.projectId);
+    if (!project) return [];
+    return [
+      {
+        channelId: m.discord.channelId,
+        projectPath: project.path,
+        projectLabel: project.label ?? project.path,
+      },
+    ];
+  });
+  const syncGuildId = getDiscordSyncGuildIds(conn)[0];
+  return {
+    token: conn.botToken!,
+    guildId: syncGuildId ?? conn.discordGuildId,
+    parentCategoryId: syncGuildId
+      ? (conn.discordGuildPolicies?.[syncGuildId]?.parentCategoryId ?? conn.discordParentCategoryId)
+      : conn.discordParentCategoryId,
+    defaultUserId: conn.defaultUserId,
+    defaultChannelId: conn.defaultChannelId,
+    syncWorktrees: conn.syncWorktrees !== false,
+    projectBindings,
+  };
 }
 
 /** Dedupes concurrent resync calls from hydration + reconnect + settings mount. */
@@ -1411,6 +1480,7 @@ export const useMessengerStore = create<MessengerState>()(
             projectBindings,
             defaultReplyMode: conn.discordDefaultReplyMode ?? 'always',
             guildPolicies: conn.discordGuildPolicies ?? {},
+            syncWorktrees: conn.syncWorktrees !== false,
           });
         } catch {
           // silent — config save is best-effort
@@ -2049,6 +2119,65 @@ export const useMessengerStore = create<MessengerState>()(
         }
         get().removeProjectMapping(projectId);
         get().saveDiscordConfig();
+      },
+
+      notifyWorktreeAdded: async (project, worktree, sessionId = null) => {
+        const conn = get().connections.find((c) => c.type === 'discord');
+        // Only the bot token + the worktree-sync flag gate this — a project
+        // channel mapping (or the default channel) is resolved server-side.
+        if (!conn?.botToken || conn.syncWorktrees === false) return;
+        try {
+          await postJson('/api/messenger/bridge/worktree-added', {
+            project: { id: project.id, path: project.path, label: project.label ?? project.path },
+            worktree,
+            sessionId,
+            discord: buildDiscordBridgePayload(conn, get().projectMappings),
+          });
+        } catch {
+          // best-effort
+        }
+      },
+
+      notifyWorktreeRemoved: async (project, worktree) => {
+        const conn = get().connections.find((c) => c.type === 'discord');
+        if (!conn?.botToken || conn.syncWorktrees === false) return;
+        try {
+          await postJson('/api/messenger/bridge/worktree-removed', {
+            project: { id: project.id, path: project.path, label: project.label ?? project.path },
+            worktree,
+            discord: buildDiscordBridgePayload(conn, get().projectMappings),
+          });
+        } catch {
+          // best-effort
+        }
+      },
+
+      notifyWorktreeMerged: async (project, worktree, summary = null) => {
+        const conn = get().connections.find((c) => c.type === 'discord');
+        if (!conn?.botToken || conn.syncWorktrees === false) return;
+        try {
+          await postJson('/api/messenger/bridge/worktree-merged', {
+            project: { id: project.id, path: project.path, label: project.label ?? project.path },
+            worktree,
+            summary,
+            discord: buildDiscordBridgePayload(conn, get().projectMappings),
+          });
+        } catch {
+          // best-effort
+        }
+      },
+
+      fetchWorktreeDiscordUrl: async (worktreePath) => {
+        const conn = get().connections.find((c) => c.type === 'discord');
+        if (!conn?.botToken || conn.syncWorktrees === false) return null;
+        try {
+          const data = await getJson<{ ok?: boolean; discordUrl?: string }>(
+            `/api/messenger/bridge/worktree-discord-url?path=${encodeURIComponent(worktreePath)}`,
+          );
+          return data.ok && data.discordUrl ? data.discordUrl : null;
+        } catch {
+          return null;
+        }
       },
 
       startOnboarding: (type) => {
