@@ -11,7 +11,7 @@ import { createVSCodeNotificationsAPI } from './notifications';
 
 // Stub APIs return sensible defaults instead of throwing
 const createStubTerminalAPI = (): TerminalAPI => ({
-  createSession: async () => ({ sessionId: '', cols: 80, rows: 24 }),
+  createSession: async () => ({ sessionId: '', cols: 80, rows: 24, status: 'running' }),
   connect: () => ({ close: () => {} }),
   sendInput: async () => {},
   resize: async () => {},
