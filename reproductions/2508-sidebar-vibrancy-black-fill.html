@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<!--
+  Reproduction: Sidebar opaque black fill with macOS Window Transparency (#2508)
+
+  Reproduces the layout mismatch: sticky sidebar zone headers
+  (.oc-zone-header-backing) use an opaque background
+  (var(--sidebar-stuck-bg) = #1C1B1A) even when the rest of the sidebar
+  uses a translucent overlay (var(--sidebar-vibrancy-overlay) = rgb(28 27 26 / 0.66)).
+
+  Open with a Chromium-based browser and inspect the zone headers (red-bordered
+  elements in the sidebar). In the actual Electron app, these render as fully
+  opaque dark blocks against the otherwise frosted/vibrancy sidebar.
+
+  Root cause:
+  - packages/ui/src/styles/design-system.css lines 153-165:
+    .oc-zone-header-backing forces background: var(--sidebar-stuck-bg) !important
+    as a workaround for Electron#20357 (backdrop-filter broken on transparent windows).
+  - This opaque color is invisible when the window BG is solid (normal mode),
+    but stands out as a "black fill" when the sidebar is translucent (vibrancy mode).
+-->
+<html class="dark desktop-runtime" data-oc-vibrancy data-oc-vibrancy-ready>
+<head>
+<style>
+  :root.dark {
+    --sidebar-base: #1C1B1A;
+    --sidebar: var(--sidebar-base);
+    --sidebar-stuck-bg: var(--sidebar);
+    --sidebar-base-rgb: 28 27 26;
+    --sidebar-vibrancy-overlay: rgb(28 27 26 / 0.66);
+    --surface-background: #171515;
+    --background: var(--surface-background);
+    --border: #343331;
+    --oc-header-height: 56px;
+    --oc-left-sidebar-width: 280px;
+    --foreground: #CECDC3;
+    --muted-foreground: #807e79;
+    --interactive-hover: #ffffff18;
+    --primary: #DA702C;
+    --sidebar-foreground: #cdccc3;
+    --sidebar-border: #343331;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body, #root { height: 100%; overflow: hidden; background: transparent !important; }
+
+  /* Checkerboard: shows where transparency would be (→ macOS vibrancy in real app) */
+  .checkerboard {
+    background-image:
+      linear-gradient(45deg, #666 25%, transparent 25%),
+      linear-gradient(-45deg, #666 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #666 75%),
+      linear-gradient(-45deg, transparent 75%, #666 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 0 12px, 12px -12px, -12px 0px;
+  }
+
+  .app-layout { display: flex; height: 100vh; overflow: hidden; }
+
+  /* ── Sidebar (reproduces Sidebar.tsx structure) ── */
+  .sidebar-aside {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    width: 280px;
+    min-width: 280px;
+    border-right: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+    background: var(--sidebar-vibrancy-overlay);   /* ← TRANSLUCENT (66% opaque) */
+  }
+
+  .sidebar-inner {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    height: 100%;
+    flex-shrink: 0;
+    flex-direction: column;
+    width: var(--oc-left-sidebar-width);
+    overflow-x: hidden;
+  }
+
+  .sidebar-scroll { min-height: 0; flex: 1; overflow-y: auto; overflow-x: hidden; }
+
+  .session-sidebar {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    background: transparent;
+    overflow-x: hidden;
+    color: var(--foreground);
+  }
+
+  /* ── Zone header backing (from design-system.css lines 160-165) ── */
+  .zone-header-backing {
+    background: var(--sidebar-stuck-bg) !important;  /* ← FULLY OPAQUE (bug) */
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    backdrop-filter: blur(16px) saturate(1.2);
+    outline: 1px solid rgba(255, 60, 60, 0.5);      /* Debug border */
+  }
+
+  .zone-header {
+    display: flex;
+    align-items: center;
+    padding: 0.25rem 0.875rem 0.25rem 1rem;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--foreground);
+  }
+
+  .sidebar-footer {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.5rem 0.625rem;
+    background: transparent;
+  }
+
+  .sidebar-footer button {
+    display: inline-flex; height: 2rem; width: 2rem;
+    align-items: center; justify-content: center;
+    border-radius: 0.375rem; border: none;
+    background: transparent; color: var(--muted-foreground);
+    cursor: default; font-size: 16px;
+  }
+
+  .main-content {
+    flex: 1; display: flex; flex-direction: column;
+    min-width: 0; background: var(--surface-background);
+    overflow: hidden; color: var(--foreground);
+    padding: 1rem; font-family: system-ui, sans-serif;
+  }
+
+  .note {
+    font-size: 13px; color: var(--muted-foreground);
+    margin-top: 0.5rem; line-height: 1.5;
+  }
+  .note strong { color: var(--foreground); }
+
+  .debug-badge {
+    font-size: 10px; font-family: monospace;
+    color: rgba(255,255,255,0.3); margin-left: auto;
+  }
+</style>
+</head>
+<body>
+<div class="app-layout checkerboard">
+  <aside class="sidebar-aside">
+    <div class="sidebar-inner">
+      <!-- TopBar -->
+      <div style="height:var(--oc-header-height);flex-shrink:0;display:flex;align-items:center;padding-left:12px;">
+        <span style="font-size:11px;color:rgba(255,255,255,0.2);">top bar</span>
+      </div>
+
+      <div class="sidebar-scroll">
+        <div class="session-sidebar">
+
+          <!-- Nav -->
+          <div style="padding:0.5rem 0.625rem;flex-shrink:0;">
+            <div style="background:var(--primary);color:#fff;border-radius:6px;padding:0.375rem 0.75rem;font-size:13px;font-weight:600;text-align:center;">+ New Session</div>
+          </div>
+
+          <!-- Header -->
+          <div style="padding:0.25rem 0.625rem 0.5rem;flex-shrink:0;">
+            <div style="border:1px solid var(--border);border-radius:6px;padding:0.375rem 0.625rem;font-size:13px;color:var(--muted-foreground);">🔍 Search sessions...</div>
+          </div>
+
+          <!-- Activity section with zone header -->
+          <div style="flex-shrink:0;">
+            <div class="zone-header-backing zone-header">
+              <span>🕐 Recent</span>
+              <span class="debug-badge">ZONE HEADER (opaque)</span>
+            </div>
+            <div style="padding:0.25rem 0 0.25rem 0.875rem;font-size:11px;color:var(--muted-foreground);">No recent sessions</div>
+          </div>
+
+          <!-- Projects list (flex-1) -->
+          <div style="flex:1;min-height:0;padding:0.25rem 0;">
+
+            <!-- Project 1 — collapsed, no sessions below -->
+            <div>
+              <div class="zone-header-backing zone-header">
+                <span>📁 my-project</span>
+                <span class="debug-badge">ZONE HEADER (opaque)</span>
+              </div>
+            </div>
+
+            <!-- Project 2 — collapsed, no sessions below, at bottom -->
+            <div>
+              <div class="zone-header-backing zone-header">
+                <span>📁 another-project</span>
+                <span class="debug-badge">ZONE HEADER (opaque) ← "black fill" at bottom</span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Footer (transparent) -->
+          <div class="sidebar-footer">
+            <button>⚙</button>
+            <button>?</button>
+            <button>ℹ</button>
+            <span class="debug-badge" style="margin-left:auto;">footer (transparent)</span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <h2 style="font-size:16px;font-weight:600;">MacOS Vibrancy Reproduction</h2>
+    <p class="note">
+      The sidebar background is <strong>translucent</strong> (<code>rgb(28 27 26 / 0.66)</code>),
+      simulating the native macOS vibrancy effect. The checkerboard represents the desktop
+      wallpaper visible through the frosted sidebar.
+    </p>
+    <p class="note">
+      Zone headers (outlined in <span style="color:rgba(255,60,60,0.8);">red</span>)
+      use <code>background: var(--sidebar-stuck-bg) !important</code> which is
+      <strong>fully opaque #1C1B1A</strong>. In normal (non-vibrancy) mode these blend
+      with the solid sidebar. In vibrancy mode they render as opaque dark blocks —
+      the "black fill."
+    </p>
+    <p class="note" style="background:rgba(218,112,44,0.12);padding:8px;border-radius:6px;border:1px solid rgba(218,112,44,0.3);">
+      <strong>Root cause:</strong> <code>design-system.css</code> line 160-165 forces
+      <code>.oc-zone-header-backing</code> to use opaque <code>var(--sidebar-stuck-bg)</code>
+      as a workaround for Electron#20357 (backdrop-filter broken on transparent windows).
+      When vibrancy makes the sidebar translucent, these sticky zone headers
+      become visible opaque blocks.
+    </p>
+  </main>
+</div>
+</body>
+</html>
