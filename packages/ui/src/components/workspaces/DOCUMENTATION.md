@@ -18,4 +18,4 @@ The normal entrypoint is the existing new-session flow. The user chooses a proje
 
 The shield is the secondary management/recovery surface. It can be opened without a selected session, but only with an explicit project context; otherwise it must ask for a project instead of using a hidden last directory. Workspace bootstrap runs list discovery, starts sync through the generated SDK, and performs a bounded status wait. Successful session creation publishes the runtime directory and workspace identity, selects the session, switches to chat, and must make the session visible in the matching sidebar scope immediately.
 
-See `docs/SECURE_WORKSPACES_QA_HANDOFF.md` for the current live-test state, defects, temporary dependency setup, and continuation checklist.
+The authoritative certification status and remaining compatibility gates are maintained in `docs/SECURE_WORKSPACES_SPECIFICATION.md`.

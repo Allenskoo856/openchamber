@@ -174,13 +174,14 @@ This section records the audited state of the current commits. It is status evid
 
 ### 5.1 Current Commits And Distribution
 
-- Plugin repository `main` and OpenChamber dependency pin: `d9567f00fa5d1c2115fed613d8fe5b9aafe69cbb`.
+- Plugin repository `main` and OpenChamber dependency pin: `c38f878ae178a8ad342d8e01248535a711aeea46`.
 - Release tag `v0.1.0`: `eedfd5b3a08e99285f3f167c7e7d83799844c03d`.
 - Initial OpenChamber release-artifact pin commit: `aa0ed4bd37140d59c4fa5d08de791285414aa48b`.
 - OpenChamber currently pins the plugin by immutable Git commit in web and Electron package manifests.
 - The current plugin package payload is independently packable and Electron stages and verifies the exact payload.
 - OpenChamber server policy owns the exact signed runtime and gateway manifest defaults recorded in section 15; the UI does not duplicate them.
 - For the `v0.1.0` image/provider milestone, immutable Git SHA is the plugin distribution contract. npm trusted publishing is intentionally deferred to a later distribution milestone and no npm token is required now.
+- OpenChamber now consumes `@opencode-ai/sdk@1.18.8` after integrating `main`, while the pinned plugin and published runtime image remain on the audited `1.18.4` contract. The prior Secure Workspaces certification does not cover this version combination; compatibility and live provider certification must be rerun before a milestone-ready claim.
 
 ### 5.2 Implemented Security And Correctness Invariants
 
@@ -228,7 +229,7 @@ Tag `v0.1.0` points to plugin commit `eedfd5b3a08e99285f3f167c7e7d83799844c03d`.
 
 ### 5.5 Milestone Status And Deferred Gates
 
-- The image/provider milestone is ready at the commits and immutable image digests recorded in this section.
+- The image/provider milestone evidence applies to the commits and immutable image digests recorded in this section, but is pending recertification after the OpenChamber SDK `1.18.8` upgrade.
 - This status covers the provider, transport, isolation, artifact, handoff, release-image, and packaging contracts validated above; it is not a claim that the complete cross-platform product release is ready.
 
 Native iOS, Android, Windows, and Linux application certification is intentionally sequenced after these immediate gates. This deferral does not waive the final product-release matrix and no milestone may be called the complete cross-platform production release until those gates pass.
@@ -243,7 +244,7 @@ The latest upstream reviewed for this specification is:
 - `dev` commit: `5f241f1cc1fc0c266044b64bf9e860d4e37c9c1f`;
 - latest reviewed release: `v1.18.4`;
 - latest reviewed npm SDK: `@opencode-ai/sdk@1.18.4`;
-- OpenChamber installed SDK at audit time: `1.18.3`.
+- OpenChamber installed SDK after the `main` integration: `1.18.8`; it is pending compatibility audit against the `1.18.4` plugin and runtime image contract.
 
 The relevant workspace HTTP surface in SDK 1.18.3 materially matches the reviewed upstream implementation. A dependency upgrade MUST still follow normal OpenChamber dependency, lockfile, CLI packaging, and compatibility validation.
 
