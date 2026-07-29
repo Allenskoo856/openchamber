@@ -172,7 +172,6 @@ const normalizeToolName = (toolName: string | undefined | null): string => {
     return trimmed;
 };
 
-const MAX_DURATION_MS = 5 * 60 * 1000; // 5 minutes cap
 const GIT_REFRESH_MUTATING_TOOLS = new Set([
     'bash',
     'edit',
@@ -183,7 +182,7 @@ const GIT_REFRESH_MUTATING_TOOLS = new Set([
 ]);
 
 const formatDuration = (start: number, end?: number, now: number = Date.now()) => {
-    const duration = Math.min(Math.max(0, (end ?? now) - start), MAX_DURATION_MS);
+    const duration = Math.max(0, (end ?? now) - start);
     const seconds = duration / 1000;
 
     const displaySeconds = seconds < 0.05 && end !== undefined ? 0.1 : seconds;
