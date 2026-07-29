@@ -375,6 +375,7 @@ const requestSecurityRuntime = createRequestSecurityRuntime({
 });
 
 const getUiSessionTokenFromRequest = (...args) => requestSecurityRuntime.getUiSessionTokenFromRequest(...args);
+const getCorsAllowedHeaders = () => requestSecurityRuntime.getCorsAllowedHeaders();
 
 const pushRuntime = createPushRuntime({
   fsPromises,
@@ -814,9 +815,10 @@ globalMessageStreamHub.subscribeEvent((event) => {
   const directory = typeof event?.directory === 'string' && event.directory && event.directory !== 'global'
     ? event.directory
     : '';
-  sessionAssistRuntime.processPayload(payload, directory);
-  sessionGoalRuntime.processPayload(payload, directory);
-  contextObligatoryRuntime.processPayload(payload, directory);
+  const workspace = typeof event?.workspace === 'string' ? event.workspace : '';
+  sessionAssistRuntime.processPayload(payload, directory, workspace);
+  sessionGoalRuntime.processPayload(payload, directory, workspace);
+  contextObligatoryRuntime.processPayload(payload, directory, workspace);
 });
 
 const processForwardedEventPayload = (payload, emitSyntheticEvent) => {
@@ -1338,7 +1340,7 @@ async function main(options = {}) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,X-Requested-With,Cache-Control,X-OpenCode-Directory,X-OpenCode-Directory-Encoding');
+      res.setHeader('Access-Control-Allow-Headers', getCorsAllowedHeaders());
       res.setHeader('Access-Control-Expose-Headers', 'x-next-cursor');
       res.setHeader('Vary', 'Origin');
       if (req.method === 'OPTIONS') {

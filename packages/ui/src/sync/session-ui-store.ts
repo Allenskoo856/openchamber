@@ -20,7 +20,7 @@ import { opencodeClient } from "@/lib/opencode/client"
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { useConfigStore } from "@/stores/useConfigStore"
 import { useProjectsStore } from "@/stores/useProjectsStore"
-import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
+import { useGlobalSessionsStore, resolveConfirmedSessionWorkspaceRoute, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
 import { useDirectoryStore } from "@/stores/useDirectoryStore"
 import { useSessionFoldersStore } from "@/stores/useSessionFoldersStore"
 import { useCommandsStore } from "@/stores/useCommandsStore"
@@ -92,6 +92,10 @@ export function routeMessage(params: {
   delivery?: 'steer'
 }): Promise<void> {
   const requestDirectory = params.directory ?? undefined
+  const globalSessions = useGlobalSessionsStore.getState()
+  const workspaceID = [...globalSessions.activeSessions, ...globalSessions.archivedSessions]
+    .find((session) => session.id === params.sessionId)?.workspaceID
+    ?? resolveConfirmedSessionWorkspaceRoute(params.sessionId)
   if (params.inputMode === "shell") {
     return opencodeClient.shellSession({
       sessionId: params.sessionId,
@@ -99,6 +103,7 @@ export function routeMessage(params: {
       agent: params.agent ?? "",
       model: { providerID: params.providerID, modelID: params.modelID },
       command: params.content,
+      workspace: workspaceID,
     }).then(() => undefined)
   }
 
@@ -140,6 +145,7 @@ export function routeMessage(params: {
           files: params.files,
           messageId: messageID,
           directory: requestDirectory,
+          workspace: workspaceID,
         }).then(() => {}),
       })
     }
@@ -167,6 +173,7 @@ export function routeMessage(params: {
       delivery: params.delivery,
       messageId: messageID,
       directory: requestDirectory,
+      workspace: workspaceID,
     }).then(() => {}),
   })
 }

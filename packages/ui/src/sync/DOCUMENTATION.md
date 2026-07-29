@@ -206,6 +206,8 @@ Rules:
 Examples of global-store updates performed in `session-actions.ts`:
 
 - `createSession()` -> `upsertSession(session)`
+- `createSessionInWorkspace()` -> treats the successful workspace-routed create response as authoritative, annotates the control-plane workspace ID omitted by remote OpenCode, and selects the returned runtime directory without a race-prone verification fetch
+- A runtime-scoped confirmed workspace route is retained for every workspace session and inherited by child sessions. Prompt, command, shell, session reads/mutations, abort/revert, message refresh, and permission/question replies carry that route explicitly; none infer a host route from the runtime `/workspace` directory or depend on an event winning the race.
 - `updateSessionTitle()` -> `upsertSession(result.data)`
 - `shareSession()` / `unshareSession()` -> `upsertSession(result.data)`
 - `archiveSession()` -> waits for server confirmation, then upserts the archived session

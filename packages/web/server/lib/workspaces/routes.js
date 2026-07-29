@@ -46,7 +46,13 @@ async function loadWorkspaceOperationsFactory() {
 }
 
 function safeErrorMessage(error, fallback) {
-  const message = error instanceof Error ? error.message : fallback;
+  const message = error instanceof Error
+    ? error.message
+    : typeof error?.data?.message === 'string'
+      ? error.data.message
+      : typeof error?.message === 'string'
+        ? error.message
+        : fallback;
   return message
     .replace(/(OPENCHAMBER_WORKSPACE_AUTH_TOKEN=)[^\s]+/g, '$1[redacted]')
     .replace(/(x-openchamber-workspace-token[:=]\s*)[^\s]+/gi, '$1[redacted]')
@@ -197,7 +203,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
     beforeApplyReplace,
     uiAuthController,
     tunnelAuthController,
-    randomWorkspaceID = () => crypto.randomUUID(),
+    randomWorkspaceID = () => `wrk_${crypto.randomUUID().replaceAll('-', '')}`,
     workspaceCreateStatusRequestTimeoutMs = WORKSPACE_CREATE_STATUS_REQUEST_TIMEOUT_MS,
     workspaceCreateStatusPollIntervalMs = WORKSPACE_CREATE_STATUS_POLL_INTERVAL_MS,
     workspaceCreateStatusMaxAttempts = WORKSPACE_CREATE_STATUS_MAX_ATTEMPTS,
@@ -500,7 +506,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
       buildPluginOptions(context.settings, { requireComplete: true });
       client = await sdkClient(context.directory);
       const result = await client.experimental.workspace.create({ id: provisionalID, type, directory: context.directory, branch: null, extra: { image: context.settings.image } });
-      if (result?.error || !result?.data) throw new Error(result?.response?.statusText || 'Failed to create workspace');
+      if (result?.error || !result?.data) throw new Error(safeErrorMessage(result?.error, result?.response?.statusText || 'Failed to create workspace'));
       if (result.data.id !== provisionalID) throw new Error('OpenCode returned a workspace with an unexpected provisional ID');
       const connection = await waitForWorkspaceConnection(client, provisionalID, context.directory);
       if (connection.status === 'connected') return res.status(201).json({ ...result.data, status: 'connected', provisional: false, retryable: false, diagnostics: connection.diagnostics });

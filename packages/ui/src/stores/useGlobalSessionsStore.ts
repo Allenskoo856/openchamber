@@ -59,6 +59,32 @@ let inflightLoad: Promise<LoadResult> | null = null;
 // Bumped on runtime switch: an in-flight load from the previous instance must
 // not apply its (stale) snapshot after the reset.
 let loadGeneration = 0;
+const confirmedWorkspaceRouteBySessionId = new Map<string, string>();
+
+export const rememberConfirmedSessionWorkspaceRoute = (sessionId: string, workspaceID: string): void => {
+  if (!sessionId || !workspaceID) return;
+  confirmedWorkspaceRouteBySessionId.set(sessionId, workspaceID);
+};
+
+export const resolveConfirmedSessionWorkspaceRoute = (sessionId: string): string | undefined => (
+  confirmedWorkspaceRouteBySessionId.get(sessionId)
+);
+
+const restoreConfirmedWorkspaceRoutes = (sessions: Session[]): Session[] => {
+  if (confirmedWorkspaceRouteBySessionId.size === 0) return sessions;
+  let changed = false;
+  const next = sessions.map((session) => {
+    if (session.workspaceID) {
+      rememberConfirmedSessionWorkspaceRoute(session.id, session.workspaceID);
+      return session;
+    }
+    const workspaceID = resolveConfirmedSessionWorkspaceRoute(session.id);
+    if (!workspaceID) return session;
+    changed = true;
+    return { ...session, workspaceID };
+  });
+  return changed ? next : sessions;
+};
 
 export const resolveGlobalSessionDirectory = (session: Session): string | null => {
   const record = session as Session & {
@@ -71,23 +97,37 @@ export const resolveGlobalSessionDirectory = (session: Session): string | null =
 };
 
 export const mergeSessionDirectoryMetadata = (incoming: Session, existing?: Session | null): Session => {
+  const incomingParentID = (incoming as Session & { parentID?: string | null }).parentID;
   if (!existing) {
-    return incoming;
+    if (incoming.workspaceID) {
+      rememberConfirmedSessionWorkspaceRoute(incoming.id, incoming.workspaceID);
+      return incoming;
+    }
+    const confirmedWorkspaceID = resolveConfirmedSessionWorkspaceRoute(incoming.id)
+      ?? (incomingParentID ? resolveConfirmedSessionWorkspaceRoute(incomingParentID) : undefined);
+    if (confirmedWorkspaceID) rememberConfirmedSessionWorkspaceRoute(incoming.id, confirmedWorkspaceID);
+    return confirmedWorkspaceID ? { ...incoming, workspaceID: confirmedWorkspaceID } : incoming;
   }
 
   const incomingRecord = incoming as Session & {
     directory?: string | null;
     project?: ({ worktree?: string | null } & Record<string, unknown>) | null;
+    workspaceID?: string | null;
   };
   const existingRecord = existing as Session & {
     directory?: string | null;
     project?: ({ worktree?: string | null } & Record<string, unknown>) | null;
+    workspaceID?: string | null;
   };
 
   const incomingDirectory = normalizePath(incomingRecord.directory ?? null);
   const incomingWorktree = normalizePath(incomingRecord.project?.worktree ?? null);
   const existingDirectory = normalizePath(existingRecord.directory ?? null);
   const existingWorktree = normalizePath(existingRecord.project?.worktree ?? null);
+
+  if (incomingRecord.workspaceID) {
+    rememberConfirmedSessionWorkspaceRoute(incoming.id, incomingRecord.workspaceID);
+  }
 
   let changed = false;
   const next: typeof incomingRecord = { ...incomingRecord };
@@ -108,6 +148,17 @@ export const mergeSessionDirectoryMetadata = (incoming: Session, existing?: Sess
     changed = true;
   } else if (!incomingRecord.project && existingRecord.project) {
     next.project = existingRecord.project;
+    changed = true;
+  }
+
+  // Remote OpenCode session events omit the control-plane workspace ID. Keep
+  // the locally confirmed route so the first prompt cannot fall back to host.
+  const confirmedWorkspaceID = existingRecord.workspaceID
+    ?? resolveConfirmedSessionWorkspaceRoute(incoming.id)
+    ?? (incomingParentID ? resolveConfirmedSessionWorkspaceRoute(incomingParentID) : undefined);
+  if (!incomingRecord.workspaceID && confirmedWorkspaceID) {
+    rememberConfirmedSessionWorkspaceRoute(incoming.id, confirmedWorkspaceID);
+    next.workspaceID = confirmedWorkspaceID;
     changed = true;
   }
 
@@ -152,6 +203,7 @@ const getSessionSignature = (session: Session): string => {
     session.share?.url ?? '',
     JSON.stringify((session as Session & { metadata?: unknown }).metadata ?? null),
     resolveGlobalSessionDirectory(session) ?? '',
+    session.workspaceID ?? '',
   ].join(':');
 };
 
@@ -167,6 +219,7 @@ export const getSessionStructuralSignature = (session: Session): string => {
     session.share?.url ?? '',
     JSON.stringify((session as Session & { metadata?: unknown }).metadata ?? null),
     resolveGlobalSessionDirectory(session) ?? '',
+    session.workspaceID ?? '',
   ].join(':');
 };
 
@@ -360,12 +413,14 @@ const applySnapshot = (
   archivedSessions: Session[],
   status: GlobalSessionsStatus,
 ): Partial<GlobalSessionsState> | GlobalSessionsState => {
-  const nextActiveSessions = sameSessionList(state.activeSessions, activeSessions)
+  const routedActiveSessions = restoreConfirmedWorkspaceRoutes(activeSessions);
+  const routedArchivedSessions = restoreConfirmedWorkspaceRoutes(archivedSessions);
+  const nextActiveSessions = sameSessionList(state.activeSessions, routedActiveSessions)
     ? state.activeSessions
-    : activeSessions;
-  const nextArchivedSessions = sameSessionList(state.archivedSessions, archivedSessions)
+    : routedActiveSessions;
+  const nextArchivedSessions = sameSessionList(state.archivedSessions, routedArchivedSessions)
     ? state.archivedSessions
-    : archivedSessions;
+    : routedArchivedSessions;
   const nextSessionsByDirectory = nextActiveSessions === state.activeSessions
     ? state.sessionsByDirectory
     : buildSessionsByDirectory(nextActiveSessions);
@@ -497,6 +552,7 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
   resetForRuntimeSwitch: () => {
     loadGeneration += 1;
     inflightLoad = null;
+    confirmedWorkspaceRouteBySessionId.clear();
     set({
       activeSessions: [],
       archivedSessions: [],
@@ -665,6 +721,7 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
     if (idSet.size === 0) {
       return;
     }
+    for (const id of idSet) confirmedWorkspaceRouteBySessionId.delete(id);
 
     set((state) => {
       const revisionPatch = mutationRevisionPatch(state, idSet);

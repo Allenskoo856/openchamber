@@ -496,6 +496,7 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
           ...process.env,
           PATH: envPath,
           OPENCODE_SERVER_PASSWORD: openCodePassword,
+          OPENCODE_EXPERIMENTAL_WORKSPACES: 'true',
         },
       });
 

@@ -16,6 +16,7 @@ import { isVSCodeRuntime } from "@/lib/desktop"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { normalizePath } from "@/lib/pathNormalization"
 import { startSessionLoadPerformanceEvent } from "./session-load-performance"
+import { resolveConfirmedSessionWorkspaceRoute } from "@/stores/useGlobalSessionsStore"
 
 const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 const INITIAL_MESSAGE_PAGE_SIZE = 50
@@ -527,9 +528,11 @@ export class SessionMessageLoader {
 
   private async fetchPage(target: SessionMessageTarget, limit: number, before?: string): Promise<FetchedPage> {
     const result = await retry(async () => {
+      const workspaceID = resolveConfirmedSessionWorkspaceRoute(target.sessionID)
       const response = await this.sdk.session.messages({
         sessionID: target.sessionID,
         directory: target.directory,
+        ...(workspaceID ? { workspace: workspaceID } : {}),
         limit,
         before,
       })

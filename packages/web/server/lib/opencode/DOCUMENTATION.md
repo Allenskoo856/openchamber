@@ -43,6 +43,7 @@ This module provides OpenCode server integration utilities for the web server ru
 - `packages/web/server/lib/opencode/theme-runtime.js`: custom theme JSON validation and theme directory loading runtime for settings utility routes.
 - `packages/web/server/lib/opencode/proxy.js`: OpenCode API/SSE forwarding and readiness-gate route registration.
   - Before generic forwarding, workspace-routed client calls require `workspace.use`; existing session routes resolve authoritative upstream `Session.workspaceID`, and direct workspace lifecycle mutation is denied.
+  - OpenChamber remains the browser-facing CORS authority. Forwarded OpenCode responses drop upstream `Access-Control-*` headers so remote workspace origins cannot override the packaged/web renderer policy.
 - `packages/web/server/lib/opencode/session-runtime.js`: session status/attention/activity runtime for OpenCode SSE events.
 - `packages/web/server/lib/opencode/watcher.js`: global SSE watcher runtime for push/session event fanout.
 - `packages/web/server/lib/opencode/shared.js`: shared utilities for config, markdown, skills, and git helpers.
@@ -118,6 +119,7 @@ The runtime maintains active-session count incrementally from idempotent activit
   - `waitForPortRelease(port, timeoutMs, hostname?)`
   - `killProcessOnPort(port)`
 - `OPENCODE_SKIP_START=true` takes precedence over HMR managed-process reuse. With `OPENCODE_HOST` or `OPENCODE_PORT`, startup attaches only to that external target; without either target, OpenCode remains explicitly unavailable and OpenChamber startup does not enter OpenCode readiness or watcher wait paths. Skip-start never launches a managed process, and only a known managed HMR child may be stopped when switching modes.
+- Managed OpenCode starts with `OPENCODE_EXPERIMENTAL_WORKSPACES=true` so workspace adapter sync can emit the status events required by the official create lifecycle. External OpenCode hosts must enable compatible workspace support themselves.
 
 ## Public exports (env-runtime.js)
 - `createOpenCodeEnvRuntime(dependencies)`: creates runtime that owns OpenCode CLI environment and binary discovery state.

@@ -11,11 +11,11 @@ import { opencodeClient } from '@/lib/opencode/client';
 import { subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { cn } from '@/lib/utils';
-import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { createSessionInWorkspace } from '@/sync/session-actions';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { emptyWorkspaceScopeState, requiredCapabilityForWorkspaceOperation, requiredWorkspaceCapability, workspaceStatusSnapshot, type WorkspaceRequiredCapability, type WorkspaceStatus } from './workspaceSurfaceState';
+import { emptyWorkspaceScopeState, requiredCapabilityForWorkspaceOperation, requiredWorkspaceCapability, workspaceProjectDirectory, workspaceStatusSnapshot, type WorkspaceRequiredCapability, type WorkspaceStatus } from './workspaceSurfaceState';
 
 type WorkspaceListItem = {
   id: string;
@@ -27,23 +27,24 @@ type WorkspaceListItem = {
 type WorkspacePolicy = {
   enabled: boolean;
   provider: WorkspaceProviderKind;
-  image: string;
   preserveOnDelete: boolean;
 };
 
 const EMPTY_POLICY: WorkspacePolicy = {
   enabled: false,
   provider: 'docker',
-  image: '',
   preserveOnDelete: false,
 };
 
 export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onSessionStarted?: () => void }> = ({ onOpenSettings, onSessionStarted }) => {
   const { t } = useI18n();
   const runtimeAPIs = useRuntimeAPIs();
-  const storeDirectory = useDirectoryStore((state) => state.currentDirectory);
   const currentSessionID = useSessionUIStore((state) => state.currentSessionId);
-  const directory = storeDirectory || opencodeClient.getDirectory() || '';
+  const currentSessionDirectory = useSessionUIStore((state) => state.currentSessionDirectory);
+  const newSessionDraft = useSessionUIStore((state) => state.newSessionDraft);
+  const projects = useProjectsStore((state) => state.projects);
+  const activeProjectId = useProjectsStore((state) => state.activeProjectId);
+  const directory = workspaceProjectDirectory(projects, activeProjectId, newSessionDraft, currentSessionDirectory);
   const generationRef = React.useRef(0);
   const pendingCreatedWorkspaceRef = React.useRef<string | null>(null);
   const [initialLoading, setInitialLoading] = React.useState(true);
@@ -144,12 +145,29 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
             setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.status.refreshFailed'));
           }
         }
+        try {
+          await opencodeClient.experimentalWorkspaces.startSync(directory || undefined);
+        } catch (error) {
+          if (expectedGeneration === generationRef.current) {
+            setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.status.refreshFailed'));
+          }
+        }
       }
       const list = await opencodeClient.experimentalWorkspaces.list(directory || undefined);
       if (expectedGeneration !== generationRef.current) return;
       setWorkspaceList(list);
       setSelectedWorkspaceID((current) => current && list.some((item) => item.id === current) ? current : list[0]?.id ?? '');
-      await refreshStatuses(expectedGeneration);
+      let statuses = await refreshStatuses(expectedGeneration);
+      if (sync && list.length > 0) {
+        for (let attempt = 0; attempt < 20 && !statuses?.some((item) => list.some((workspace) => workspace.id === item.workspaceID)); attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+          if (expectedGeneration !== generationRef.current) return;
+          statuses = await refreshStatuses(expectedGeneration);
+        }
+        if (!statuses?.some((item) => list.some((workspace) => workspace.id === item.workspaceID))) {
+          setWorkspaceStatusError(t('settings.workspaces.status.refreshFailed'));
+        }
+      }
     } catch (error) {
       if (expectedGeneration === generationRef.current) {
         setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.export.failed'));
@@ -176,7 +194,6 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
           provider: settings.secureWorkspacesDefaultProvider === 'kubernetes' || settings.secureWorkspacesDefaultProvider === 'apple-container'
             ? settings.secureWorkspacesDefaultProvider
             : 'docker',
-          image: typeof settings.secureWorkspacesImage === 'string' ? settings.secureWorkspacesImage.trim() : '',
           preserveOnDelete: settings.secureWorkspacesRetentionPreserveOnDelete === true,
         });
         setCompatibility(compatibilityResult);
@@ -261,7 +278,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     setWorkspaceError('');
     setWorkspaceMessage('');
     try {
-      const payload = { type: policy.provider, directory, extra: { image: policy.image } };
+      const payload = { type: policy.provider, directory, extra: null };
       const reauth = await reauthenticate('workspace.create', directory || 'host', payload);
       if (!reauth) return;
       const created = await runtimeAPIs.workspaces.create({ ...payload, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
@@ -526,7 +543,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
           <section className="min-w-0 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="typography-ui-label font-semibold text-foreground">{t('settings.workspaces.lifecycle.title')}</h2>
-              <Button size="sm" onClick={() => void createWorkspace()} disabled={busy || adminBlocked || !configured || !policy.image || !directory}>{t('settings.workspaces.lifecycle.create')}</Button>
+              <Button size="sm" onClick={() => void createWorkspace()} disabled={busy || adminBlocked || !configured || !directory}>{t('settings.workspaces.lifecycle.create')}</Button>
             </div>
             {initialLoading ? <p className="typography-meta text-muted-foreground">{t('common.loading')}</p> : null}
             {!initialLoading && !configured ? (

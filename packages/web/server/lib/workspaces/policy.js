@@ -285,10 +285,10 @@ export function buildPluginOptions(settings, { requireComplete = false } = {}) {
   };
   if (requireComplete) {
     if (options.allowedImages.length && !options.allowedImages.includes(options.defaultImage)) fail('Workspace runtime image is not in the exact image allowlist');
-    if (settings.egressDnsCIDRs.length === 0) fail('Controlled workspace egress requires at least one DNS CIDR');
+    if (settings.defaultProvider === 'kubernetes' && settings.egressDnsCIDRs.length === 0) fail('Kubernetes workspace egress requires at least one DNS CIDR');
     if (settings.egressMode === 'external') {
       if (!settings.egressProxyUrl) fail('External workspace egress requires a proxy URL');
-      if (!settings.egressProxyCIDR) fail('External workspace egress requires a proxy CIDR');
+      if (settings.defaultProvider === 'kubernetes' && !settings.egressProxyCIDR) fail('Kubernetes external workspace egress requires a proxy CIDR');
       sanitizeWorkspaceSettingsUpdate({ secureWorkspacesEgressProxyUrl: settings.egressProxyUrl, secureWorkspacesEgressProxyCIDR: settings.egressProxyCIDR });
     }
     if (settings.kubernetesConnectivity === 'ingress') {

@@ -420,7 +420,8 @@ OpenChamber MUST:
 - wait for `connected` or explicit `error` before reporting readiness;
 - subscribe to workspace status events;
 - periodically reconcile status without clearing known state on failure;
-- restart sync when a provider target changes.
+- restart sync when a provider target changes;
+- preserve the authoritative workspace ID from routed event envelopes on every server-side follow-up session read or mutation, because directory-only calls can address a host projection and create irreconcilable same-sequence durable history.
 
 Providers MUST prefer stable targets:
 
@@ -1101,6 +1102,14 @@ Secure Workspace settings are mutated only through `POST /api/workspaces/setting
 Settings persistence and plugin-entry replacement form one serialized recoverable transaction. Before the first mutation, OpenChamber writes a private prepared journal containing only the prior Secure Workspace field family and reserved entries. Settings and OpenCode config files publish through fsynced same-directory temporary files and atomic rename. Recovery is awaited before OpenCode bootstrap; recovery failure blocks startup. Windows rename exhaustion fails while preserving the live file and never falls back to an in-place copy. The journal is removed only after the complete new state is durable; caught failure or interrupted startup restores the exact prior field family and plugin entries without erasing unrelated configuration.
 
 Daily workflow MUST not remain embedded in a settings component. A project/workspace surface provides provider/status badges, create, reconcile, cleanup, start session, reviewed continuation in a workspace or on the host, export, review, apply, and download. Mobile uses the same server contract in a responsive surface.
+
+The primary user journey starts from the ordinary new-session surface, not from the lifecycle management surface. After the user explicitly chooses a project and chooses to create the session in a Secure Workspace, OpenChamber MUST reuse an applicable connected workspace or create and connect one, show bounded progress in that same flow, create the workspace-routed session only after connection, and navigate directly to the new chat. The user MUST NOT have to open Settings, discover the shield, load workspace records, select a workspace row, and press a second start-session action for this normal path.
+
+The shield remains a secondary project-scoped management and recovery entrypoint and remains available before a session exists. Its project scope MUST come from an explicit current project/new-session selection; when no project is explicit, it opens a project chooser and MUST NOT silently use a hidden last-directory fallback. Reopening or leaving the shield surface has an obvious navigation action. A successful create/start action selects the resulting session, switches to chat, and inserts it into the correct workspace sidebar scope immediately rather than waiting for an event race.
+
+Workspace list and connection status recover automatically after startup, managed OpenCode restart, reconnect, and runtime switch. A connected provider resource MUST NOT remain at permanent `Unknown status` pending a manual `load workspaces` action. Partial success is represented explicitly: a session or workspace created before a later response/navigation failure is reconciled and offered for continuation or cleanup, never reported only as an undifferentiated create failure that encourages duplicate retries.
+
+The product distinguishes the primary `Start working in workspace` action from advanced handoff directions such as continuing an existing session in a workspace or on the host. Reauthentication UX explains the independent Desktop UI password prerequisite before privileged actions and SHOULD reuse a still-valid step-up authorization window where the security binding permits it instead of requesting the same password after every adjacent privileged click.
 
 OpenChamber implements this boundary with `SecureWorkspacesSettings` limited to activation/provider/policy controls and a project-scoped Workspaces surface in desktop web/Electron and hosted/Capacitor mobile navigation. The surface is intentionally hidden in VS Code, resets workspace/export state across runtime and directory changes, preserves same-scope authoritative list/status data on refresh failure, and keeps read/use available when capability-aware remote clients lack admin or host-apply grants.
 

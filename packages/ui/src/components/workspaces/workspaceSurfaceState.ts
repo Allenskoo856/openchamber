@@ -1,6 +1,32 @@
 export type WorkspaceStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
 export type WorkspaceRequiredCapability = 'workspace.admin' | 'host.apply';
 
+export function workspaceProjectDirectory(
+  projects: Array<{ id: string; path: string }>,
+  activeProjectId: string | null,
+  draft?: {
+    open: boolean;
+    selectedProjectId?: string | null;
+    directoryOverride?: string | null;
+    bootstrapPendingDirectory?: string | null;
+  },
+  currentSessionDirectory?: string | null,
+): string {
+  if (draft?.open) {
+    const explicitDirectory = (draft.bootstrapPendingDirectory ?? draft.directoryOverride)?.trim();
+    if (explicitDirectory) return explicitDirectory;
+    if (!draft.selectedProjectId) return '';
+    return projects.find((project) => project.id === draft.selectedProjectId)?.path.trim() ?? '';
+  }
+  const selectedDirectory = currentSessionDirectory?.trim().replace(/\/+$/, '') ?? '';
+  if (selectedDirectory && projects.some((project) => {
+    const projectPath = project.path.trim().replace(/\/+$/, '');
+    return projectPath && (selectedDirectory === projectPath || selectedDirectory.startsWith(`${projectPath}/`));
+  })) return selectedDirectory;
+  if (!activeProjectId) return '';
+  return projects.find((project) => project.id === activeProjectId)?.path.trim() ?? '';
+}
+
 export function requiredCapabilityForWorkspaceOperation(operation: string): WorkspaceRequiredCapability | null {
   if (operation === 'host.apply') return 'host.apply';
   if (operation.startsWith('workspace.') && operation !== 'workspace.use' && operation !== 'workspace.read') return 'workspace.admin';

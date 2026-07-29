@@ -136,8 +136,8 @@ export function parseWorkspaceArtifact(raw, expected, now = Date.now()) {
     ids.add(file.id);
     const oldEntry = parseEntry(file.old, 'baseline');
     const nextEntry = parseEntry(file.next, 'result');
-    if (file.oldPath !== undefined && safeRelativePath(file.oldPath) !== oldEntry?.path) fail('Workspace export baseline path is inconsistent');
-    if (file.newPath !== undefined && safeRelativePath(file.newPath) !== nextEntry?.path) fail('Workspace export result path is inconsistent');
+    if (file.oldPath !== undefined && file.oldPath !== null && safeRelativePath(file.oldPath) !== oldEntry?.path) fail('Workspace export baseline path is inconsistent');
+    if (file.newPath !== undefined && file.newPath !== null && safeRelativePath(file.newPath) !== nextEntry?.path) fail('Workspace export result path is inconsistent');
     if ((file.oldPath ?? null) !== (oldEntry?.path ?? null) || (file.newPath ?? null) !== (nextEntry?.path ?? null)) fail('Workspace export operation paths are invalid');
     if (file.kind === 'add' && (oldEntry || !nextEntry)) fail('Workspace export add operation is invalid');
     if (file.kind === 'delete' && (!oldEntry || nextEntry)) fail('Workspace export delete operation is invalid');
@@ -149,10 +149,10 @@ export function parseWorkspaceArtifact(raw, expected, now = Date.now()) {
       if (logicalPaths.some((existing) => pathsOverlap(existing, operationPath))) fail('Workspace export contains duplicate or overlapping operation paths');
       logicalPaths.push(operationPath);
     }
-    if (file.baselineHash !== undefined && file.baselineHash !== oldEntry?.hash) fail('Workspace export baseline hash is inconsistent');
-    if (file.resultHash !== undefined && file.resultHash !== nextEntry?.hash) fail('Workspace export result hash is inconsistent');
-    if (file.oldMode !== undefined && file.oldMode !== oldEntry?.mode) fail('Workspace export baseline mode is inconsistent');
-    if (file.newMode !== undefined && file.newMode !== nextEntry?.mode) fail('Workspace export result mode is inconsistent');
+    if (file.baselineHash !== undefined && (file.baselineHash ?? undefined) !== oldEntry?.hash) fail('Workspace export baseline hash is inconsistent');
+    if (file.resultHash !== undefined && (file.resultHash ?? undefined) !== nextEntry?.hash) fail('Workspace export result hash is inconsistent');
+    if (file.oldMode !== undefined && (file.oldMode ?? undefined) !== oldEntry?.mode) fail('Workspace export baseline mode is inconsistent');
+    if (file.newMode !== undefined && (file.newMode ?? undefined) !== nextEntry?.mode) fail('Workspace export result mode is inconsistent');
     for (const [entry, blobHash, label] of [[oldEntry, file.baselineBlob, 'baseline'], [nextEntry, file.resultBlob, 'result']]) {
       if (entry?.type === 'file') {
         const blob = blobs.get(blobHash);

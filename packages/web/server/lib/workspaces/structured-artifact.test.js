@@ -121,6 +121,15 @@ describe('structured workspace artifacts', () => {
     expect(() => parse(artifact([rename], [blob(content)], { targetDirectory: directory }), directory)).toThrow(/operation paths overlap/);
   });
 
+  it('accepts explicit null paths for absent add and delete entries', () => {
+    const { directory } = fixture();
+    const content = Buffer.from('content');
+    const added = operation('add', null, fileEntry('added.txt', content), { oldPath: null, oldMode: null, baselineHash: null });
+    const deleted = operation('delete', fileEntry('deleted.txt', content), null, { newPath: null, newMode: null, resultHash: null });
+
+    expect(() => parse(artifact([added, deleted], [blob(content)], { targetDirectory: directory }), directory)).not.toThrow();
+  });
+
   it.each([
     ['without a trailing newline', Buffer.from('added'), ['added']],
     ['with a trailing newline', Buffer.from('added\n'), ['added', '']],

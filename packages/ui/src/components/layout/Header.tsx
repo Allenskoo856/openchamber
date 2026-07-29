@@ -2074,7 +2074,7 @@ export const Header: React.FC<HeaderProps> = ({
         visible={!isVSCode}
         title={t('settings.workspaces.title')}
         ariaLabel={t('settings.workspaces.title')}
-        onClick={() => setActiveMainTab('workspaces')}
+        onClick={() => setActiveMainTab(activeMainTab === 'workspaces' ? 'chat' : 'workspaces')}
         pressed={activeMainTab === 'workspaces'}
         Icon={'shield-check'}
       />

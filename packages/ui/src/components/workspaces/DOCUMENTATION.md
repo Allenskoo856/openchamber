@@ -4,8 +4,18 @@
 
 `SecureWorkspacesSettings` owns only host policy and activation: enablement, providers, images, resources, egress, Kubernetes policy, retention, and credential grants.
 
-The lifecycle surface uses the current runtime and directory as its cache identity. A runtime or project/directory change clears workspace selection, diagnostics, and export review state before loading the new scope. List or status failure retains prior authoritative data within the same scope and presents the failure separately.
+Workspace creation does not require an explicit image in the UI. An empty persisted image delegates to the server-owned signed release digest; browser payloads never select or override the provider image.
+
+The lifecycle surface uses the current runtime and explicit project context as its cache identity. An open new-session draft's selected directory/project takes precedence, followed by a selected session directory that belongs to a known host project, then the active sidebar project. An invalid explicit draft target fails closed, and a workspace runtime directory such as `/workspace` is never substituted for host project context. A runtime or project-context change clears workspace selection, diagnostics, and export review state before loading the new scope. List or status failure retains prior authoritative data within the same scope and presents the failure separately. The desktop header shield toggles between this surface and chat.
 
 Read/use actions remain available to capability-scoped remote clients. Once a structured server denial identifies missing `workspace.admin` or `host.apply`, the surface disables only the affected privileged actions and shows a host-grant-required state instead of reopening unusable reauthentication dialogs. Runtime authorization remains authoritative.
 
 Cleanup, detach, apply, and export discard retain explicit confirmation. Export review supports whole-file, text-hunk, and binary whole-file selection through the existing runtime API contract.
+
+## Product Direction
+
+The normal entrypoint is the existing new-session flow. The user chooses a project and chooses to create the session in a Secure Workspace; OpenChamber then reuses or creates/connects the workspace, creates the routed session, and opens chat without requiring a detour through `WorkspaceLifecycleView`.
+
+The shield is the secondary management/recovery surface. It can be opened without a selected session, but only with an explicit project context; otherwise it must ask for a project instead of using a hidden last directory. Workspace bootstrap runs list discovery, starts sync through the generated SDK, and performs a bounded status wait. Successful session creation publishes the runtime directory and workspace identity, selects the session, switches to chat, and must make the session visible in the matching sidebar scope immediately.
+
+See `docs/SECURE_WORKSPACES_QA_HANDOFF.md` for the current live-test state, defects, temporary dependency setup, and continuation checklist.

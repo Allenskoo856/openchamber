@@ -12,12 +12,37 @@ const runtimeImage = `registry.example/workspace@sha256:${'a'.repeat(64)}`;
 
 describe('workspace release defaults', () => {
   it('uses the signed public release digests when image settings are empty', () => {
-    const settings = readWorkspaceSettings({ secureWorkspacesEgressDnsCIDRs: '10.0.0.53/32' });
+    const settings = readWorkspaceSettings({});
     const options = buildPluginOptions(settings, { requireComplete: true });
 
     expect(options.defaultImage).toBe('ghcr.io/openchamber/opencode-workspace@sha256:8bf416c08e3e8ca3b540ee0b834a818770b701bc03be1fac74b919e0c992376c');
     expect(options.allowedImages).toEqual([options.defaultImage]);
     expect(options.egress.gatewayImage).toBe('ghcr.io/openchamber/workspace-egress-gateway@sha256:e12d6c43d598a994cd1825eb0b1f838df7a57c2186b9c4e013c61c30ef7e1b94');
+  });
+
+  it('requires controlled DNS CIDRs only for Kubernetes', () => {
+    const appleSettings = readWorkspaceSettings({ secureWorkspacesDefaultProvider: 'apple-container' });
+    expect(() => buildPluginOptions(appleSettings, { requireComplete: true })).not.toThrow();
+
+    const kubernetesSettings = readWorkspaceSettings({ secureWorkspacesDefaultProvider: 'kubernetes' });
+    expect(() => buildPluginOptions(kubernetesSettings, { requireComplete: true })).toThrow('Kubernetes workspace egress requires at least one DNS CIDR');
+  });
+
+  it('requires an external proxy CIDR only for Kubernetes', () => {
+    const appleSettings = readWorkspaceSettings({
+      secureWorkspacesDefaultProvider: 'apple-container',
+      secureWorkspacesEgressMode: 'external',
+      secureWorkspacesEgressProxyUrl: 'http://127.0.0.1:3128',
+    });
+    expect(() => buildPluginOptions(appleSettings, { requireComplete: true })).not.toThrow();
+
+    const kubernetesSettings = readWorkspaceSettings({
+      secureWorkspacesDefaultProvider: 'kubernetes',
+      secureWorkspacesEgressMode: 'external',
+      secureWorkspacesEgressProxyUrl: 'http://10.0.0.10:3128',
+      secureWorkspacesEgressDnsCIDRs: '10.0.0.53/32',
+    });
+    expect(() => buildPluginOptions(kubernetesSettings, { requireComplete: true })).toThrow('Kubernetes external workspace egress requires a proxy CIDR');
   });
 });
 
@@ -175,6 +200,17 @@ describe('workspace provider operation routes', () => {
     expect(registry.route('POST', '/api/experimental/workspace/warp')).toBeUndefined();
   });
 
+  it('uses an OpenCode-compatible random provisional ID for create', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies();
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const res = response();
+    await registry.route('POST', '/api/workspaces/create')({ body: { type: 'docker', directory: deps.directory }, query: {} }, res);
+
+    expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ id: expect.stringMatching(/^wrk_[a-f0-9]{32}$/) }));
+  });
+
   it('reports remote external OpenCode as explicitly unsupported from runtime authority', async () => {
     const registry = routeRegistry();
     const deps = dependencies({ dependencies: { getWorkspaceRuntimeBoundary: () => ({ supported: false, error: 'remote external unsupported', diagnostics: ['authoritative external runtime'] }) } });
@@ -255,6 +291,19 @@ describe('workspace provider operation routes', () => {
     expect(res.body).toMatchObject({ error: 'provider create failed', provisionalID: 'absent-id', retryable: false, compensation: { completed: true, recordPresent: false, remainingResources: [] } });
     expect(deps.operations.cleanupWorkspace).not.toHaveBeenCalled();
     expect(deps.remove).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the structured OpenCode workspace create error', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({ dependencies: { randomWorkspaceID: () => 'wrk_structured_error' } });
+    deps.create.mockResolvedValue({ error: { name: 'WorkspaceCreateError', data: { message: 'provider rejected workspace policy' } }, response: { statusText: 'Bad Request' } });
+    deps.list.mockResolvedValue({ data: [] });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('POST', '/api/workspaces/create')({ body: { type: 'docker', directory: deps.directory }, query: {} }, res);
+
+    expect(res.body.error).toBe('provider rejected workspace policy');
   });
 
   it('compensates only the exact failed row and removes it after complete provider cleanup', async () => {
