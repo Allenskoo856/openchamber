@@ -56,7 +56,7 @@ import { useI18n } from '@/lib/i18n';
 import { getDiffPatchEntries, getPatchText, type DiffPatchEntry } from './toolDiffUtils';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
-import { getToolOutput } from './toolOutput';
+import { getStreamingOutputAppend, getToolOutput } from './toolOutput';
 
 const TOOL_ROW_TEXT_CLASS = '!text-[length:var(--text-meta)] !leading-5 sm:!leading-6 tracking-normal';
 const TOOL_ROW_TITLE_CLASS = cn('typography-meta font-medium', TOOL_ROW_TEXT_CLASS);
@@ -883,12 +883,53 @@ const getToolOutputText = (
     return formatEditOutput(output, part.tool, metadata);
 };
 
+const StreamingPlainTextOutput: React.FC<{ output: string }> = ({ output }) => {
+    const preRef = React.useRef<HTMLPreElement>(null);
+    const previousOutputRef = React.useRef('');
+
+    React.useLayoutEffect(() => {
+        const element = preRef.current;
+        if (!element) {
+            return;
+        }
+
+        const firstChild = element.firstChild;
+        const textNode = firstChild instanceof globalThis.Text
+            ? firstChild
+            : document.createTextNode('');
+        if (textNode !== firstChild) {
+            element.replaceChildren(textNode);
+        }
+
+        const append = getStreamingOutputAppend(previousOutputRef.current, output);
+        if (append === undefined) {
+            textNode.data = output;
+        } else if (append.length > 0) {
+            textNode.appendData(append);
+        }
+        previousOutputRef.current = output;
+    }, [output]);
+
+    return (
+        <pre
+            ref={preRef}
+            className="m-0 whitespace-pre-wrap break-words"
+            style={{
+                ...TOOL_COLLAPSED_CUSTOM_STYLE,
+                lineHeight: 'round(var(--code-block-line-height), 1px)',
+                overflowWrap: 'break-word',
+            }}
+        />
+    );
+};
+
 const ToolScrollableTextOutput: React.FC<{
     output: string;
     part: ToolPartType;
     metadata: Record<string, unknown> | undefined;
     input: Record<string, unknown> | undefined;
-}> = ({ output, part, metadata, input }) => {
+    isStreaming?: boolean;
+}> = ({ output, part, metadata, input, isStreaming = false }) => {
     const { t } = useI18n();
     const renderedOutput = getToolOutputText(output, part, metadata);
     const outputLanguage = getToolOutputLanguage(output, part, metadata, input);
@@ -918,6 +959,14 @@ const ToolScrollableTextOutput: React.FC<{
             window.setTimeout(() => setCopiedJson(false), 1200);
         }
     }, [renderedOutput, t]);
+
+    if (part.tool === 'bash' && isStreaming) {
+        return (
+            <div className="typography-code text-muted-foreground/90">
+                <StreamingPlainTextOutput output={renderedOutput} />
+            </div>
+        );
+    }
 
     if (jsonResult.isJson) {
         return (
@@ -1847,6 +1896,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                     part={part}
                     metadata={metadata}
                     input={input}
+                    isStreaming={isStreamingBash}
                 />
             );
 

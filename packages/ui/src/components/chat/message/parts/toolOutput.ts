@@ -13,3 +13,7 @@ export const getToolOutput = (
 
     return undefined;
 };
+
+export const getStreamingOutputAppend = (previous: string, next: string): string | undefined => {
+    return next.startsWith(previous) ? next.slice(previous.length) : undefined;
+};

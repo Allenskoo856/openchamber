@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { readTaskTagSessionIdFromOutput } from './taskSessionIdParser';
 import { tryParseJsonOutput } from '../toolRenderers';
-import { getToolOutput } from './toolOutput';
+import { getStreamingOutputAppend, getToolOutput } from './toolOutput';
 
 describe('getToolOutput', () => {
     test('prefers authoritative state output', () => {
@@ -17,6 +17,17 @@ describe('getToolOutput', () => {
 
     test('does not expose metadata output for other tools', () => {
         expect(getToolOutput('read', undefined, 'metadata output')).toBe(undefined);
+    });
+});
+
+describe('getStreamingOutputAppend', () => {
+    test('returns only newly appended output', () => {
+        expect(getStreamingOutputAppend('first\n', 'first\nsecond\n')).toBe('second\n');
+    });
+
+    test('requires replacement when output is rewritten or shortened', () => {
+        expect(getStreamingOutputAppend('progress 10%', 'progress 20%')).toBe(undefined);
+        expect(getStreamingOutputAppend('long output', 'short')).toBe(undefined);
     });
 });
 
