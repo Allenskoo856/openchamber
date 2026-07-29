@@ -127,11 +127,6 @@ export const OpenCodeUpdateToast: React.FC = () => {
       });
     };
 
-    const onUpdateAvailable = (event: Event) => {
-      const version = resolveOpenCodeUpdateVersion((event as CustomEvent<unknown>).detail);
-      showUpdateAvailableToast(version);
-    };
-
     let cancelled = false;
     const timeoutIds: Array<ReturnType<typeof setTimeout>> = [];
 
@@ -149,6 +144,13 @@ export const OpenCodeUpdateToast: React.FC = () => {
         if (!cancelled && delay !== undefined) {
           timeoutIds.push(setTimeout(() => { void checkForUpdate(attempt + 1); }, delay));
         }
+      }
+    };
+
+    const onUpdateAvailable = (event: Event) => {
+      const version = resolveOpenCodeUpdateVersion((event as CustomEvent<unknown>).detail);
+      if (version) {
+        void checkForUpdate(0);
       }
     };
 

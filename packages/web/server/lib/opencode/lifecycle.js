@@ -240,6 +240,7 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
 
   const createManagedOpenCodeServerProcess = async ({ hostname, port, timeout, cwd, env: processEnv, shellEnvKeysCount = 0 }) => {
     let binary = (process.env.OPENCODE_BINARY || 'opencode').trim() || 'opencode';
+    const sourceBinary = binary;
     let args = ['serve', '--hostname', hostname, '--port', String(port)];
     let launchWrapperType = null;
 
@@ -263,6 +264,7 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
     const pathEntryCount = pathValue ? pathValue.split(process.platform === 'win32' ? ';' : ':').filter(Boolean).length : 0;
     state.lastOpenCodeLaunchDiagnostics = {
       launchedAt: new Date().toISOString(),
+      sourceBinary,
       binary,
       args,
       cwd,
