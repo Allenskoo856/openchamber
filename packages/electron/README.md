@@ -68,7 +68,7 @@ That runs, in order:
 3. `prepare:opencode-cli` to download/cache the pinned OpenCode CLI and copy it into `packages/electron/resources/opencode-cli`.
 4. `bundle:main` to create `packages/electron/dist-bundle/main.mjs`.
 5. `rebuild:native` to rebuild native modules for Electron.
-6. `package.mjs` to verify the staged plugin, run `electron-builder`, and verify the plugin in every unpacked packaged app.
+6. `package.mjs` to verify the staged plugin, run `electron-builder`, stage the rebuilt `better-sqlite3` binary omitted by Electron Builder's Bun dependency collector, and verify the plugin in every unpacked packaged app.
 
 Build output goes to `packages/electron/dist`.
 
@@ -94,7 +94,7 @@ Linux updates are supported only when the packaged app is running from a writabl
 
 A loopback-only updater fixture is available for contributor QA of N-to-N+1 AppImage replacement and restart behavior. It is test infrastructure, not a user-configurable update source. See [`scripts/updater-e2e-fixture.md`](./scripts/updater-e2e-fixture.md) for the controlled test procedure. Unit tests cover feed selection, check failures, no-update results, and fixture generation; actual AppImage replacement and restart remains a manual native N-to-N+1 release boundary because it requires executing two packaged versions on each supported architecture.
 
-The package supports macOS, Windows, and Linux desktop features. Linux AppImage builds include in-app window controls and auto-update; system tray and launch-at-login remain macOS/Windows only. Some native discovery helpers are platform-specific. For example, app icon fetching and app filtering currently only work on macOS, while opening files in installed apps and installed-app discovery work on macOS and Windows (Linux returns an empty list without errors).
+The package supports macOS, Windows, and Linux desktop features. Linux AppImage builds include in-app window controls, auto-update, system tray, and launch-at-login (XDG autostart). Some native discovery helpers are platform-specific. For example, app icon fetching and app filtering currently only work on macOS, while opening files in installed apps and installed-app discovery work on macOS, Windows, and Linux.
 
 The macOS menu bar item is enabled by default and can be disabled in General settings. The setting applies after restart; while disabled, Desktop does not create the native tray controller or start the renderer subscriptions, polling, quota refresh, or IPC updates that feed it.
 
