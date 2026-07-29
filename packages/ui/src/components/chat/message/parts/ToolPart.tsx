@@ -55,6 +55,8 @@ import { areRenderRelevantPartsEqual } from '../renderCompare';
 import { useI18n } from '@/lib/i18n';
 import { getDiffPatchEntries, getPatchText, type DiffPatchEntry } from './toolDiffUtils';
 import { isEmbeddedSessionChat } from '@/components/layout/contextPanelEmbeddedChat';
+import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
+import { getToolOutput } from './toolOutput';
 
 const TOOL_ROW_TEXT_CLASS = '!text-[length:var(--text-meta)] !leading-5 sm:!leading-6 tracking-normal';
 const TOOL_ROW_TITLE_CLASS = cn('typography-meta font-medium', TOOL_ROW_TEXT_CLASS);
@@ -798,6 +800,7 @@ interface ToolScrollableSectionProps {
     className?: string;
     outerClassName?: string;
     disableHorizontal?: boolean;
+    followKey?: string;
 }
 
 const ToolScrollableSection: React.FC<ToolScrollableSectionProps> = ({
@@ -806,22 +809,54 @@ const ToolScrollableSection: React.FC<ToolScrollableSectionProps> = ({
     className,
     outerClassName,
     disableHorizontal = false,
-}) => (
-    <div className={cn('w-full min-w-0 flex-none overflow-hidden', outerClassName)}>
-        <ScrollShadow
-            className={cn(
-                'tool-output-surface p-2 rounded-xl w-full min-w-0',
-                maxHeightClass,
-                disableHorizontal ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto',
-                className,
-            )}
-        >
-            <div className="w-full min-w-0">
-                {children}
-            </div>
-        </ScrollShadow>
-    </div>
-);
+    followKey,
+}) => {
+    const scrollRef = React.useRef<HTMLElement>(null);
+    const isFollowingRef = React.useRef(true);
+
+    React.useLayoutEffect(() => {
+        const element = scrollRef.current;
+        if (followKey === undefined) {
+            isFollowingRef.current = true;
+            return;
+        }
+        if (!element || !isFollowingRef.current) {
+            return;
+        }
+        element.scrollTop = element.scrollHeight;
+    }, [followKey]);
+
+    return (
+        <div className={cn('w-full min-w-0 flex-none overflow-hidden', outerClassName)}>
+            <ScrollShadow
+                ref={scrollRef}
+                data-scrollable="true"
+                onWheelCapture={(event) => {
+                    if (followKey !== undefined && event.deltaY < 0) {
+                        isFollowingRef.current = false;
+                    }
+                }}
+                onScroll={(event) => {
+                    if (followKey === undefined) {
+                        return;
+                    }
+                    const element = event.currentTarget;
+                    isFollowingRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 2;
+                }}
+                className={cn(
+                    'tool-output-surface p-2 rounded-xl w-full min-w-0',
+                    maxHeightClass,
+                    disableHorizontal ? 'overflow-y-auto overflow-x-hidden' : 'overflow-auto',
+                    className,
+                )}
+            >
+                <div className="w-full min-w-0">
+                    {children}
+                </div>
+            </ScrollShadow>
+        </div>
+    );
+};
 
 const getToolOutputLanguage = (
     output: string,
@@ -1509,9 +1544,15 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
     const stateWithData = state as ToolStateWithMetadata;
     const metadata = stateWithData.metadata;
     const input = stateWithData.input;
-    const rawOutput = stateWithData.output;
+    const rawOutput = getToolOutput(part.tool, stateWithData.output, metadata?.output);
     const hasStringOutput = typeof rawOutput === 'string' && rawOutput.length > 0;
-    const outputString = typeof rawOutput === 'string' ? rawOutput : '';
+    const rawOutputString = typeof rawOutput === 'string' ? rawOutput : '';
+    const isStreamingBash = part.tool === 'bash' && state.status === 'running';
+    const outputString = useStreamingTextThrottle({
+        text: rawOutputString,
+        isStreaming: isStreamingBash,
+        identityKey: part.id,
+    });
     const attachments = stateWithData.attachments;
     const fileDiff = isRecord(metadata?.filediff) ? metadata.filediff : undefined;
     const diffContent = getPatchText((metadata as { patch?: unknown } | undefined)?.patch)
@@ -1577,13 +1618,14 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
 
     const renderScrollableBlock = (
         content: React.ReactNode,
-        options?: { maxHeightClass?: string; className?: string; disableHorizontal?: boolean; outerClassName?: string }
+        options?: { maxHeightClass?: string; className?: string; disableHorizontal?: boolean; outerClassName?: string; followKey?: string }
     ) => (
         <ToolScrollableSection
             maxHeightClass={options?.maxHeightClass}
             className={options?.className}
             disableHorizontal={options?.disableHorizontal}
             outerClassName={options?.outerClassName}
+            followKey={options?.followKey}
         >
             {content}
         </ToolScrollableSection>
@@ -1799,16 +1841,21 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
         }
 
         if (hasStringOutput && outputString.trim()) {
-            return renderScrollableBlock(
+            const output = (
                 <ToolScrollableTextOutput
                     output={coerceToText(outputString)}
                     part={part}
                     metadata={metadata}
                     input={input}
-                />,
+                />
+            );
+
+            return renderScrollableBlock(
+                output,
                 {
                     className: part.tool === 'bash' ? 'p-1 rounded-none' : 'p-1',
-                    maxHeightClass: part.tool === 'bash' ? 'max-h-[46vh]' : undefined,
+                    maxHeightClass: isStreamingBash ? 'h-[46vh]' : part.tool === 'bash' ? 'max-h-[46vh]' : undefined,
+                    followKey: isStreamingBash ? outputString : undefined,
                 }
             );
         }
@@ -1818,6 +1865,10 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
             { maxHeightClass: 'max-h-60' }
         );
     };
+
+    const hasVisibleOutput = outputString.trim().length > 0;
+    const shouldRenderResult = (state.status === 'completed' && 'output' in state)
+        || (part.tool === 'bash' && hasVisibleOutput);
 
     if (isTodoTool) {
         if (state.status === 'error' && 'error' in state) {
@@ -1897,7 +1948,7 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
                         </div>
                     ) : null}
 
-                    {state.status === 'completed' && 'output' in state && (
+                    {shouldRenderResult && (
                         <div>
                             {(part.tool === 'edit' || part.tool === 'multiedit' || part.tool === 'apply_patch' || part.tool === 'write') && hasVisualDiffEntry ? (
                                 <div className="mb-1 flex items-center justify-end gap-2">

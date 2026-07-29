@@ -2,6 +2,23 @@ import { describe, expect, test } from 'bun:test';
 
 import { readTaskTagSessionIdFromOutput } from './taskSessionIdParser';
 import { tryParseJsonOutput } from '../toolRenderers';
+import { getToolOutput } from './toolOutput';
+
+describe('getToolOutput', () => {
+    test('prefers authoritative state output', () => {
+        expect(getToolOutput('bash', 'final output', 'streamed output')).toBe('final output');
+        expect(getToolOutput('bash', '', 'streamed output')).toBe('');
+    });
+
+    test('falls back to streamed metadata output for bash', () => {
+        expect(getToolOutput('bash', undefined, 'streamed output')).toBe('streamed output');
+        expect(getToolOutput('bash', undefined, '')).toBe(undefined);
+    });
+
+    test('does not expose metadata output for other tools', () => {
+        expect(getToolOutput('read', undefined, 'metadata output')).toBe(undefined);
+    });
+});
 
 describe('readTaskTagSessionIdFromOutput', () => {
     test('parses task tags without state attributes', () => {
