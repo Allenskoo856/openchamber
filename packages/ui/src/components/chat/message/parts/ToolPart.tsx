@@ -1596,11 +1596,13 @@ const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.memo(({
     const hasStringOutput = typeof rawOutput === 'string' && rawOutput.length > 0;
     const rawOutputString = typeof rawOutput === 'string' ? rawOutput : '';
     const isStreamingBash = part.tool === 'bash' && state.status === 'running';
-    const outputString = useStreamingTextThrottle({
+    const throttledOutputString = useStreamingTextThrottle({
         text: rawOutputString,
         isStreaming: isStreamingBash,
         identityKey: part.id,
+        allowTextReplacement: isStreamingBash,
     });
+    const outputString = isStreamingBash ? throttledOutputString : rawOutputString;
     const attachments = stateWithData.attachments;
     const fileDiff = isRecord(metadata?.filediff) ? metadata.filediff : undefined;
     const diffContent = getPatchText((metadata as { patch?: unknown } | undefined)?.patch)

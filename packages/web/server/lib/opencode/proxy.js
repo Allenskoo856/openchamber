@@ -191,6 +191,7 @@ export const registerOpenCodeProxy = (app, deps) => {
     ensureOpenCodeApiPrefix,
     SSE_HEARTBEAT_INTERVAL_MS = DEFAULT_SSE_HEARTBEAT_INTERVAL_MS,
     SSE_UPSTREAM_STALL_TIMEOUT_MS = DEFAULT_UPSTREAM_STALL_TIMEOUT_MS,
+    getSseUpstreamStallTimeoutMs = () => SSE_UPSTREAM_STALL_TIMEOUT_MS,
   } = deps;
 
   if (app.get('opencodeProxyConfigured')) {
@@ -425,7 +426,7 @@ export const registerOpenCodeProxy = (app, deps) => {
         upstreamStallTimer = setTimeout(() => {
           didUpstreamStall = true;
           abortController.abort();
-        }, SSE_UPSTREAM_STALL_TIMEOUT_MS);
+        }, getSseUpstreamStallTimeoutMs());
         upstreamStallTimer.unref?.();
       };
 

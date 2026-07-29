@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { readTaskTagSessionIdFromOutput } from './taskSessionIdParser';
 import { tryParseJsonOutput } from '../toolRenderers';
+import { getStreamingThrottleText } from '../../hooks/useStreamingTextThrottle';
 import { getStreamingOutputAppend, getToolOutput } from './toolOutput';
 
 describe('getToolOutput', () => {
@@ -28,6 +29,17 @@ describe('getStreamingOutputAppend', () => {
     test('requires replacement when output is rewritten or shortened', () => {
         expect(getStreamingOutputAppend('progress 10%', 'progress 20%')).toBe(undefined);
         expect(getStreamingOutputAppend('long output', 'short')).toBe(undefined);
+    });
+});
+
+describe('streaming output transitions', () => {
+    test('allows bash snapshots to be rewritten or shortened while running', () => {
+        expect(getStreamingThrottleText('progress 10%', 'progress 20%', true, true)).toBe('progress 20%');
+        expect(getStreamingThrottleText('long output', 'short', true, true)).toBe('short');
+    });
+
+    test('preserves monotonic streaming text by default', () => {
+        expect(getStreamingThrottleText('long output', 'short', true, false)).toBe('long output');
     });
 });
 

@@ -83,6 +83,7 @@ describe('OpenCode proxy SSE forwarding', () => {
   });
 
   it('closes downstream SSE when the OpenCode upstream stalls despite proxy heartbeats', async () => {
+    let stallTimeoutReads = 0;
     const upstream = express();
     upstream.get('/global/event', (_req, res) => {
       res.setHeader('Content-Type', 'text/event-stream');
@@ -100,7 +101,10 @@ describe('OpenCode proxy SSE forwarding', () => {
       path,
       OPEN_CODE_READY_GRACE_MS: 0,
       SSE_HEARTBEAT_INTERVAL_MS: 10,
-      SSE_UPSTREAM_STALL_TIMEOUT_MS: 100,
+      getSseUpstreamStallTimeoutMs: () => {
+        stallTimeoutReads += 1;
+        return stallTimeoutReads === 1 ? 50 : 100;
+      },
       getRuntime: () => ({
         openCodePort: upstreamPort,
         isOpenCodeReady: true,
@@ -124,6 +128,7 @@ describe('OpenCode proxy SSE forwarding', () => {
     expect(body).toContain(':heartbeat\n\n');
     expect(body).toContain(':upstream-alive\n\n');
     expect(body).toContain('data: still-alive\n\n');
+    expect(stallTimeoutReads).toBeGreaterThanOrEqual(3);
   });
 
   it('holds a request through OpenCode warmup and succeeds once ready (no 503/backoff)', async () => {
