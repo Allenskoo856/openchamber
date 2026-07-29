@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reproduce: Gradient mask overlaps chat text</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+
+  /* Simulate the TurnItem structure exactly */
+  .turn-section {
+    position: relative;
+    width: 100%;
+  }
+
+  /* The sticky header (z-20, relative creates stacking context) */
+  .sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    position: relative;   /* needed for absolute children */
+    background: #1a1a2e;  /* matches body bg — like var(--surface-background) */
+    overflow-anchor: none;
+  }
+
+  /* The user message wrapper */
+  .user-message-wrapper {
+    position: relative;
+    z-index: 10;
+    padding: 12px 16px;
+    border-bottom: 1px solid #333;
+  }
+
+  /* The gradient mask — absolute, top-full, z-0 */
+  .gradient-mask {
+    pointer-events: none;
+    position: absolute;
+    inset: auto 0 0 0;   /* equivalent to inset-x-0 top-full: top = 100% of parent */
+    top: 100%;
+    z-index: 0;
+    height: 32px;         /* sm:h-8 on desktop */
+    background: linear-gradient(to bottom, #1a1a2e, transparent);
+  }
+
+  /* Assistant messages block — like TurnAssistantBlock */
+  .assistant-block {
+    position: relative;
+    z-index: 0;
+    padding: 12px 16px;
+  }
+
+  .message {
+    padding: 8px 0;
+    line-height: 1.5;
+  }
+
+  /* Highlight to show overlap */
+  .highlight-overlap {
+    background: rgba(255, 200, 0, 0.15);
+    border-left: 3px solid #ffc800;
+    padding-left: 8px;
+  }
+
+  .note {
+    margin: 16px;
+    padding: 12px;
+    background: #16213e;
+    border-radius: 8px;
+    font-size: 14px;
+    border: 1px solid #0f3460;
+  }
+  .note strong { color: #e94560; }
+
+  /* Scroll container */
+  .scroll-container {
+    height: 400px;
+    overflow-y: auto;
+    border: 1px solid #333;
+    margin: 16px;
+  }
+
+  .spacer {
+    height: 200px;
+  }
+
+  .callout {
+    margin: 16px;
+    padding: 12px;
+    background: #2d1b69;
+    border-radius: 8px;
+    border: 1px solid #6c3cf0;
+  }
+</style>
+</head>
+<body>
+
+<div class="callout">
+  <strong>🧪 Reproducing Issue #2524</strong><br>
+  The gradient mask (yellow highlight in the list below) renders <em>above</em> assistant message text because:
+  <ol style="margin: 8px 0 0 20px;">
+    <li>The sticky header creates a stacking context at <code>z-index: 20</code></li>
+    <li>The gradient is inside this context with <code>z-index: 0</code></li>
+    <li>Assistant messages are in the <em>root</em> stacking context (default z-index)</li>
+    <li>The gradient's opaque-to-transparent fade covers the first 32px of assistant content</li>
+  </ol>
+</div>
+
+<div class="note">
+  <strong>⬇️ Scroll down to see the overlap ⬇️</strong><br>
+  The gradient is visible as a fade band right below the sticky header. It masks the first 32px of text in the <span style="background: rgba(255,200,0,0.2); padding: 2px 4px;">yellow-highlighted</span> assistant message below the "stuck" header.
+</div>
+
+<div class="scroll-container" id="scrollContainer">
+  <div class="turn-section">
+    <div class="sticky-header">
+      <div class="user-message-wrapper">
+        <strong>User:</strong> Can you help me understand the CSS stacking context issue?
+      </div>
+      <div class="gradient-mask" aria-hidden="true"></div>
+    </div>
+
+    <div class="assistant-block">
+      <div class="message highlight-overlap">
+        <strong>Assistant:</strong> This line should be fully visible but the gradient<br>
+        mask covers the top 32px of this text. The gradient starts opaque<br>
+        (matching the background color) and fades to transparent, so the<br>
+        first line of text is partially or completely hidden behind a solid<br>
+        color band that matches the background. This is a z-index layering<br>
+        issue — the gradient is inside a z-20 stacking context while this<br>
+        content is at the default z-index layer.
+      </div>
+      <div class="message">
+        <strong>Assistant:</strong> This second paragraph starts further down and<br>
+        may be partially visible depending on scroll position, but the first<br>
+        paragraph's initial lines are definitely obscured.
+      </div>
+    </div>
+  </div>
+
+  <div class="turn-section" style="margin-top: 16px;">
+    <div class="sticky-header">
+      <div class="user-message-wrapper">
+        <strong>User:</strong> Scroll down to see the sticky header in action
+      </div>
+      <div class="gradient-mask" aria-hidden="true"></div>
+    </div>
+
+    <div class="assistant-block">
+      <div class="message highlight-overlap">
+        <strong>Assistant:</strong> Now the first header is "stuck" at the top.<br>
+        The gradient from that first turn is positioned right below it.<br>
+        When you scroll, the first sticky header's gradient follows it,<br>
+        and continues to mask content that scrolls underneath. This<br>
+        is especially problematic because the gradient is opaque at<br>
+        the top, completely hiding the text behind it.
+      </div>
+      <div class="message">More content below...</div>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+</div>
+
+<script>
+  // Scroll the container to show the sticky header behavior
+  const container = document.getElementById('scrollContainer');
+  setTimeout(() => {
+    container.scrollTop = 80;
+  }, 500);
+</script>
+</body>
+</html>
