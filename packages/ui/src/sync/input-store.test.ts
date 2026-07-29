@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test"
+import { strToU8, zipSync } from "fflate"
 import { useInputStore } from "./input-store"
 
 class MockFileReader {
@@ -40,6 +41,14 @@ const rejectReader = (reader: MockFileReader) => {
   reader.error = new DOMException("read failed", "NotReadableError")
   reader.onerror?.call(reader as unknown as FileReader, {} as ProgressEvent<FileReader>)
 }
+
+const waitForReaderCount = async (count: number) => {
+  for (let attempt = 0; attempt < 100 && pendingReaders.length < count; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1))
+  }
+}
+
+const pngBytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
 
 describe("input-store attachments", () => {
   beforeEach(() => {
@@ -211,5 +220,60 @@ describe("input-store attachments", () => {
     expect(await addPromise).toBe(true)
     expect(useInputStore.getState().attachedFiles[0]?.mimeType).toBe("image/webp")
     expect(useInputStore.getState().attachedFiles[0]?.dataUrl).toBe("data:image/webp;base64,AQID")
+  })
+
+  testWithMockFileReader("adds extracted document text and referenced images atomically", async () => {
+    const archive = zipSync({
+      "word/document.xml": strToU8(`<w:document xmlns:w="w" xmlns:a="a" xmlns:r="r"><w:body><w:p><w:t>Diagram</w:t><a:blip r:embed="rId1"/></w:p></w:body></w:document>`),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships><Relationship Id="rId1" Target="media/image.png" Type="image"/></Relationships>`),
+      "word/media/image.png": pngBytes,
+    })
+    const addPromise = useInputStore.getState().addAttachedFile(new File([archive], "design.docx"))
+
+    await waitForReaderCount(1)
+    expect(pendingReaders).toHaveLength(1)
+    resolveReader(pendingReaders[0], "data:text/plain;base64,RG9jdW1lbnQ=")
+    await waitForReaderCount(2)
+    expect(pendingReaders).toHaveLength(2)
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    resolveReader(pendingReaders[1], "data:image/png;base64,AQID")
+
+    expect(await addPromise).toBe(true)
+    expect(useInputStore.getState().attachedFiles.map((attachment) => ({
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+    }))).toEqual([
+      { filename: "design.docx", mimeType: "text/plain" },
+      { filename: "design-image-1.png", mimeType: "image/png" },
+    ])
+  })
+
+  testWithMockFileReader("regenerates document image names when the composer changes during preparation", async () => {
+    const archive = zipSync({
+      "word/document.xml": strToU8(`<w:document xmlns:w="w" xmlns:a="a" xmlns:r="r"><w:body><w:p><a:blip r:embed="rId1"/></w:p></w:body></w:document>`),
+      "word/_rels/document.xml.rels": strToU8(`<Relationships><Relationship Id="rId1" Target="media/image.png" Type="image"/></Relationships>`),
+      "word/media/image.png": pngBytes,
+    })
+    const addPromise = useInputStore.getState().addAttachedFile(new File([archive], "design.docx"))
+
+    await waitForReaderCount(1)
+    resolveReader(pendingReaders[0], "data:text/plain;base64,RG9jdW1lbnQ=")
+    await waitForReaderCount(2)
+    useInputStore.getState().addVSCodeFileAttachment("/workspace/design-image-1.png", "design-image-1.png", 1)
+    resolveReader(pendingReaders[1], "data:image/png;base64,AQID")
+
+    await waitForReaderCount(3)
+    resolveReader(pendingReaders[2], "data:text/plain;base64,RG9jdW1lbnQ=")
+    await waitForReaderCount(4)
+    resolveReader(pendingReaders[3], "data:image/png;base64,AQID")
+
+    expect(await addPromise).toBe(true)
+    expect(useInputStore.getState().attachedFiles.map((attachment) => attachment.filename)).toEqual([
+      "design-image-1.png",
+      "design.docx",
+      "design-image-2.png",
+    ])
+    const textAttachment = useInputStore.getState().attachedFiles[1]
+    expect((await textAttachment?.file.text())?.includes("[design-image-2.png]")).toBe(true)
   })
 })

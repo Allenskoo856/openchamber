@@ -6,6 +6,12 @@ const ACCEPTED_ATTACHMENT_TYPES = [
   "image/heic",
   "image/heif",
   "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.oasis.opendocument.text",
+  "application/vnd.oasis.opendocument.presentation",
+  "application/vnd.oasis.opendocument.spreadsheet",
   "text/*",
   "application/json",
   "application/ld+json",
@@ -27,6 +33,7 @@ const ACCEPTED_ATTACHMENT_TYPES = [
   ".cts",
   ".dart",
   ".diff",
+  ".docx",
   ".drawio",
   ".env",
   ".erl",
@@ -64,9 +71,13 @@ const ACCEPTED_ATTACHMENT_TYPES = [
   ".mjs",
   ".mts",
   ".ndjson",
+  ".odp",
+  ".ods",
+  ".odt",
   ".patch",
   ".php",
   ".proto",
+  ".pptx",
   ".ps1",
   ".py",
   ".r",
@@ -88,6 +99,7 @@ const ACCEPTED_ATTACHMENT_TYPES = [
   ".txt",
   ".vue",
   ".xml",
+  ".xlsx",
   ".yaml",
   ".yml",
   ".zig",
@@ -104,6 +116,12 @@ const PICKER_MIME_EXTENSIONS = new Map<string, string>([
   ["image/heic", "heic"],
   ["image/heif", "heif"],
   ["application/pdf", "pdf"],
+  ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"],
+  ["application/vnd.openxmlformats-officedocument.presentationml.presentation", "pptx"],
+  ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"],
+  ["application/vnd.oasis.opendocument.text", "odt"],
+  ["application/vnd.oasis.opendocument.presentation", "odp"],
+  ["application/vnd.oasis.opendocument.spreadsheet", "ods"],
   ["application/json", "json"],
   ["application/ld+json", "jsonld"],
   ["application/toml", "toml"],
@@ -131,6 +149,33 @@ type OpenCodeAttachmentMimeType =
   | "application/pdf"
   | "text/plain"
 
+export type AttachmentInputModality = "text" | "image" | "pdf" | "audio" | "video"
+
+export const getAttachmentInputModality = (mimeType: string): AttachmentInputModality | undefined => {
+  const normalizedMimeType = mimeType.toLowerCase().split(";", 1)[0]?.trim() ?? ""
+  if (normalizedMimeType.startsWith("image/")) return "image"
+  if (normalizedMimeType.startsWith("audio/")) return "audio"
+  if (normalizedMimeType.startsWith("video/")) return "video"
+  if (normalizedMimeType === "application/pdf") return "pdf"
+  if (normalizedMimeType.startsWith("text/")) return "text"
+  return undefined
+}
+
+export const getUnsupportedAttachmentInputs = <T extends { mimeType: string }>(
+  attachments: T[],
+  supportedInputModalities: string[],
+): Array<{ attachment: T; modality: AttachmentInputModality }> => {
+  const supportedModalities = new Set(supportedInputModalities.map((modality) => modality.toLowerCase()))
+  const unsupportedInputs: Array<{ attachment: T; modality: AttachmentInputModality }> = []
+  for (const attachment of attachments) {
+    const modality = getAttachmentInputModality(attachment.mimeType)
+    if (modality && !supportedModalities.has(modality)) {
+      unsupportedInputs.push({ attachment, modality })
+    }
+  }
+  return unsupportedInputs
+}
+
 const SUPPORTED_BINARY_MIMES = new Map<string, OpenCodeAttachmentMimeType>([
   ["image/png", "image/png"],
   ["image/jpeg", "image/jpeg"],
@@ -157,11 +202,12 @@ const TEXT_MIMES = new Set([
   "image/svg+xml",
 ])
 const ATTACHMENT_SAMPLE_BYTES = 4096
+const DOCUMENT_EXTENSIONS = new Set(["docx", "pptx", "xlsx", "odt", "odp", "ods"])
 const REDACTED = "[REDACTED]"
 const OMITTED = "[OMITTED BY OPENCHAMBER]"
 const SENSITIVE_NAMES = /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[-_]?key|client[-_]?secret|password|secret|access[-_]?token|refresh[-_]?token|id[-_]?token|token)$/i
 
-export type PreparedAttachmentFile = {
+type PreparedAttachmentFile = {
   file: File
   mimeType: string
 }
@@ -340,4 +386,27 @@ export const prepareAttachmentFile = (
   const mime = attachmentMime(file)
   if (typeof mime === "string") return { file, mimeType: mime }
   return mime?.then((mimeType) => mimeType ? { file, mimeType } : undefined)
+}
+
+export const prepareAttachmentFiles = (
+  file: File,
+  reservedFilenames: Iterable<string> = [],
+): PreparedAttachmentFile[] | Promise<PreparedAttachmentFile[] | undefined> | undefined => {
+  if (!DOCUMENT_EXTENSIONS.has(extensionOf(file.name))) {
+    const prepared = prepareAttachmentFile(file)
+    if (prepared instanceof Promise) return prepared.then((output) => output ? [output] : undefined)
+    return prepared ? [prepared] : undefined
+  }
+
+  return import("./document-attachments").then(async ({ extractDocumentAttachments }) => {
+    const extracted = await extractDocumentAttachments(file, reservedFilenames)
+    if (!extracted) return
+    const prepared: PreparedAttachmentFile[] = [{ file: extracted.textFile, mimeType: "text/plain" }]
+    for (const image of extracted.images) {
+      const output = await prepareAttachmentFile(image)
+      if (!output || !output.mimeType.startsWith("image/")) return
+      prepared.push(output)
+    }
+    return prepared
+  })
 }

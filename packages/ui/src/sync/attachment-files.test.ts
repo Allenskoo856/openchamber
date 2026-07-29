@@ -2,6 +2,8 @@ import { describe, expect, mock, test } from "bun:test"
 import {
   ACCEPTED_ATTACHMENT_EXTENSIONS,
   ATTACHMENT_ACCEPT,
+  getAttachmentInputModality,
+  getUnsupportedAttachmentInputs,
   prepareAttachmentFile,
 } from "./attachment-files"
 
@@ -12,10 +14,33 @@ mock.module("heic2any", () => ({
 const prepare = (file: File) => Promise.resolve(prepareAttachmentFile(file))
 
 describe("attachment file preparation", () => {
+  test("maps normalized attachment MIME types to model input modalities", () => {
+    expect(getAttachmentInputModality("text/plain;charset=utf-8")).toBe("text")
+    expect(getAttachmentInputModality("image/jpeg")).toBe("image")
+    expect(getAttachmentInputModality("application/pdf")).toBe("pdf")
+    expect(getAttachmentInputModality("audio/mpeg")).toBe("audio")
+    expect(getAttachmentInputModality("video/mp4")).toBe("video")
+    expect(getAttachmentInputModality("application/octet-stream")).toBe(undefined)
+  })
+
+  test("returns only attachment inputs unsupported by the model", () => {
+    const attachments = [
+      { filename: "notes.txt", mimeType: "text/plain" },
+      { filename: "photo.jpg", mimeType: "image/jpeg" },
+      { filename: "report.pdf", mimeType: "application/pdf" },
+      { filename: "unknown.bin", mimeType: "application/octet-stream" },
+    ]
+
+    expect(getUnsupportedAttachmentInputs(attachments, ["TEXT", "pdf"])).toEqual([
+      { attachment: attachments[1], modality: "image" },
+    ])
+  })
+
   test("exposes the expanded code and structured-text formats to pickers", () => {
     for (const extension of [
       "diff", "patch", "ipynb", "jsonl", "ndjson", "har", "svg", "drawio",
       "vue", "svelte", "php", "cs", "kt", "swift", "lua", "dart", "tf", "hcl", "proto",
+      "docx", "pptx", "xlsx", "odt", "odp", "ods",
     ]) {
       expect(ACCEPTED_ATTACHMENT_EXTENSIONS.includes(extension)).toBe(true)
       expect(ATTACHMENT_ACCEPT.includes(`.${extension}`)).toBe(true)

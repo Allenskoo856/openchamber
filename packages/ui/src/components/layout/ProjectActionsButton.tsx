@@ -156,10 +156,8 @@ export const ProjectActionsButton = ({
   const desktopSshInstances = useDesktopSshStore((state) => state.instances);
   const loadDesktopSsh = useDesktopSshStore((state) => state.load);
 
-  const setBottomTerminalOpen = useUIStore((state) => state.setBottomTerminalOpen);
   const terminalShell = useUIStore((state) => state.terminalShell);
   const terminalLoginShell = useUIStore((state) => state.terminalLoginShells.includes(state.terminalShell));
-  const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
   const setSettingsDialogOpen = useUIStore((state) => state.setSettingsDialogOpen);
   const setSettingsProjectsSelectedId = useUIStore((state) => state.setSettingsProjectsSelectedId);
@@ -395,8 +393,7 @@ export const ProjectActionsButton = ({
     setTabIconKey(normalizedDirectory, tabId, action.icon || 'play');
     setActiveTab(normalizedDirectory, tabId);
     if (options.revealTerminal !== false) {
-      setBottomTerminalOpen(true);
-      setActiveMainTab('terminal');
+      useUIStore.getState().openContextPanelTab(normalizedDirectory, { mode: 'terminal' });
     }
 
     const stateAfterTab = useTerminalStore.getState().getDirectoryState(normalizedDirectory);
@@ -409,9 +406,7 @@ export const ProjectActionsButton = ({
   }, [
     ensureDirectory,
     normalizedDirectory,
-    setActiveMainTab,
     setActiveTab,
-    setBottomTerminalOpen,
     setTabIconKey,
     setTabLabel,
     t,
@@ -543,7 +538,7 @@ export const ProjectActionsButton = ({
           store.updateProjectActionRunStatus(key, 'running');
           if (run) {
             store.setActiveTab(run.directory, run.tabId);
-            useUIStore.getState().setBottomTerminalOpen(true);
+            useUIStore.getState().openContextPanelTab(run.directory, { mode: 'terminal' });
           }
           delete previewWaitTimeoutByRunKeyRef.current[key];
         }, AUTO_DISCOVER_PREVIEW_WAIT_TIMEOUT_MS);

@@ -52,6 +52,8 @@ These stores coordinate persistent project/session metadata across multiple view
 
 `useGlobalSessionsStore.ts` owns cold/global active and archived session coverage, including `sessionsByDirectory`. It is complementary to directory child stores: it is not the source of live busy/retry status or session messages.
 
+User-visible session ordering is also not owned by the global cache array order. `sync/session-ordering.ts` combines lifecycle rank with timestamp fallbacks, and session surfaces must use that shared comparator instead of independently sorting global sessions by `time.updated`.
+
 Global refresh rules:
 
 - Per-directory refresh is bounded to two requests across callers and prioritizes the current directory.
@@ -145,7 +147,7 @@ These rules are important. Breaking them tends to reintroduce idle CPU churn, st
 4. Prefer store `ensure*` methods over direct runtime API calls from views.
 5. Visible consumers should drive refresh. Hidden consumers should not.
 6. Header should not depend on PR store.
-7. Closed sidebar should not create live PR work.
+7. A closed context panel (or hidden git surface) should not create live PR work.
 8. File tree Git status should update only when the file tree is visible.
 9. Global session refresh must remain bounded and failure-isolated per directory.
 10. Global session cache must not drive live activity indicators or message-loading state.
