@@ -37,11 +37,6 @@ export const MobileWorkspaceDrawer: React.FC<{
   const [entered, setEntered] = React.useState(false);
   // Kept visible through the exit slide; flipped to hidden once it finishes.
   const [visible, setVisible] = React.useState(open);
-  // The pill tab strip renders its indicator on a composited translate3d
-  // layer; creating that INSIDE the drawer's own transform animation flickers
-  // in WKWebView. Mount the strip only once the slide has settled (the drawer
-  // drops its transform then) and fade it in.
-  const [tabsReady, setTabsReady] = React.useState(open);
   const onCloseRef = React.useRef(onClose);
   React.useEffect(() => {
     onCloseRef.current = onClose;
@@ -64,19 +59,11 @@ export const MobileWorkspaceDrawer: React.FC<{
   React.useEffect(() => {
     if (open) {
       setVisible(true);
-      const enterId = window.setTimeout(() => setEntered(true), ENTER_DELAY_MS);
-      const tabsId = window.setTimeout(() => setTabsReady(true), ENTER_DELAY_MS + ENTER_DURATION_MS);
-      return () => {
-        window.clearTimeout(enterId);
-        window.clearTimeout(tabsId);
-      };
+      const id = window.setTimeout(() => setEntered(true), ENTER_DELAY_MS);
+      return () => window.clearTimeout(id);
     }
     setEntered(false);
-    // Keep the tabs on screen through the exit slide; drop them with the drawer.
-    const id = window.setTimeout(() => {
-      setVisible(false);
-      setTabsReady(false);
-    }, ENTER_DURATION_MS + 40);
+    const id = window.setTimeout(() => setVisible(false), ENTER_DURATION_MS + 40);
     return () => window.clearTimeout(id);
   }, [open]);
 
@@ -122,17 +109,19 @@ export const MobileWorkspaceDrawer: React.FC<{
     >
       <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/30 px-3">
         <div className="flex h-9 min-w-0 flex-1 items-center">
-          {tabsReady ? (
-            <div className="h-full min-w-0 flex-1" style={{ animation: 'oc-workspace-tabs-in 150ms ease-out' }}>
-              <SortableTabsStrip
-                items={tabItems}
-                activeId={tab}
-                onSelect={(id) => onTabChange(id as MobileWorkspaceTab)}
-                layoutMode="fit"
-                variant="active-pill"
-                className="h-full"
-              />
-            </div>
+          {/* Mounted only while shown; nonCompositedIndicator keeps the active
+              pill off its own compositing layer — creating one inside the
+              drawer's slide flickers in WKWebView. */}
+          {visible ? (
+            <SortableTabsStrip
+              items={tabItems}
+              activeId={tab}
+              onSelect={(id) => onTabChange(id as MobileWorkspaceTab)}
+              layoutMode="fit"
+              variant="active-pill"
+              nonCompositedIndicator
+              className="h-full"
+            />
           ) : null}
         </div>
         <button
@@ -163,7 +152,6 @@ export const MobileWorkspaceDrawer: React.FC<{
           </ErrorBoundary>
         ) : null}
       </div>
-      <style>{'@keyframes oc-workspace-tabs-in { from { opacity: 0 } to { opacity: 1 } }'}</style>
     </section>,
     rootRef.current,
   );
