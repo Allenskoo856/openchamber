@@ -39,6 +39,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { toast } from '@/components/ui';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
+import { getProjectLabel, normalizePath } from './mobilePaths';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useI18n } from '@/lib/i18n';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
@@ -118,22 +119,12 @@ const CHILD_INDENT_STEP = 18;
 const getParentId = (session: Session): string | null =>
   (session as Session & { parentID?: string | null }).parentID ?? null;
 
-const normalizePath = (value?: string | null): string =>
-  (value || '').replace(/\\/g, '/').replace(/\/+$/g, '');
-
 const getSessionDirectory = (session: Session): string => {
   const sessionWithDirectory = session as Session & {
     directory?: string | null;
     project?: { worktree?: string | null } | null;
   };
   return normalizePath(sessionWithDirectory.directory ?? sessionWithDirectory.project?.worktree ?? null);
-};
-
-const getProjectLabel = (path: string): string => {
-  const normalized = normalizePath(path);
-  if (!normalized) return '';
-  const segments = normalized.split('/').filter(Boolean);
-  return segments[segments.length - 1]?.replace(/[-_]/g, ' ') || normalized;
 };
 
 const getSessionTimestamp = (session: Session): number => {
