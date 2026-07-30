@@ -84,7 +84,7 @@ export const MobileHeader: React.FC<{
             onClick={handleOpenSessions}
             style={{ touchAction: 'manipulation' }}
           >
-            <Icon name="folders" className="size-5" />
+            <Icon name="list-unordered" className="size-5" />
           </button>
 
           <MobileSessionMetadataButton
