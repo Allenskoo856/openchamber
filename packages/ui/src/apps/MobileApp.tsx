@@ -13,7 +13,6 @@ import { ChatView } from '@/components/views/ChatView';
 import { SettingsView } from '@/components/views/SettingsView';
 import { TerminalView } from '@/components/views/TerminalView';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
-import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
 import { registerRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -53,7 +52,7 @@ import { MobileHeader } from './MobileHeader';
 import { MobileInstancesSurface } from './MobileInstancesSurface';
 import { MobileOverflowMenu, type OverflowItem } from './MobileOverflowMenu';
 import { MobileSessionsSheet } from './MobileSessionsSheet';
-import { MobileSurfaceShell } from './MobileSurfaceShell';
+import { MobileFullscreenSurface } from './MobileFullscreenSurface';
 import { DedicatedMobileAppProvider, type MobileAppActions } from './mobileAppContext';
 import { autoConnectLastInstance, getAutoConnectTargetLabel, reprobeActiveConnection } from './mobileConnections';
 import { isCapacitorMobileApp, useNativeAndroidBackButton, useNativeMobileChrome, useNativeMobileLifecycle } from './mobileNativeChrome';
@@ -545,20 +544,20 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             them always-mounted left a stale startup layout, which made the
             top-inset dimming appear only intermittently on iOS. */}
         {activeSurface === 'files' ? (
-          <MobileSurfaceShell
+          <MobileFullscreenSurface
             open
             onClose={closeSurface}
             ariaLabel={t('mobile.menu.files')}
             headerless
           >
             <ErrorBoundary>
-              <MobileFilesSurface onClose={closeSurface} />
+              <MobileFilesSurface onClose={closeSurface} dismissStyle="back" />
             </ErrorBoundary>
-          </MobileSurfaceShell>
+          </MobileFullscreenSurface>
         ) : null}
 
         {activeSurface === 'changes' ? (
-          <MobileSurfaceShell
+          <MobileFullscreenSurface
             open
             onClose={closeSurface}
             ariaLabel={t('mobile.menu.changes')}
@@ -567,70 +566,58 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             <ErrorBoundary>
               <MobileChangesSurface
                 onClose={closeSurface}
+                dismissStyle="back"
                 initialDiffPath={pendingChangesDiff?.path ?? null}
                 initialDiffStaged={pendingChangesDiff?.staged === true}
               />
             </ErrorBoundary>
-          </MobileSurfaceShell>
+          </MobileFullscreenSurface>
         ) : null}
 
         {activeSurface === 'terminal' ? (
-          <MobileSurfaceShell
+          <MobileFullscreenSurface
             open
             onClose={closeSurface}
             ariaLabel={t('mobile.menu.terminal')}
             title={t('mobile.menu.terminal')}
-            disableSwipeDismiss
             disableEscapeDismiss
           >
             <ErrorBoundary>
               <TerminalView visible />
             </ErrorBoundary>
-          </MobileSurfaceShell>
+          </MobileFullscreenSurface>
         ) : null}
 
         {activeSurface === 'mcp' ? (
-          <MobileOverlayPanel
+          <MobileFullscreenSurface
             open
             onClose={closeSurface}
+            ariaLabel={t('mcpDropdown.title')}
             title={t('mcpDropdown.title')}
-            className="h-[72vh]"
-            contentMaxHeightClassName="max-h-full"
-            renderHeader={(closeButton) => (
-              <div className="shrink-0">
-                <div className="flex justify-center pt-2.5 pb-1">
-                  <div className="h-1 w-9 rounded-full bg-[color-mix(in_srgb,var(--surface-mutedForeground)_40%,transparent)]" />
-                </div>
-                <div className="flex items-center justify-between gap-2 px-4 pb-2">
-                  <h2 className="text-[16px] font-semibold text-[var(--surface-foreground)]">
-                    {t('mcpDropdown.title')}
-                  </h2>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      className="flex size-8 items-center justify-center rounded-full text-[var(--surface-mutedForeground)] transition-colors hover:bg-[var(--interactive-hover)] hover:text-[var(--surface-foreground)]"
-                      onClick={openMcpCreateSettings}
-                      aria-label={t('settings.mcp.sidebar.actions.addServerTitle')}
-                      title={t('settings.mcp.sidebar.actions.addServerTitle')}
-                      style={{ touchAction: 'manipulation' }}
-                    >
-                      <Icon name="add" className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      className="flex size-8 items-center justify-center rounded-full text-[var(--surface-mutedForeground)] transition-colors hover:bg-[var(--interactive-hover)] hover:text-[var(--surface-foreground)] disabled:opacity-60"
-                      onClick={refreshMcpOverlay}
-                      disabled={isMcpRefreshing}
-                      aria-label={t('mcpDropdown.actions.refreshAria')}
-                      title={t('mcpDropdown.actions.refreshAria')}
-                      style={{ touchAction: 'manipulation' }}
-                    >
-                      <Icon name="refresh" className={cn('h-5 w-5', isMcpRefreshing && 'animate-spin')} />
-                    </button>
-                    {closeButton}
-                  </div>
-                </div>
-              </div>
+            trailing={(
+              <>
+                <button
+                  type="button"
+                  className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  onClick={openMcpCreateSettings}
+                  aria-label={t('settings.mcp.sidebar.actions.addServerTitle')}
+                  title={t('settings.mcp.sidebar.actions.addServerTitle')}
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  <Icon name="add" className="size-5" />
+                </button>
+                <button
+                  type="button"
+                  className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  onClick={refreshMcpOverlay}
+                  disabled={isMcpRefreshing}
+                  aria-label={t('mcpDropdown.actions.refreshAria')}
+                  title={t('mcpDropdown.actions.refreshAria')}
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  <Icon name="refresh" className={cn('size-5', isMcpRefreshing && 'animate-spin')} />
+                </button>
+              </>
             )}
           >
             <ErrorBoundary>
@@ -642,11 +629,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                 mobileListDensity
               />
             </ErrorBoundary>
-          </MobileOverlayPanel>
+          </MobileFullscreenSurface>
         ) : null}
 
         {activeSurface === 'instances' && showCapacitorOnlyFeatures ? (
-          <MobileSurfaceShell
+          <MobileFullscreenSurface
             open
             onClose={closeSurface}
             ariaLabel={t('mobile.menu.instances')}
@@ -656,11 +643,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               onConnect={closeSurface}
               onActiveConnectionDeleted={onActiveConnectionDeleted}
             />
-          </MobileSurfaceShell>
+          </MobileFullscreenSurface>
         ) : null}
 
         {activeSurface === 'settings' ? (
-          <MobileSurfaceShell
+          <MobileFullscreenSurface
             open
             onClose={closeSurface}
             ariaLabel={t('mobile.menu.settings')}
@@ -675,11 +662,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                 onClose={closeSurface}
               />
             </ErrorBoundary>
-          </MobileSurfaceShell>
+          </MobileFullscreenSurface>
         ) : null}
 
         {activeSurface === 'update' ? (
-          <MobileSurfaceShell
+          <MobileFullscreenSurface
             open
             onClose={closeSurface}
             ariaLabel={t('mobile.menu.update')}
@@ -690,7 +677,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                 <AboutSettings initialUpdateDialogOpen />
               </div>
             </ErrorBoundary>
-          </MobileSurfaceShell>
+          </MobileFullscreenSurface>
         ) : null}
       </div>
     </DedicatedMobileAppProvider>

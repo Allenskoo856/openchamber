@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import {
   RiAddLine,
   RiArchiveLine,
@@ -62,14 +63,13 @@ import { useAllLiveSessions } from '@/sync/sync-context';
 import type { WorktreeMetadata } from '@/types/worktree';
 
 import { MobileProjectEditSurface } from './MobileProjectEditSurface';
-import { MobileSurfaceShell } from './MobileSurfaceShell';
 
 type MobileSessionsSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 'sheet' (default) wraps the content in the swipe-dismiss MobileSurfaceShell;
+  /** 'drawer' (default) renders a full-width left drawer over the app;
       'sidebar' renders the same content inline for the iPad persistent sidebar. */
-  variant?: 'sheet' | 'sidebar';
+  variant?: 'drawer' | 'sidebar';
 };
 
 const EMPTY_PINNED_SESSION_IDS = new Set<string>();
@@ -513,7 +513,7 @@ const SortableProjectRow: React.FC<{
   );
 };
 
-export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, onOpenChange, variant = 'sheet' }) => {
+export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, onOpenChange, variant = 'drawer' }) => {
   const { t } = useI18n();
   const { git } = useRuntimeAPIs();
   const liveSessions = useAllLiveSessions();
@@ -1319,15 +1319,107 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   }
 
   return (
-    <MobileSurfaceShell
+    <MobileSessionsDrawerContainer
       open={open}
       onClose={() => onOpenChange(false)}
       ariaLabel={t('mobile.sessions.sheet.title')}
-      title={t('mobile.sessions.sheet.title')}
-      trailing={trailingActions}
     >
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/30 px-3">
+        <button
+          type="button"
+          className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          aria-label={t('header.actions.backAria')}
+          onClick={() => onOpenChange(false)}
+          style={{ touchAction: 'manipulation' }}
+        >
+          <Icon name="arrow-left" className="size-5" />
+        </button>
+        <h2 className="min-w-0 flex-1 truncate px-1 typography-ui-label font-semibold text-foreground">
+          {t('mobile.sessions.sheet.title')}
+        </h2>
+        {trailingActions ? (
+          <div className="flex shrink-0 items-center gap-2">{trailingActions}</div>
+        ) : null}
+      </div>
       {surfaceContent}
-    </MobileSurfaceShell>
+    </MobileSessionsDrawerContainer>
+  );
+};
+
+const DRAWER_ROOT_ID = 'mobile-surface-root';
+const DRAWER_ENTER_DELAY_MS = 16;
+const DRAWER_ENTER_DURATION_MS = 200;
+
+/** Full-width left drawer for the phone sessions list: covers the whole app
+    and slides in from the left edge. Closes via the back arrow, Escape, or
+    the Android back button (handled by MobileShell). */
+const MobileSessionsDrawerContainer: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  ariaLabel: string;
+  children: React.ReactNode;
+}> = ({ open, onClose, ariaLabel, children }) => {
+  const rootRef = React.useRef<HTMLElement | null>(null);
+  const [entered, setEntered] = React.useState(false);
+  const onCloseRef = React.useRef(onClose);
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  if (typeof document !== 'undefined' && !rootRef.current) {
+    let root = document.getElementById(DRAWER_ROOT_ID);
+    if (!root) {
+      root = document.createElement('div');
+      root.id = DRAWER_ROOT_ID;
+      document.body.appendChild(root);
+    }
+    rootRef.current = root;
+  }
+
+  React.useEffect(() => {
+    if (!open) {
+      setEntered(false);
+      return;
+    }
+    const id = window.setTimeout(() => setEntered(true), DRAWER_ENTER_DELAY_MS);
+    return () => window.clearTimeout(id);
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseRef.current();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
+
+  if (!open || !rootRef.current) return null;
+
+  return createPortal(
+    <section
+      role="dialog"
+      aria-modal="true"
+      aria-label={ariaLabel}
+      className="fixed inset-0 z-50 flex flex-col bg-background text-foreground"
+      style={{
+        paddingTop: 'var(--oc-safe-area-top, 0px)',
+        // Settled state drops the transform entirely so the drawer isn't kept
+        // on a compositing layer (iOS clips those to the safe-area viewport).
+        transform: entered ? 'none' : 'translateX(-100%)',
+        transition: `transform ${DRAWER_ENTER_DURATION_MS}ms cubic-bezier(0.32, 0.72, 0, 1)`,
+      }}
+    >
+      <div className="flex h-full min-h-0 flex-col">
+        {children}
+      </div>
+    </section>,
+    rootRef.current,
   );
 };
 

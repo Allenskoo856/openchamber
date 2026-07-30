@@ -30,7 +30,7 @@ import { useWorktreeOrderStore } from '@/stores/useWorktreeOrderStore';
 import type { WorktreeMetadata } from '@/types/worktree';
 
 import { MobileDeleteWorktreeDialog } from './MobileDeleteWorktreeDialog';
-import { MobileSurfaceShell } from './MobileSurfaceShell';
+import { MobileFullscreenSurface } from './MobileFullscreenSurface';
 
 type MobileEditableProject = {
   id: string;
@@ -218,10 +218,9 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
 
   return (
     <>
-      <MobileSurfaceShell
+      <MobileFullscreenSurface
         open={open}
         onClose={onClose}
-        onBack={onClose}
         title={t('projectEditDialog.title')}
         ariaLabel={t('projectEditDialog.title')}
         trailing={
@@ -402,7 +401,7 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
             ) : null}
           </div>
         ) : null}
-      </MobileSurfaceShell>
+      </MobileFullscreenSurface>
 
       {project ? (
         <MobileDeleteWorktreeDialog

@@ -79,11 +79,14 @@ const isMarkdownFile = (path: string): boolean => /\.(md|mdx|markdown)$/i.test(p
 const isJsonFile = (path: string): boolean => /\.(json|jsonc)$/i.test(path);
 
 type MobileFilesSurfaceProps = {
-  /** When provided, header gets a close X that calls this; used when the surface is hosted in MobileSurfaceShell. */
+  /** When provided, the header gets a dismiss button that calls this. */
   onClose?: () => void;
+  /** 'back' (phone fullscreen surface) renders the dismiss as a back arrow;
+      'close' (iPad sidebar) keeps the X. */
+  dismissStyle?: 'back' | 'close';
 };
 
-export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose }) => {
+export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose, dismissStyle = 'close' }) => {
   const { t } = useI18n();
   const { files } = useRuntimeAPIs();
   const root = normalizePath(useEffectiveDirectory() ?? null);
@@ -300,26 +303,27 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
       <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-3 text-foreground">
-        {onClose ? (
-          <button
-            type="button"
-            className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.surface.closeAria')}
-            onClick={onClose}
-            style={{ touchAction: 'manipulation' }}
-          >
-            <RiCloseLine className="size-5" />
-          </button>
-        ) : null}
+        {/* Single leading back arrow: drills up the directory tree first, and
+            closes the fullscreen surface once at the root. */}
         {canGoBack && parentDirectory ? (
           <button
             type="button"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={t('mobile.files.backToParentAria', { name: getNameFromPath(parentDirectory) })}
             onClick={() => openDirectory(parentDirectory)}
             style={{ touchAction: 'manipulation' }}
           >
             <RiArrowLeftLine className="size-5" />
+          </button>
+        ) : onClose ? (
+          <button
+            type="button"
+            className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label={dismissStyle === 'back' ? t('header.actions.backAria') : t('mobile.surface.closeAria')}
+            onClick={onClose}
+            style={{ touchAction: 'manipulation' }}
+          >
+            {dismissStyle === 'back' ? <RiArrowLeftLine className="size-5" /> : <RiCloseLine className="size-5" />}
           </button>
         ) : null}
         <div className="min-w-0 flex-1 px-1">

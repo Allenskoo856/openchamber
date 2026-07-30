@@ -42,8 +42,11 @@ const isUnstagedStatusFile = (file: GitStatus['files'][number]): boolean => {
 const diffCacheKey = (path: string, staged: boolean): string => staged ? `${path}\u0000staged` : path;
 
 type MobileChangesSurfaceProps = {
-  /** When provided, the list header gets a close X that calls this; used when the surface is hosted in MobileSurfaceShell. */
+  /** When provided, the list header gets a dismiss button that calls this. */
   onClose?: () => void;
+  /** 'back' (phone fullscreen surface) renders the dismiss as a back arrow;
+      'close' (iPad sidebar) keeps the X. */
+  dismissStyle?: 'back' | 'close';
   /**
    * When set (and non-null), the surface opens directly into the per-file diff view for this
    * relative path. Updating it (incl. setting it to a different path while open) routes the
@@ -53,7 +56,7 @@ type MobileChangesSurfaceProps = {
   initialDiffStaged?: boolean;
 };
 
-export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onClose, initialDiffPath, initialDiffStaged = false }) => {
+export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onClose, dismissStyle = 'close', initialDiffPath, initialDiffStaged = false }) => {
   const { t } = useI18n();
   const { git } = useRuntimeAPIs();
   const currentDirectory = normalizePath(useEffectiveDirectory() ?? null);
@@ -452,11 +455,11 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.surface.closeAria')}
+            aria-label={dismissStyle === 'back' ? t('header.actions.backAria') : t('mobile.surface.closeAria')}
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >
-            <Icon name="close" className="size-5" />
+            <Icon name={dismissStyle === 'back' ? 'arrow-left' : 'close'} className="size-5" />
           </button>
         ) : null}
         <div className="min-w-0 flex-1 px-1">
@@ -502,11 +505,11 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.surface.closeAria')}
+            aria-label={dismissStyle === 'back' ? t('header.actions.backAria') : t('mobile.surface.closeAria')}
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >
-            <Icon name="close" className="size-5" />
+            <Icon name={dismissStyle === 'back' ? 'arrow-left' : 'close'} className="size-5" />
           </button>
         ) : null}
         <div className="min-w-0 flex-1 px-1">
