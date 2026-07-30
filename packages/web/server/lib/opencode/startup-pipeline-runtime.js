@@ -106,8 +106,6 @@ export const createStartupPipelineRuntime = (dependencies) => {
     });
 
     setupProxy(app);
-    scheduleOpenCodeApiDetection();
-    void bootstrapOpenCodeAtStartup();
 
     if (apiOnly) {
       staticRoutesRuntime.registerApiOnlyFallbackRoutes(app);
@@ -140,6 +138,8 @@ export const createStartupPipelineRuntime = (dependencies) => {
       onTunnelReady,
     });
     tunnelRuntimeContext.setActivePort(startupResult.activePort);
+    scheduleOpenCodeApiDetection();
+    void bootstrapOpenCodeAtStartup();
 
     serverStartupRuntime.attachProcessHandlers({ attachSignals });
 
