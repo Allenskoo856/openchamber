@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Reproduction: Issue 2533 - Dictation controls pushed off-screen on Android</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      width: 390px; /* typical Android phone width */
+      border: 2px solid #ccc;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    /* Simulate the Capacitor app shell */
+    .app-shell {
+      height: 600px; /* viewport height */
+      display: flex;
+      flex-direction: column;
+      background: #fafafa;
+      position: relative;
+    }
+
+    /* Chat messages area (fills space above form) */
+    .chat-messages {
+      flex: 1;
+      background: #f0f0f0;
+      padding: 16px;
+      overflow-y: auto;
+    }
+
+    /* ===== THE FORM ===== */
+    /* Matches ChatInput.tsx line 2362-2370 structure */
+    form {
+      position: relative;
+      width: 100%;
+      padding-top: 0;
+      padding-bottom: 16px;
+      /* NOTE: On mobile when dictation activates from the pill,
+         isMobileExpanded is false, so the form does NOT get:
+         display: flex; height: 100%; min-height: 0; flex-direction: column;
+         It remains a block element with content-determined height. */
+    }
+
+    /* The composer box - matches the .chat-input-column div */
+    .composer-box {
+      padding: 0 12px;
+      /* overflow: visible is the default */
+    }
+
+    /* Inner composer - matches the positioning context */
+    .composer-inner {
+      position: relative; /* positioning host for dictation overlay */
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      background: #fff;
+      overflow: visible; /* no overflow hidden - key issue! */
+      /* When dictation content height grows, this grows with it */
+    }
+
+    /* The editor container - matches line 2589-2598 */
+    .editor-container {
+      position: relative;
+      overflow: hidden;
+      /* On mobile without isComposerExpanded, min-height is not constrained */
+    }
+
+    .editor-container.with-dictation-min-height {
+      /* This is what dictationContentHeight applies */
+      min-height: 400px; /* simulate long transcript */
+    }
+
+    .editor-surface {
+      min-height: 52px;
+      padding: 10px 12px;
+      font-size: 15px;
+      line-height: 1.5;
+      color: #333;
+      background: #fff;
+    }
+
+    /* Footer row with cancel/insert/insert-and-send */
+    .composer-footer {
+      display: flex;
+      align-items: center;
+      padding: 6px 8px;
+      gap: 8px;
+      border-top: 1px solid #eee;
+    }
+
+    .footer-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .footer-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      border-radius: 50%;
+      background: #f0f0f0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .btn-primary {
+      color: #0066cc;
+    }
+
+    .btn-muted {
+      color: #888;
+    }
+
+    /* ===== DICTATION OVERLAY (absolutely positioned) ===== */
+    .dictation-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      border-radius: 12px;
+    }
+
+    .transcript-area {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 14px 12px 10px 12px;
+    }
+
+    .transcript-content {
+      white-space: pre-wrap;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    .dictation-footer {
+      display: flex;
+      flex-shrink: 0;
+      align-items: center;
+      padding: 6px 8px;
+      gap: 8px;
+      border-top: 1px solid #eee;
+    }
+
+    .dictation-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .recording-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #e11d48;
+      margin-left: 4px;
+      position: relative;
+    }
+
+    .recording-dot::before {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      background: #e11d48;
+      opacity: 0.3;
+      animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes ping {
+      75%, 100% { transform: scale(2); opacity: 0; }
+    }
+
+    .volume-meter {
+      height: 6px;
+      width: 64px;
+      border-radius: 999px;
+      background: #e0e0e0;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .volume-fill {
+      height: 100%;
+      width: 45%;
+      border-radius: 999px;
+      background: #0066cc;
+    }
+
+    .duration {
+      font-size: 12px;
+      color: #888;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .dictation-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Highlight the problem area */
+    .problem-highlight {
+      outline: 2px dashed #e11d48;
+      outline-offset: 2px;
+    }
+
+    .label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #666;
+      margin-bottom: 4px;
+    }
+
+    .scenario {
+      margin-bottom: 32px;
+    }
+
+    .scenario h3 {
+      margin-bottom: 8px;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .overflow-marker {
+      position: absolute;
+      bottom: -30px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 11px;
+      color: #e11d48;
+      font-weight: 600;
+    }
+
+    /* Test scenario with proper constraint (expected behavior) */
+    .proper-constraint form {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      flex-direction: column;
+      /* h-full in flex context - parent must have definite height */
+      height: 100%;
+      max-height: 100%;
+    }
+
+    .proper-constraint .composer-inner {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      flex-direction: column;
+      overflow: hidden; /* critical! */
+    }
+
+    .proper-constraint .editor-container {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto; /* scrollable transcript area */
+      min-height: unset !important;
+    }
+
+    .proper-constraint .composer-footer {
+      flex-shrink: 0;
+    }
+
+    /* Test scenario - what actually happens (bug) */
+    .bug-scenario .composer-inner {
+      /* No flex, no overflow hidden - content determines height */
+    }
+
+    .bug-scenario .editor-container.with-dictation-min-height {
+      /* minHeight pushes everything down */
+    }
+  </style>
+</head>
+<body>
+  <h2 style="margin-bottom: 20px; color: #333;">Reproduction: Issue #2533</h2>
+  <p style="margin-bottom: 24px; max-width: 600px; text-align: center; color: #555; line-height: 1.6;">
+    Android: long dictation transcript pushes Cancel/Insert/Insert-and-send controls off-screen.
+    The composer lacks viewport-constrained height and <code>overflow: hidden</code> when dictation
+    is active, causing the form to grow beyond the visible viewport.
+  </p>
+
+  <div style="display: flex; gap: 32px; flex-wrap: wrap; justify-content: center;">
+
+    <!-- BUG SCENARIO -->
+    <div class="scenario">
+      <h3>❌ Bug: Current behavior (Android)</h3>
+      <div class="container bug-scenario">
+        <div class="app-shell">
+          <div class="chat-messages">
+            <p style="color: #888; font-size: 13px;">Chat messages area (viewport fills above form)</p>
+          </div>
+          <form>
+            <div class="composer-box">
+              <div class="composer-inner problem-highlight">
+                <!-- Dictation overlay (absolutely positioned) -->
+                <div class="dictation-overlay">
+                  <div class="transcript-area">
+                    <div class="transcript-content">
+                      <strong>Long dictation transcript:</strong><br><br>
+                      This is a very long dictated message that keeps growing as the user continues speaking. 
+                      The transcript content is not constrained to the viewport height because the form and 
+                      its parent containers don't limit their height when dictation is active on Android.<br><br>
+                      
+                      The composer grows taller and taller as more text is dictated, pushing the footer 
+                      with Cancel, Insert, and Insert-and-send buttons further and further down. 
+                      Eventually, these controls are pushed completely off the visible screen.<br><br>
+                      
+                      This makes it impossible for the user to submit their dictated message, effectively 
+                      trapping them in the dictation flow with no way to complete the interaction.<br><br>
+                      
+                      Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor 
+                      incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud 
+                      exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.<br><br>
+                      
+                      Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu 
+                      fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in 
+                      culpa qui officia deserunt mollit anim id est laborum.<br><br>
+                      
+                      <span style="color: #e11d48;">⬇️ Controls are pushed below this point ⬇️</span>
+                    </div>
+                  </div>
+                  <div class="dictation-footer">
+                    <div class="dictation-meta">
+                      <div class="recording-dot"></div>
+                      <div class="volume-meter"><div class="volume-fill"></div></div>
+                      <span class="duration">2:34</span>
+                    </div>
+                    <div class="dictation-actions">
+                      <button class="btn btn-muted" title="Discard dictation">✕</button>
+                      <button class="btn" title="Insert transcript">✓</button>
+                      <button class="btn btn-primary" title="Insert and send">➤</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Underlying editor content -->
+                <div class="editor-container with-dictation-min-height">
+                  <div class="editor-surface">
+                    <!-- Editor content is hidden behind overlay -->
+                  </div>
+                </div>
+
+                <!-- Underlying footer (hidden by overlay) -->
+                <div class="composer-footer" style="opacity: 0.3; pointer-events: none;">
+                  <div class="footer-left">
+                    <span style="font-size: 11px; color: #aaa;">(underlying footer - hidden by overlay)</span>
+                  </div>
+                  <div class="footer-right">
+                    <button class="btn btn-muted" disabled>✕</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
+          <div class="overflow-marker">
+            ⚠️ Footer controls pushed off-screen (below viewport)
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 8px; font-size: 12px; color: #888; max-width: 390px;">
+        Root cause: The form lacks <code>flex h-full min-h-0</code> and its ancestor divs lack
+        <code>overflow: hidden</code>. The <code>dictationContentHeight</code> minHeight
+        pushes the container beyond viewport. The dictation overlay's footer (Cancel/Insert/Send)
+        is pushed off-screen.
+      </div>
+    </div>
+
+    <!-- EXPECTED BEHAVIOR -->
+    <div class="scenario">
+      <h3>✅ Expected: Properly constrained</h3>
+      <div class="container proper-constraint">
+        <div class="app-shell">
+          <div class="chat-messages">
+            <p style="color: #888; font-size: 13px;">Chat messages area</p>
+          </div>
+          <form>
+            <div class="composer-box">
+              <div class="composer-inner">
+                <!-- Dictation overlay (constrained to viewport) -->
+                <div class="dictation-overlay">
+                  <div class="transcript-area" style="overflow-y: auto;">
+                    <div class="transcript-content">
+                      <strong>Long dictation transcript (properly scrollable):</strong><br><br>
+                      This is a very long dictated message. The transcript area scrolls independently
+                      while the footer stays pinned at the bottom. The container is constrained to
+                      the available viewport height above the keyboard and system insets.<br><br>
+                      
+                      The Cancel, Insert, and Insert-and-send buttons always remain visible and
+                      accessible at the bottom, regardless of transcript length.<br><br>
+                      
+                      Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor 
+                      incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud 
+                      exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.<br><br>
+                      
+                      Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu 
+                      fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in 
+                      culpa qui officia deserunt mollit anim id est laborum.<br><br>
+                      
+                      Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium 
+                      doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore 
+                      veritatis et quasi architecto beatae vitae dicta sunt explicabo.
+                    </div>
+                  </div>
+                  <div class="dictation-footer">
+                    <div class="dictation-meta">
+                      <div class="recording-dot"></div>
+                      <div class="volume-meter"><div class="volume-fill"></div></div>
+                      <span class="duration">2:34</span>
+                    </div>
+                    <div class="dictation-actions">
+                      <button class="btn btn-muted" title="Discard dictation">✕</button>
+                      <button class="btn" title="Insert transcript">✓</button>
+                      <button class="btn btn-primary" title="Insert and send">➤</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
+          <div style="position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 11px; color: #22c55e; font-weight: 600;">
+            ✅ Controls always visible at bottom
+          </div>
+        </div>
+      </div>
+      <div style="margin-top: 8px; font-size: 12px; color: #888; max-width: 390px;">
+        The form uses <code>flex h-full min-h-0 flex-col</code>, inner containers use
+        <code>overflow: hidden</code>, the transcript area scrolls independently
+        (<code>overflow-y: auto</code>), and the footer stays pinned
+        (<code>flex-shrink-0</code>). The dictation controls are always accessible.
+      </div>
+    </div>
+
+  </div>
+
+  <hr style="margin: 40px 0 20px; width: 100%; max-width: 800px; border: none; border-top: 1px solid #ddd;">
+
+  <h3 style="margin-bottom: 12px;">Technical Analysis</h3>
+  <div style="max-width: 800px; font-size: 14px; line-height: 1.8; color: #444;">
+    <p><strong>Root cause chain:</strong></p>
+    <ol style="margin-left: 20px; margin-bottom: 16px;">
+      <li>
+        When dictation starts from the mobile pill, <code>mobileShell.expanded</code> becomes true
+        but <code>isExpandedInput</code> (global UI store) stays false. The form does NOT receive
+        the expanded layout classes (<code>flex h-full min-h-0 flex-col</code>).
+      </li>
+      <li>
+        The form remains a block element with content-determined height — no viewport constraint.
+      </li>
+      <li>
+        As the dictation transcript grows, <code>onContentHeightChange</code> reports the content
+        height via <code>dictationContentHeight</code>, which is applied as <code>minHeight</code>
+        on the editor container (ChatInput line 2596).
+      </li>
+      <li>
+        The minHeight grows the editor container → the composer box → the form. No ancestor has
+        <code>overflow: hidden</code> or <code>max-height</code>, so the form grows without bound.
+      </li>
+      <li>
+        The absolutely-positioned dictation overlay (<code>absolute inset-0</code>) covers the
+        growing composer. Its footer with Cancel/Insert/Insert-and-send buttons is pushed below
+        the visible viewport.
+      </li>
+      <li>
+        <code>useMobileViewportPin</code> which would pin the form to the visual viewport is
+        skipped for Capacitor apps (early return when <code>isCapacitorApp()</code>).
+      </li>
+    </ol>
+    <p><strong>Files involved:</strong></p>
+    <ul style="margin-left: 20px; margin-bottom: 16px;">
+      <li><code>src/components/chat/ChatInput.tsx</code> — lines 2362-2370 (form classes), 2596-2598 (dictationContentHeight as minHeight)</li>
+      <li><code>src/components/dictation/ComposerDictation.tsx</code> — lines 259-280 (content height measurement and reporting)</li>
+      <li><code>src/components/chat/composer/state/useMobileComposerShell.ts</code> — line 140-159 (dictationActiveChange doesn't set isExpandedInput)</li>
+      <li><code>src/components/chat/composer/state/useMobileViewportPin.ts</code> — line 49 (skipped for Capacitor)</li>
+    </ul>
+  </div>
+</body>
+</html>
