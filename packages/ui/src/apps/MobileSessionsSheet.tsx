@@ -552,8 +552,20 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   const [directoryDialogOpen, setDirectoryDialogOpen] = React.useState(false);
   const [newWorktreeDialogOpen, setNewWorktreeDialogOpen] = React.useState(false);
   const [worktreeDialogProjectId, setWorktreeDialogProjectId] = React.useState<string | null>(null);
-  const [worktreesByProject, setWorktreesByProject] = React.useState<Map<string, WorktreeMetadata[]>>(new Map());
-  const [gitProjectPaths, setGitProjectPaths] = React.useState<Set<string>>(new Set());
+  // Seeded from the app-level worktree discovery (MobileApp populates
+  // availableWorktreesByProject on connect) so the FIRST open already shows
+  // worktrees; the per-open refresh below keeps them fresh without ever
+  // blanking the list.
+  const [worktreesByProject, setWorktreesByProject] = React.useState<Map<string, WorktreeMetadata[]>>(
+    () => new Map(useSessionUIStore.getState().availableWorktreesByProject),
+  );
+  const [gitProjectPaths, setGitProjectPaths] = React.useState<Set<string>>(() => {
+    const seeded = new Set<string>();
+    for (const [path, worktrees] of useSessionUIStore.getState().availableWorktreesByProject) {
+      if (worktrees.length > 0) seeded.add(path);
+    }
+    return seeded;
+  });
   const [editingOrder, setEditingOrder] = React.useState(false);
   const [confirmingDeleteId, setConfirmingDeleteId] = React.useState<string | null>(null);
   // Per-bucket count of sessions revealed past the default page. Ephemeral —
@@ -1328,11 +1340,11 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
         <button
           type="button"
           className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label={t('header.actions.backAria')}
+          aria-label={t('mobile.surface.closeAria')}
           onClick={() => onOpenChange(false)}
           style={{ touchAction: 'manipulation' }}
         >
-          <Icon name="arrow-left" className="size-5" />
+          <Icon name="close" className="size-5" />
         </button>
         <h2 className="min-w-0 flex-1 truncate px-1 typography-ui-label font-semibold text-foreground">
           {t('mobile.sessions.sheet.title')}
@@ -1351,8 +1363,13 @@ const DRAWER_ENTER_DELAY_MS = 16;
 const DRAWER_ENTER_DURATION_MS = 200;
 
 /** Full-width left drawer for the phone sessions list: covers the whole app
-    and slides in from the left edge. Closes via the back arrow, Escape, or
-    the Android back button (handled by MobileShell). */
+    and slides in from the left edge. Closes via the header X, Escape, or the
+    Android back button (handled by MobileShell).
+
+    Stays MOUNTED while closed (parked off-screen, hidden): the sessions
+    sheet's project/worktree state stays warm, so reopening shows the tree
+    instantly instead of refetching from scratch — and the close slide can
+    actually play instead of the drawer vanishing on unmount. */
 const MobileSessionsDrawerContainer: React.FC<{
   open: boolean;
   onClose: () => void;
@@ -1361,6 +1378,8 @@ const MobileSessionsDrawerContainer: React.FC<{
 }> = ({ open, onClose, ariaLabel, children }) => {
   const rootRef = React.useRef<HTMLElement | null>(null);
   const [entered, setEntered] = React.useState(false);
+  // Kept visible through the exit slide; flipped to hidden once it finishes.
+  const [visible, setVisible] = React.useState(open);
   const onCloseRef = React.useRef(onClose);
   React.useEffect(() => {
     onCloseRef.current = onClose;
@@ -1377,11 +1396,13 @@ const MobileSessionsDrawerContainer: React.FC<{
   }
 
   React.useEffect(() => {
-    if (!open) {
-      setEntered(false);
-      return;
+    if (open) {
+      setVisible(true);
+      const id = window.setTimeout(() => setEntered(true), DRAWER_ENTER_DELAY_MS);
+      return () => window.clearTimeout(id);
     }
-    const id = window.setTimeout(() => setEntered(true), DRAWER_ENTER_DELAY_MS);
+    setEntered(false);
+    const id = window.setTimeout(() => setVisible(false), DRAWER_ENTER_DURATION_MS + 40);
     return () => window.clearTimeout(id);
   }, [open]);
 
@@ -1399,13 +1420,14 @@ const MobileSessionsDrawerContainer: React.FC<{
     };
   }, [open]);
 
-  if (!open || !rootRef.current) return null;
+  if (!rootRef.current) return null;
 
   return createPortal(
     <section
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}
+      aria-hidden={!open}
       className="fixed inset-0 z-50 flex flex-col bg-background text-foreground"
       style={{
         paddingTop: 'var(--oc-safe-area-top, 0px)',
@@ -1413,6 +1435,8 @@ const MobileSessionsDrawerContainer: React.FC<{
         // on a compositing layer (iOS clips those to the safe-area viewport).
         transform: entered ? 'none' : 'translateX(-100%)',
         transition: `transform ${DRAWER_ENTER_DURATION_MS}ms cubic-bezier(0.32, 0.72, 0, 1)`,
+        visibility: visible ? 'visible' : 'hidden',
+        pointerEvents: open ? 'auto' : 'none',
       }}
     >
       <div className="flex h-full min-h-0 flex-col">

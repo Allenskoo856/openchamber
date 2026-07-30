@@ -172,11 +172,11 @@ export const MobileFullscreenSurface: React.FC<MobileFullscreenSurfaceProps> = (
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('header.actions.backAria')}
+            aria-label={t('mobile.surface.closeAria')}
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >
-            <Icon name="arrow-left" className="size-5" />
+            <Icon name="close" className="size-5" />
           </button>
           <div className="min-w-0 flex-1 px-1">
             {title ? (

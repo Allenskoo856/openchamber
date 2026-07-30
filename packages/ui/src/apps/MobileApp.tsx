@@ -61,7 +61,7 @@ import { reconnectAppForTransportSwitch, resetAppForRuntimeEndpointChange } from
 import { useAppFontEffects } from './useAppFontEffects';
 import { useFontsReady } from './useFontsReady';
 import { useDeepLinkHandlers, useDeepLinkSource } from './deepLinkNavigation';
-import { useEdgeSwipeSessionSwitch } from './useEdgeSwipeSessionSwitch';
+import { useEdgeSwipe } from './useEdgeSwipe';
 import { useNativePushRegistration } from './useNativePushRegistration';
 import { IpadSidebarResizeHandle } from './IpadSidebarResizeHandle';
 import {
@@ -124,10 +124,20 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     setPendingChangesDiff(null);
   }, []);
 
+  // The most recent overflow surface the user opened — the right-edge swipe
+  // reopens it. Defaults to Instances in the native app (Files in the browser,
+  // where Instances doesn't exist).
+  const lastDropdownSurfaceRef = React.useRef<MobileSurface>(showCapacitorOnlyFeatures ? 'instances' : 'files');
+
+  const openSurface = React.useCallback((surface: MobileSurface) => {
+    lastDropdownSurfaceRef.current = surface;
+    setActiveSurface(surface);
+  }, []);
+
   const openSettingsSurface = React.useCallback((stage: 'nav' | 'page-content') => {
     setSettingsInitialMobileStage(stage);
-    setActiveSurface('settings');
-  }, []);
+    openSurface('settings');
+  }, [openSurface]);
 
   // iPad (Capacitor): sessions live in a persistent full-height left sidebar
   // and Changes/Files in a right sidebar, instead of phone sheets/surfaces.
@@ -152,8 +162,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       if (isPortrait) setIpadSidebarOpen(false);
       return;
     }
-    setActiveSurface('files');
-  }, [isIPad, isPortrait]);
+    openSurface('files');
+  }, [isIPad, isPortrait, openSurface]);
 
   const openChangesSurface = React.useCallback((diff: { path: string; staged: boolean } | null = null) => {
     setPendingChangesDiff(diff);
@@ -162,8 +172,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       if (isPortrait) setIpadSidebarOpen(false);
       return;
     }
-    setActiveSurface('changes');
-  }, [isIPad, isPortrait]);
+    openSurface('changes');
+  }, [isIPad, isPortrait, openSurface]);
 
   const closeIpadRightPanel = React.useCallback(() => {
     setIpadRightPanel(null);
@@ -220,7 +230,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       },
       openView: (target: 'files' | 'mcp' | 'instances' | 'update') => {
         if (target === 'files') openFilesSurface();
-        else setActiveSurface(target);
+        else openSurface(target);
       },
       openChanges: ({ path, staged }: { path?: string; staged?: boolean } = {}) => {
         openChangesSurface(path ? { path, staged: staged === true } : null);
@@ -230,40 +240,28 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         openSettingsSurface(section ? 'page-content' : 'nav');
       },
     }),
-    [isIPad, openChangesSurface, openFilesSurface, openSettingsSurface, setSettingsPage],
+    [isIPad, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, setSettingsPage],
   );
   useDeepLinkHandlers(deepLinkHandlers);
 
-  // Edge swipe (left/right screen edge → centre) switches between sessions, with a directional
-  // slide+fade on the chat content so it's obvious the session changed.
+  // Edge swipes on the chat: left edge opens the sessions drawer (the iPad
+  // sidebar on iPad), right edge reopens the most recent overflow surface
+  // (the last right panel on iPad).
   const chatMainRef = React.useRef<HTMLElement>(null);
-  const chatAnimRef = React.useRef<HTMLDivElement>(null);
-  const swipeDirectionRef = React.useRef<'prev' | 'next' | null>(null);
-  const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-  // Record the swipe direction; the animation itself runs in the layout effect below, once the
-  // new session's content has committed — running it inline in the swipe callback raced the
-  // re-render and dropped the animation on roughly every other switch.
-  const recordSwipeDirection = React.useCallback((direction: 'prev' | 'next') => {
-    swipeDirectionRef.current = direction;
-  }, []);
-  useEdgeSwipeSessionSwitch(chatMainRef, { onSwitch: recordSwipeDirection });
-
-  React.useLayoutEffect(() => {
-    const direction = swipeDirectionRef.current;
-    swipeDirectionRef.current = null;
-    if (!direction) return; // only animate swipe-driven switches
-    const element = chatAnimRef.current;
-    if (!element || typeof element.animate !== 'function') return;
-    element.getAnimations().forEach((animation) => animation.cancel());
-    const fromX = direction === 'prev' ? -70 : 70;
-    element.animate(
-      [
-        { opacity: 0.1, transform: `translateX(${fromX}px)` },
-        { opacity: 1, transform: 'translateX(0)' },
-      ],
-      { duration: 300, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
-    );
-  }, [currentSessionId]);
+  useEdgeSwipe(chatMainRef, {
+    onLeftEdgeSwipe: () => {
+      if (isIPad) setIpadSidebarOpen(true);
+      else setSessionsSheetOpen(true);
+    },
+    onRightEdgeSwipe: () => {
+      if (isIPad) {
+        if (lastIpadRightPanelRef.current === 'files') openFilesSurface();
+        else openChangesSurface();
+        return;
+      }
+      openSurface(lastDropdownSurfaceRef.current);
+    },
+  });
 
   const handleNativeBack = React.useCallback(() => {
     if (overflowOpen) {
@@ -354,20 +352,20 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         key: 'terminal',
         icon: 'terminal',
         label: t('mobile.menu.terminal'),
-        onSelect: () => setActiveSurface('terminal'),
+        onSelect: () => openSurface('terminal'),
       });
       items.push({
         key: 'mcp',
         iconNode: <McpIcon className="size-5 shrink-0 text-muted-foreground" />,
         label: t('mobile.menu.mcp'),
-        onSelect: () => setActiveSurface('mcp'),
+        onSelect: () => openSurface('mcp'),
       });
       if (showCapacitorOnlyFeatures) {
         items.push({
           key: 'instances',
           icon: 'server',
           label: t('mobile.menu.instances'),
-          onSelect: () => setActiveSurface('instances'),
+          onSelect: () => openSurface('instances'),
         });
       }
       if (showUpdateItem) {
@@ -375,7 +373,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           key: 'update',
           icon: 'download',
           label: t('mobile.menu.update'),
-          onSelect: () => setActiveSurface('update'),
+          onSelect: () => openSurface('update'),
         });
       }
       items.push({
@@ -386,7 +384,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       });
       return items;
     },
-    [dirtyChangeCount, isIPad, openChangesSurface, openFilesSurface, openSettingsSurface, showCapacitorOnlyFeatures, showUpdateItem, t],
+    [dirtyChangeCount, isIPad, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem, t],
   );
 
   return (
@@ -463,7 +461,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             } : undefined}
           />
           <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
-            <div ref={chatAnimRef} className="h-full w-full">
+            <div className="h-full w-full">
               <ErrorBoundary>
                 <ChatView />
               </ErrorBoundary>
@@ -535,7 +533,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           rightOffset={isIPad && ipadRightPanel ? rightResize.width : 0}
         />
 
-        {sessionsSheetOpen ? (
+        {/* Mounted permanently on phones (parked off-screen while closed) so
+            the sessions/worktree state stays warm and the drawer opens with
+            data already on screen — see MobileSessionsDrawerContainer. */}
+        {!isIPad ? (
           <MobileSessionsSheet open={sessionsSheetOpen} onOpenChange={setSessionsSheetOpen} />
         ) : null}
 
@@ -551,7 +552,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             headerless
           >
             <ErrorBoundary>
-              <MobileFilesSurface onClose={closeSurface} dismissStyle="back" />
+              <MobileFilesSurface onClose={closeSurface} />
             </ErrorBoundary>
           </MobileFullscreenSurface>
         ) : null}
@@ -566,7 +567,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             <ErrorBoundary>
               <MobileChangesSurface
                 onClose={closeSurface}
-                dismissStyle="back"
                 initialDiffPath={pendingChangesDiff?.path ?? null}
                 initialDiffStaged={pendingChangesDiff?.staged === true}
               />
