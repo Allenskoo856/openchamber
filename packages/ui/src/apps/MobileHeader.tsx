@@ -140,6 +140,16 @@ export const MobileHeader: React.FC<{
             </>
           ) : null}
 
+          <button
+            type="button"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label={t('mobile.header.openMenuAria')}
+            onClick={handleOpenMenu}
+            style={{ touchAction: 'manipulation' }}
+          >
+            <Icon name="more-2" className="size-5" />
+          </button>
+
           {onOpenWorkspace ? (
             <button
               type="button"
@@ -157,16 +167,6 @@ export const MobileHeader: React.FC<{
               ) : null}
             </button>
           ) : null}
-
-          <button
-            type="button"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.header.openMenuAria')}
-            onClick={handleOpenMenu}
-            style={{ touchAction: 'manipulation' }}
-          >
-            <Icon name="more-2" className="size-5" />
-          </button>
         </div>
       </header>
     </>

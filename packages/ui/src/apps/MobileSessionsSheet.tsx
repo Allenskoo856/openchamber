@@ -1428,7 +1428,7 @@ const MobileSessionsDrawerContainer: React.FC<{
       aria-modal="true"
       aria-label={ariaLabel}
       aria-hidden={!open}
-      className="fixed inset-0 z-50 flex flex-col bg-background text-foreground"
+      className="oc-keyboard-inset-surface fixed inset-0 z-50 flex flex-col bg-background text-foreground"
       style={{
         paddingTop: 'var(--oc-safe-area-top, 0px)',
         // Settled state drops the transform entirely so the drawer isn't kept

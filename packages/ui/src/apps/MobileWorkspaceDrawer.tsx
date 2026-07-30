@@ -2,8 +2,8 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '@/components/icon/Icon';
-import { Button } from '@/components/ui/button';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
+import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/sortable-tabs-strip';
 import { TerminalView } from '@/components/views/TerminalView';
 import { useI18n } from '@/lib/i18n';
 
@@ -16,13 +16,6 @@ const ENTER_DURATION_MS = 200;
 
 export type MobileWorkspaceTab = 'changes' | 'files' | 'terminal';
 
-const TAB_ORDER: MobileWorkspaceTab[] = ['changes', 'files', 'terminal'];
-
-const TAB_LABEL_KEYS = {
-  changes: 'mobile.menu.changes',
-  files: 'mobile.menu.files',
-  terminal: 'mobile.menu.terminal',
-} as const satisfies Record<MobileWorkspaceTab, string>;
 
 /** Full-width right drawer with the phone workspace surfaces as tabs
     (Changes / Files / Terminal). Slides in from the right edge; closes via
@@ -88,13 +81,19 @@ export const MobileWorkspaceDrawer: React.FC<{
 
   if (!rootRef.current) return null;
 
+  const tabItems: SortableTabsStripItem[] = [
+    { id: 'changes', label: t('mobile.menu.changes'), icon: <Icon name="git-branch" className="h-3.5 w-3.5" /> },
+    { id: 'files', label: t('mobile.menu.files'), icon: <Icon name="file-text" className="h-3.5 w-3.5" /> },
+    { id: 'terminal', label: t('mobile.menu.terminal'), icon: <Icon name="terminal" className="h-3.5 w-3.5" /> },
+  ];
+
   return createPortal(
     <section
       role="dialog"
       aria-modal="true"
       aria-label={t('mobile.header.openWorkspaceAria')}
       aria-hidden={!open}
-      className="fixed inset-0 z-50 flex flex-col bg-background text-foreground"
+      className="oc-keyboard-inset-surface fixed inset-0 z-50 flex flex-col bg-background text-foreground"
       style={{
         paddingTop: 'var(--oc-safe-area-top, 0px)',
         // Settled state drops the transform entirely so the drawer isn't kept
@@ -106,20 +105,15 @@ export const MobileWorkspaceDrawer: React.FC<{
       }}
     >
       <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/30 px-3">
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          {TAB_ORDER.map((entry) => (
-            <Button
-              key={entry}
-              type="button"
-              variant="chip"
-              size="sm"
-              aria-pressed={tab === entry}
-              onClick={() => onTabChange(entry)}
-              style={{ touchAction: 'manipulation' }}
-            >
-              {t(TAB_LABEL_KEYS[entry])}
-            </Button>
-          ))}
+        <div className="flex h-9 min-w-0 flex-1 items-center">
+          <SortableTabsStrip
+            items={tabItems}
+            activeId={tab}
+            onSelect={(id) => onTabChange(id as MobileWorkspaceTab)}
+            layoutMode="fit"
+            variant="active-pill"
+            className="h-full"
+          />
         </div>
         <button
           type="button"
