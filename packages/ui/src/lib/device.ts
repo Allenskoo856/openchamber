@@ -1,6 +1,6 @@
 import React from 'react';
 import { isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
-import { isCapacitorApp } from '@/lib/platform';
+import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 
 type DeviceType = 'desktop' | 'mobile' | 'tablet';
 
@@ -128,10 +128,11 @@ export function getDeviceInfo(): DeviceInfo {
     isTablet = false;
     isDesktop = true;
     deviceType = 'desktop';
-  } else if (isCapacitorApp()) {
-    // The Capacitor shell IS the phone UI: every surface in that bundle is
-    // built mobile-first, so wide devices (iPad, Android tablets) must not
-    // fall into tablet/desktop branches scattered across shared components.
+  } else if (isMobileSurfaceRuntime()) {
+    // The mobile surface (Capacitor shell or hosted MobileApp) IS the phone
+    // UI: every component in that tree is built mobile-first, so wide devices
+    // (iPad, Android tablets, rotated phones) must not fall into
+    // tablet/desktop branches scattered across shared components.
     // iPad-specific layout upgrades gate on isIPadApp()/orientation instead.
     isMobile = true;
     isTablet = false;
@@ -288,16 +289,7 @@ const subscribeDeviceInfo = (listener: () => void): (() => void) => {
 
 export function isMobileDeviceViaCSS(): boolean {
   if (typeof window === 'undefined') return false;
-
-  if (typeof window !== 'undefined' && isDesktopShell()) {
-    return false;
-  }
-
-  const root = document.documentElement;
-  const isMobileValue = root.style.getPropertyValue('--is-mobile') ||
-                        getComputedStyle(root).getPropertyValue('--is-mobile');
-
-  return isMobileValue === '1' || isMobileValue === 'true';
+  return readDeviceInfoSnapshot().isMobile;
 }
 
 const isStandalonePwaRuntime = (): boolean => {
