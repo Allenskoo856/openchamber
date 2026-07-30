@@ -89,6 +89,7 @@ export const dict: Record<I18nKey, string> = {
   "mobile.nav.settings": "Configurações",
   "mobile.surface.closeAria": "Fechar",
   "mobile.header.openMenuAria": "Abrir menu",
+  "mobile.header.openWorkspaceAria": "Abrir painel de trabalho",
   "mobile.header.openMetadataAria": "Abrir metadados da sessão",
   "mobile.header.metadata.context": "Contexto",
   "mobile.header.metadata.branch": "Branch",

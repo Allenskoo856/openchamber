@@ -90,6 +90,7 @@ export const dict: Record<I18nKey, string> = {
   'mobile.instances.cancelDeleteAria': '{label} を残す',
   'mobile.surface.closeAria': '閉じる',
   'mobile.header.openMenuAria': 'メニューを開く',
+  'mobile.header.openWorkspaceAria': 'ワークスペースパネルを開く',
   'mobile.header.openMetadataAria': 'セッションメタデータを開く',
   'mobile.header.metadata.context': 'コンテキスト',
   'mobile.header.metadata.branch': 'ブランチ',

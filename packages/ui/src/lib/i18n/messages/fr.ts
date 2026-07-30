@@ -2657,6 +2657,7 @@ export const dict = {
   'mobile.nav.settings': 'Paramètres',
   'mobile.surface.closeAria': 'Fermer',
   'mobile.header.openMenuAria': 'Ouvrir le menu',
+  'mobile.header.openWorkspaceAria': 'Ouvrir le panneau de travail',
   'mobile.header.openMetadataAria': 'Ouvrir les métadonnées de session',
   'mobile.header.metadata.context': 'Contexte',
   'mobile.header.metadata.branch': 'Branche',

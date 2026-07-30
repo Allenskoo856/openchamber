@@ -53,6 +53,7 @@ import { MobileInstancesSurface } from './MobileInstancesSurface';
 import { MobileOverflowMenu, type OverflowItem } from './MobileOverflowMenu';
 import { MobileSessionsSheet } from './MobileSessionsSheet';
 import { MobileFullscreenSurface } from './MobileFullscreenSurface';
+import { MobileWorkspaceDrawer, type MobileWorkspaceTab } from './MobileWorkspaceDrawer';
 import { DedicatedMobileAppProvider, type MobileAppActions } from './mobileAppContext';
 import { autoConnectLastInstance, getAutoConnectTargetLabel, reprobeActiveConnection } from './mobileConnections';
 import { isCapacitorMobileApp, useNativeAndroidBackButton, useNativeMobileChrome, useNativeMobileLifecycle } from './mobileNativeChrome';
@@ -92,15 +93,21 @@ type MobileAppProps = {
 
 const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
 
-/** The overlay surfaces reachable from the header/overflow menu. Exactly one
-    can be open at a time — opening another replaces it, closing returns to
-    the chat. The sessions sheet and the overflow menu are separate layers. */
-type MobileSurface = 'files' | 'changes' | 'terminal' | 'mcp' | 'instances' | 'settings' | 'update';
+/** The fullscreen overlay surfaces reachable from the overflow menu. Exactly
+    one can be open at a time — opening another replaces it, closing returns
+    to the chat. The sessions drawer, the workspace drawer (Changes / Files /
+    Terminal tabs on phones), and the overflow menu are separate layers.
+    'terminal' is iPad-only here — phones get it as a workspace tab. */
+type MobileSurface = 'terminal' | 'mcp' | 'instances' | 'settings' | 'update';
 
 const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onActiveConnectionDeleted }) => {
   const { t } = useI18n();
   const [sessionsSheetOpen, setSessionsSheetOpen] = React.useState(false);
   const [activeSurface, setActiveSurface] = React.useState<MobileSurface | null>(null);
+  // Phone right drawer with the workspace tabs; the tab persists across
+  // open/close so the right-edge swipe reopens where the user left off.
+  const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
+  const [workspaceTab, setWorkspaceTab] = React.useState<MobileWorkspaceTab>('changes');
   const [isMcpRefreshing, setIsMcpRefreshing] = React.useState(false);
   const [settingsInitialMobileStage, setSettingsInitialMobileStage] = React.useState<'nav' | 'page-content'>('nav');
   const [overflowOpen, setOverflowOpen] = React.useState(false);
@@ -124,14 +131,13 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     setPendingChangesDiff(null);
   }, []);
 
-  // The most recent overflow surface the user opened — the right-edge swipe
-  // reopens it. Defaults to Instances in the native app (Files in the browser,
-  // where Instances doesn't exist).
-  const lastDropdownSurfaceRef = React.useRef<MobileSurface>(showCapacitorOnlyFeatures ? 'instances' : 'files');
-
   const openSurface = React.useCallback((surface: MobileSurface) => {
-    lastDropdownSurfaceRef.current = surface;
     setActiveSurface(surface);
+  }, []);
+
+  const closeWorkspace = React.useCallback(() => {
+    setWorkspaceOpen(false);
+    setPendingChangesDiff(null);
   }, []);
 
   const openSettingsSurface = React.useCallback((stage: 'nav' | 'page-content') => {
@@ -162,8 +168,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       if (isPortrait) setIpadSidebarOpen(false);
       return;
     }
-    openSurface('files');
-  }, [isIPad, isPortrait, openSurface]);
+    setWorkspaceTab('files');
+    setWorkspaceOpen(true);
+  }, [isIPad, isPortrait]);
 
   const openChangesSurface = React.useCallback((diff: { path: string; staged: boolean } | null = null) => {
     setPendingChangesDiff(diff);
@@ -172,8 +179,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       if (isPortrait) setIpadSidebarOpen(false);
       return;
     }
-    openSurface('changes');
-  }, [isIPad, isPortrait, openSurface]);
+    setWorkspaceTab('changes');
+    setWorkspaceOpen(true);
+  }, [isIPad, isPortrait]);
 
   const closeIpadRightPanel = React.useCallback(() => {
     setIpadRightPanel(null);
@@ -259,7 +267,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         else openChangesSurface();
         return;
       }
-      openSurface(lastDropdownSurfaceRef.current);
+      setWorkspaceOpen(true);
     },
   });
 
@@ -272,12 +280,16 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       setSessionsSheetOpen(false);
       return true;
     }
+    if (workspaceOpen) {
+      closeWorkspace();
+      return true;
+    }
     if (activeSurface) {
       closeSurface();
       return true;
     }
     return false;
-  }, [activeSurface, closeSurface, overflowOpen, sessionsSheetOpen]);
+  }, [activeSurface, closeSurface, closeWorkspace, overflowOpen, sessionsSheetOpen, workspaceOpen]);
 
   useNativeAndroidBackButton(handleNativeBack);
 
@@ -330,30 +342,16 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const overflowItems: OverflowItem[] = React.useMemo(
     () => {
       const items: OverflowItem[] = [];
-      // iPad exposes Files/Changes as header shortcuts instead of menu items.
-      if (!isIPad) {
-        items.push(
-          {
-            key: 'files',
-            icon: 'file-text',
-            label: t('mobile.menu.files'),
-            onSelect: () => openFilesSurface(),
-          },
-          {
-            key: 'changes',
-            icon: 'git-branch',
-            label: t('mobile.menu.changes'),
-            badge: dirtyChangeCount,
-            onSelect: () => openChangesSurface(),
-          },
-        );
+      // Phones get Files/Changes/Terminal as workspace-drawer tabs; the iPad
+      // exposes Files/Changes as header shortcuts and keeps Terminal here.
+      if (isIPad) {
+        items.push({
+          key: 'terminal',
+          icon: 'terminal',
+          label: t('mobile.menu.terminal'),
+          onSelect: () => openSurface('terminal'),
+        });
       }
-      items.push({
-        key: 'terminal',
-        icon: 'terminal',
-        label: t('mobile.menu.terminal'),
-        onSelect: () => openSurface('terminal'),
-      });
       items.push({
         key: 'mcp',
         iconNode: <McpIcon className="size-5 shrink-0 text-muted-foreground" />,
@@ -384,7 +382,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       });
       return items;
     },
-    [dirtyChangeCount, isIPad, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem, t],
+    [isIPad, openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem, t],
   );
 
   return (
@@ -453,6 +451,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <MobileHeader
             onOpenSessions={() => (isIPad ? toggleIpadSidebar() : setSessionsSheetOpen(true))}
             onOpenMenu={() => setOverflowOpen(true)}
+            onOpenWorkspace={isIPad ? undefined : () => setWorkspaceOpen(true)}
+            workspaceDirty={!isIPad && dirtyChangeCount > 0}
             surfaceShortcuts={isIPad ? {
               activePanel: ipadRightPanel,
               changesDirty: dirtyChangeCount > 0,
@@ -544,34 +544,14 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             computes its safe-area / fixed-position layout fresh on open. Keeping
             them always-mounted left a stale startup layout, which made the
             top-inset dimming appear only intermittently on iOS. */}
-        {activeSurface === 'files' ? (
-          <MobileFullscreenSurface
-            open
-            onClose={closeSurface}
-            ariaLabel={t('mobile.menu.files')}
-            headerless
-          >
-            <ErrorBoundary>
-              <MobileFilesSurface onClose={closeSurface} />
-            </ErrorBoundary>
-          </MobileFullscreenSurface>
-        ) : null}
-
-        {activeSurface === 'changes' ? (
-          <MobileFullscreenSurface
-            open
-            onClose={closeSurface}
-            ariaLabel={t('mobile.menu.changes')}
-            headerless
-          >
-            <ErrorBoundary>
-              <MobileChangesSurface
-                onClose={closeSurface}
-                initialDiffPath={pendingChangesDiff?.path ?? null}
-                initialDiffStaged={pendingChangesDiff?.staged === true}
-              />
-            </ErrorBoundary>
-          </MobileFullscreenSurface>
+        {!isIPad ? (
+          <MobileWorkspaceDrawer
+            open={workspaceOpen}
+            onClose={closeWorkspace}
+            tab={workspaceTab}
+            onTabChange={setWorkspaceTab}
+            pendingChangesDiff={pendingChangesDiff}
+          />
         ) : null}
 
         {activeSurface === 'terminal' ? (

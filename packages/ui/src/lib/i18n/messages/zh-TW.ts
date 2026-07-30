@@ -89,6 +89,7 @@ export const dict: Record<I18nKey, string> = {
   'mobile.nav.settings': '設定',
   'mobile.surface.closeAria': '關閉',
   'mobile.header.openMenuAria': '開啟選單',
+  'mobile.header.openWorkspaceAria': '開啟工作區面板',
   'mobile.header.openMetadataAria': '開啟工作階段中繼資料',
   'mobile.header.metadata.context': '上下文',
   'mobile.header.metadata.branch': '分支',

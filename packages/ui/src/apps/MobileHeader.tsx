@@ -22,9 +22,13 @@ export type MobileHeaderSurfaceShortcuts = {
 export const MobileHeader: React.FC<{
   onOpenSessions: () => void;
   onOpenMenu: () => void;
+  /** Phone only: opens the right workspace drawer (Changes / Files / Terminal). */
+  onOpenWorkspace?: () => void;
+  /** Shows a dirty-changes dot on the workspace button. */
+  workspaceDirty?: boolean;
   /** iPad only: Files/Changes header shortcuts that toggle the right sidebar. */
   surfaceShortcuts?: MobileHeaderSurfaceShortcuts;
-}> = ({ onOpenSessions, onOpenMenu, surfaceShortcuts }) => {
+}> = ({ onOpenSessions, onOpenMenu, onOpenWorkspace, workspaceDirty = false, surfaceShortcuts }) => {
   const { t } = useI18n();
   const [metadataOpen, setMetadataOpen] = React.useState(false);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
@@ -134,6 +138,24 @@ export const MobileHeader: React.FC<{
                 ) : null}
               </button>
             </>
+          ) : null}
+
+          {onOpenWorkspace ? (
+            <button
+              type="button"
+              className="relative flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-label={t('mobile.header.openWorkspaceAria')}
+              onClick={() => {
+                setMetadataOpen(false);
+                onOpenWorkspace();
+              }}
+              style={{ touchAction: 'manipulation' }}
+            >
+              <Icon name="layout-right" className="size-5" />
+              {workspaceDirty ? (
+                <span className="absolute right-2 top-2 inline-flex size-2 rounded-full bg-primary" aria-hidden />
+              ) : null}
+            </button>
           ) : null}
 
           <button
