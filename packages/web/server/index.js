@@ -1397,7 +1397,9 @@ async function main(options = {}) {
 
   console.log(`Starting OpenChamber on port ${port === 0 ? 'auto' : port}`);
 
-  const sayTTSCapability = await detectSayTtsCapability(process);
+  // Voice enumeration is independent from route registration. Start it now,
+  // but do not hold server listen or managed OpenCode startup on `say -v "?"`.
+  const sayTTSCapability = detectSayTtsCapability(process);
 
   const app = express();
   const serverStartedAt = new Date().toISOString();

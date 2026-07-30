@@ -13,9 +13,10 @@ import { isVSCodeRuntime } from '@/lib/desktop';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 
 type ViewportAnchor = { messageId: string; offsetTop: number };
+type TimelineIdentityToken = { key: string | null };
 
 type PendingScrollRequest = {
-    sessionId: string;
+    identity: TimelineIdentityToken;
     kind: 'turn' | 'message';
     id: string;
     behavior: ScrollBehavior;
@@ -25,6 +26,7 @@ type PendingScrollRequest = {
 
 interface UseChatTimelineControllerOptions {
     sessionId: string | null;
+    sessionKey: string | null;
     messages: ChatMessageEntry[];
     historyMeta: SessionHistoryMeta | null;
     scrollRef: React.RefObject<HTMLDivElement | null>;
@@ -192,6 +194,7 @@ const hasInsertedBeforeKnownOldest = (
 
 export const useChatTimelineController = ({
     sessionId,
+    sessionKey,
     messages,
     historyMeta,
     scrollRef,
@@ -204,8 +207,14 @@ export const useChatTimelineController = ({
 }: UseChatTimelineControllerOptions): UseChatTimelineControllerResult => {
     const previousTurnWindowModelRef = React.useRef<TurnWindowModel | null>(null);
     const previousMessagesRef = React.useRef<ChatMessageEntry[] | null>(null);
+    const previousTurnWindowKeyRef = React.useRef<string | null>(null);
     const turnWindowModel = React.useMemo(() => {
-        const key = sessionId ?? ""
+        const key = sessionKey ?? ""
+        if (previousTurnWindowKeyRef.current !== sessionKey) {
+            previousTurnWindowKeyRef.current = sessionKey;
+            previousTurnWindowModelRef.current = null;
+            previousMessagesRef.current = null;
+        }
         const cached = key ? turnModelCache.get(key) : undefined
         if (cached && cached.messages === messages) {
             rememberTurnModel(key, cached)
@@ -228,7 +237,7 @@ export const useChatTimelineController = ({
         }
 
         return nextModel;
-    }, [messages, sessionId]);
+    }, [messages, sessionKey]);
 
     const [isLoadingOlder, setIsLoadingOlder] = React.useState(false);
     const [pendingRevealWork, setPendingRevealWork] = React.useState(false);
@@ -239,9 +248,13 @@ export const useChatTimelineController = ({
     const isLoadingOlderRef = React.useRef(isLoadingOlder);
     const pendingRevealWorkRef = React.useRef(pendingRevealWork);
     const sessionIdRef = React.useRef<string | null>(sessionId);
+    const timelineIdentityRef = React.useRef<TimelineIdentityToken>({ key: sessionKey });
+    if (timelineIdentityRef.current.key !== sessionKey) {
+        timelineIdentityRef.current = { key: sessionKey };
+    }
     const messagesRef = React.useRef(messages);
     const historyMetaRef = React.useRef<SessionHistoryMeta | null>(historyMeta);
-    const initializedSessionRef = React.useRef<string | null>(null);
+    const initializedSessionKeyRef = React.useRef<string | null>(null);
     const pendingRenderResolversRef = React.useRef<Array<() => void>>([]);
     const pendingScrollRequestRef = React.useRef<PendingScrollRequest | null>(null);
     const scrollPinRef = React.useRef<{ turnId: string; expiresAt: number } | null>(null);
@@ -298,7 +311,7 @@ export const useChatTimelineController = ({
     }, []);
 
     React.useLayoutEffect(() => {
-        if (initializedSessionRef.current === sessionId) {
+        if (initializedSessionKeyRef.current === sessionKey) {
             return;
         }
         if (historyInteractionTimerRef.current !== null && typeof window !== 'undefined') {
@@ -306,12 +319,17 @@ export const useChatTimelineController = ({
             historyInteractionTimerRef.current = null;
         }
         historyInteractionRef.current = false;
-        initializedSessionRef.current = sessionId;
+        initializedSessionKeyRef.current = sessionKey;
+        const pendingScroll = pendingScrollRequestRef.current;
+        if (pendingScroll && pendingScroll.identity !== timelineIdentityRef.current) {
+            pendingScrollRequestRef.current = null;
+            pendingScroll.resolve(false);
+        }
         setIsLoadingOlder(false);
         setPendingRevealWork(false);
         scrollPinRef.current = null;
         setActiveTurnId(null);
-    }, [sessionId]);
+    }, [sessionKey]);
 
     React.useLayoutEffect(() => {
         if (!isPinned) {
@@ -370,7 +388,7 @@ export const useChatTimelineController = ({
             return;
         }
 
-        if (pending.sessionId !== sessionIdRef.current) {
+        if (pending.identity !== timelineIdentityRef.current) {
             resolvePendingScrollRequest(false);
             return;
         }
@@ -426,7 +444,7 @@ export const useChatTimelineController = ({
     // before triggering the state change. useLayoutEffect consumes it
     // after React commits new DOM — before the browser paints.
     const prePrependScrollRef = React.useRef<{
-        sessionId: string | null;
+        identity: TimelineIdentityToken;
         height: number;
         top: number;
         anchor: ViewportAnchor | null;
@@ -457,7 +475,7 @@ export const useChatTimelineController = ({
     React.useLayoutEffect(() => {
         prePrependScrollRef.current = null;
         prependTrackingRef.current = null;
-    }, [sessionId]);
+    }, [sessionKey]);
 
     React.useLayoutEffect(() => {
         const container = scrollRef.current;
@@ -480,7 +498,7 @@ export const useChatTimelineController = ({
             }) || hasInsertedBeforeKnownOldest(prev.oldestId, currentOldestId, renderedMessages)
             : false;
 
-        if (snap && snap.sessionId !== sessionIdRef.current) {
+        if (snap && snap.identity !== timelineIdentityRef.current) {
             prePrependScrollRef.current = null;
             snap = null;
         }
@@ -619,12 +637,23 @@ export const useChatTimelineController = ({
     const fetchOlderHistory = React.useCallback(async (input: {
         preserveViewport: boolean;
     }): Promise<boolean> => {
-        if (!sessionIdRef.current || isLoadingOlderRef.current) {
+        if (!sessionIdRef.current || !timelineIdentityRef.current.key || isLoadingOlderRef.current) {
             return false;
         }
         if (!historySignalsRef.current.hasMoreAboveTurns) {
             return false;
         }
+
+        const targetSessionId = sessionIdRef.current;
+        const targetIdentity = timelineIdentityRef.current;
+        if (!targetSessionId || !targetIdentity.key) {
+            return false;
+        }
+        const clearOwnedPrependSnapshot = () => {
+            if (prePrependScrollRef.current?.identity === targetIdentity) {
+                prePrependScrollRef.current = null;
+            }
+        };
 
         const container = scrollRef.current;
         const beforeMessages = messagesRef.current;
@@ -636,7 +665,7 @@ export const useChatTimelineController = ({
         // compensate synchronously when React commits the new messages.
         if (input.preserveViewport && container) {
             prePrependScrollRef.current = {
-                sessionId: sessionIdRef.current,
+                identity: targetIdentity,
                 height: container.scrollHeight,
                 top: container.scrollTop,
                 anchor: captureViewportAnchor(),
@@ -649,12 +678,6 @@ export const useChatTimelineController = ({
         setIsLoadingOlder(true);
 
         try {
-            const targetSessionId = sessionIdRef.current;
-            if (!targetSessionId) {
-                prePrependScrollRef.current = null;
-                return false;
-            }
-
             let loadedMessageCount = beforeMessageCount;
             let loadedOldestMessageId = beforeOldestMessageId;
             let loadedLimit = beforeLimit;
@@ -662,12 +685,16 @@ export const useChatTimelineController = ({
 
             while (true) {
                 await loadMoreMessages(targetSessionId, 'up');
-                if (sessionIdRef.current !== targetSessionId) {
-                    prePrependScrollRef.current = null;
+                if (timelineIdentityRef.current !== targetIdentity) {
+                    clearOwnedPrependSnapshot();
                     return false;
                 }
 
                 await waitForNextRenderCommitOrTimeout();
+                if (timelineIdentityRef.current !== targetIdentity) {
+                    clearOwnedPrependSnapshot();
+                    return false;
+                }
 
                 const afterMessages = messagesRef.current;
                 const afterMessageCount = afterMessages.length;
@@ -685,7 +712,7 @@ export const useChatTimelineController = ({
                     return true;
                 }
                 if (!messageGrowth) {
-                    prePrependScrollRef.current = null;
+                    clearOwnedPrependSnapshot();
                     return false;
                 }
                 if (!historySignalsRef.current.hasMoreAboveTurns) {
@@ -697,15 +724,18 @@ export const useChatTimelineController = ({
                 loadedLimit = afterLimit;
             }
         } catch (error) {
-            prePrependScrollRef.current = null;
+            clearOwnedPrependSnapshot();
             throw error;
         } finally {
-            setIsLoadingOlder(false);
-            settleHistoryInteraction();
+            if (timelineIdentityRef.current === targetIdentity) {
+                setIsLoadingOlder(false);
+                settleHistoryInteraction();
+            }
         }
     }, [beginHistoryInteraction, captureViewportAnchor, loadMoreMessages, scrollRef, settleHistoryInteraction, waitForNextRenderCommitOrTimeout]);
 
     const loadEarlier = React.useCallback(async (options?: { userInitiated?: boolean }) => {
+        const targetIdentity = timelineIdentityRef.current;
         beginHistoryInteraction();
         if (options?.userInitiated) {
             releaseAutoFollow();
@@ -714,7 +744,9 @@ export const useChatTimelineController = ({
         try {
             void (await fetchOlderHistory({ preserveViewport: true }));
         } finally {
-            settleHistoryInteraction();
+            if (timelineIdentityRef.current === targetIdentity) {
+                settleHistoryInteraction();
+            }
         }
     }, [beginHistoryInteraction, fetchOlderHistory, releaseAutoFollow, settleHistoryInteraction]);
 
@@ -775,7 +807,7 @@ export const useChatTimelineController = ({
         loadEarlierIfPinnedViewportUnderfilled,
         pendingRevealWork,
         renderedMessages.length,
-        sessionId,
+        sessionKey,
     ]);
 
     React.useEffect(() => {
@@ -813,21 +845,22 @@ export const useChatTimelineController = ({
             }
             observer.disconnect();
         };
-    }, [loadEarlierIfPinnedViewportUnderfilled, scrollRef, sessionId]);
+    }, [loadEarlierIfPinnedViewportUnderfilled, scrollRef, sessionKey]);
 
     const scrollToTurn = React.useCallback(async (
         turnId: string,
         options?: { behavior?: ScrollBehavior },
     ): Promise<boolean> => {
-        if (!turnId || !sessionIdRef.current) {
+        if (!turnId || !sessionIdRef.current || !timelineIdentityRef.current.key) {
             return false;
         }
 
+        const targetIdentity = timelineIdentityRef.current;
         releaseAutoFollow();
         setPendingRevealWork(true);
 
         try {
-            if (sessionIdRef.current !== sessionId) {
+            if (timelineIdentityRef.current !== targetIdentity) {
                 return false;
             }
 
@@ -838,7 +871,7 @@ export const useChatTimelineController = ({
 
             const result = await new Promise<boolean>((resolve) => {
                 pendingScrollRequestRef.current = {
-                    sessionId: sessionIdRef.current ?? sessionId ?? '',
+                    identity: targetIdentity,
                     kind: 'turn',
                     id: turnId,
                     behavior: options?.behavior ?? 'auto',
@@ -854,23 +887,26 @@ export const useChatTimelineController = ({
 
             return false;
         } finally {
-            setPendingRevealWork(false);
+            if (timelineIdentityRef.current === targetIdentity) {
+                setPendingRevealWork(false);
+            }
         }
-    }, [attemptPendingScrollRequest, releaseAutoFollow, sessionId]);
+    }, [attemptPendingScrollRequest, releaseAutoFollow]);
 
     const scrollToMessage = React.useCallback(async (
         messageId: string,
         options?: { behavior?: ScrollBehavior },
     ): Promise<boolean> => {
-        if (!messageId || !sessionIdRef.current) {
+        if (!messageId || !sessionIdRef.current || !timelineIdentityRef.current.key) {
             return false;
         }
 
+        const targetIdentity = timelineIdentityRef.current;
         releaseAutoFollow();
         setPendingRevealWork(true);
 
         try {
-            if (sessionIdRef.current !== sessionId) {
+            if (timelineIdentityRef.current !== targetIdentity) {
                 return false;
             }
 
@@ -883,7 +919,7 @@ export const useChatTimelineController = ({
 
             const result = await new Promise<boolean>((resolve) => {
                 pendingScrollRequestRef.current = {
-                    sessionId: sessionIdRef.current ?? sessionId ?? '',
+                    identity: targetIdentity,
                     kind: 'message',
                     id: messageId,
                     behavior: options?.behavior ?? 'auto',
@@ -899,9 +935,11 @@ export const useChatTimelineController = ({
 
             return false;
         } finally {
-            setPendingRevealWork(false);
+            if (timelineIdentityRef.current === targetIdentity) {
+                setPendingRevealWork(false);
+            }
         }
-    }, [attemptPendingScrollRequest, releaseAutoFollow, sessionId]);
+    }, [attemptPendingScrollRequest, releaseAutoFollow]);
 
     const resumeToBottom = React.useCallback(async () => {
         setPendingRevealWork(false);

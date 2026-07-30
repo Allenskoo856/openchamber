@@ -1,7 +1,6 @@
 import type { OpencodeClient, Session } from "@opencode-ai/sdk/v2";
 import { retry } from "@/sync/retry";
 import { stripSessionListDetails } from "@/sync/sanitize";
-import { getRuntimeKey } from "@/lib/runtime-switch";
 import { startSessionLoadPerformanceEvent } from "@/sync/session-load-performance";
 
 export type GlobalSessionRecord = Session & {
@@ -103,8 +102,6 @@ export async function listGlobalSessionPages(
         let attempts = 0;
         const finishPerformanceEvent = startSessionLoadPerformanceEvent({
             operation,
-            runtimeKey: getRuntimeKey(),
-            directory: options.directory,
             caller: cursor === undefined ? "initial-page" : "pagination",
         });
         const { response, payload } = await retry(
