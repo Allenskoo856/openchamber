@@ -448,6 +448,7 @@ export const useChatTimelineController = ({
         height: number;
         top: number;
         anchor: ViewportAnchor | null;
+        historyVirtualized: boolean;
         oldestId: string | null;
         newestId: string | null;
     } | null>(null);
@@ -562,18 +563,30 @@ export const useChatTimelineController = ({
             return;
         }
 
-        // When the history list is virtualized, virtua runs with `shift` during
-        // history loads and compensates the prepend internally. Manual
-        // height-delta compensation on top of that applies the same delta twice
-        // and throws the viewport far downward. Anchor restore stays allowed —
-        // it corrects to an absolute element position, so it cannot double up.
+        // TanStack owns every scroll adjustment for virtualized history. It
+        // preserves stable keyed items across prepends and reconciles later row
+        // measurements. Restoring the DOM anchor here as well creates a second
+        // writer: depending on whether measurement has landed, it can apply the
+        // same prepend delta twice or fall back to scrollToIndex against the new
+        // indexes, throwing the viewport far downward.
         const historyVirtualized = messageListRef.current?.isHistoryVirtualized() ?? false;
 
         if (snap && shouldConsumeSnapshot) {
             prePrependScrollRef.current = null;
+            if (historyVirtualized) {
+                // The newly enabled virtualizer has no prior keyed state for the
+                // threshold-crossing commit, so allow one anchor restore. Once
+                // already virtualized, TanStack is the sole scroll owner.
+                if (!snap.historyVirtualized && snap.anchor) {
+                    restoreViewportAnchor(snap.anchor);
+                }
+                updateTracking();
+                return;
+            }
+
             const heightDelta = container.scrollHeight - snap.height;
             const applyHeightDelta = (): boolean => {
-                if (historyVirtualized || heightDelta <= 0) {
+                if (heightDelta <= 0) {
                     return false;
                 }
                 container.scrollTop = snap.top + heightDelta;
@@ -581,38 +594,21 @@ export const useChatTimelineController = ({
             };
 
             // Non-virtualized mobile list only: fight iOS momentum manually.
-            // The virtualized mobile list (tanstack) defers prepend adjustments
-            // through touch/momentum in core, so manual writes would double up.
-            if (isMobileSurfaceRuntime() && !historyVirtualized && heightDelta > 0) {
+            if (isMobileSurfaceRuntime() && heightDelta > 0) {
                 setScrollTopDefeatingMomentum(container, snap.top + heightDelta);
                 updateTracking();
                 return;
             }
 
-            // When a viewport anchor is available, delegate to MessageList
-            // restoreViewportAnchor which falls back to virtualizer-aware
-            // scrollHistoryIndexIntoView when the element is not in the DOM.
-            // Note: an unchanged scrollTop after restore is NOT a failure here —
-            // the virtualized list compensates the prepend internally, so
-            // staying near snap.top is the correct outcome.
+            // The unvirtualized list has no internal prepend compensation.
             if (!(snap.anchor && restoreViewportAnchor(snap.anchor))) {
-                // Fallback: height-delta compensation
                 applyHeightDelta();
-            }
-            if (historyVirtualized && snap.anchor && isMobileSurfaceRuntime()) {
-                // Mobile only: freshly prepended rows keep re-measuring for a
-                // few frames and each pass can shift content, so hold the
-                // anchor until it settles. Desktop must NOT run this — wheel
-                // scrolling during the hold would fight the re-assertions and
-                // read as a frozen scroll; the virtualizer's own anchoring is
-                // enough there.
-                messageListRef.current?.holdViewportAnchor(snap.anchor);
             }
         } else if (isPrepend && prev && !historyVirtualized) {
             // Released viewport: preserve the read position by compensating for the
             // exact height the prepend added above, with no intermediate frame for
-            // auto-follow to fight. Virtualized lists skip this — virtua `shift`
-            // already compensated the prepend.
+            // auto-follow to fight. Virtualized lists skip this because TanStack
+            // already owns keyed prepend preservation.
             const delta = container.scrollHeight - prev.scrollHeight;
             if (delta > 0) {
                 const target = container.scrollTop + delta;
@@ -669,6 +665,7 @@ export const useChatTimelineController = ({
                 height: container.scrollHeight,
                 top: container.scrollTop,
                 anchor: captureViewportAnchor(),
+                historyVirtualized: messageListRef.current?.isHistoryVirtualized() ?? false,
                 oldestId: beforeOldestMessageId,
                 newestId: beforeMessages[beforeMessages.length - 1]?.info?.id ?? null,
             };
@@ -732,7 +729,7 @@ export const useChatTimelineController = ({
                 settleHistoryInteraction();
             }
         }
-    }, [beginHistoryInteraction, captureViewportAnchor, loadMoreMessages, scrollRef, settleHistoryInteraction, waitForNextRenderCommitOrTimeout]);
+    }, [beginHistoryInteraction, captureViewportAnchor, loadMoreMessages, messageListRef, scrollRef, settleHistoryInteraction, waitForNextRenderCommitOrTimeout]);
 
     const loadEarlier = React.useCallback(async (options?: { userInitiated?: boolean }) => {
         const targetIdentity = timelineIdentityRef.current;
