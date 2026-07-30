@@ -522,6 +522,46 @@ describe('useConfigStore provider persistence', () => {
     expect(state.currentVariant).toBe('high');
   });
 
+  test('[repro-2531] manually selected model is NOT reset to default when switching agents with no pinned model', () => {
+    // Simulates the bug in Issue #2531:
+    // 1. Default model is set via settings (e.g., "deepseek/deepseek-v4-pro")
+    // 2. User manually selects a different model (e.g., "kimi-k3") in Build mode
+    // 3. User switches to Plan mode
+    // 4. Bug: the model resets to the default (deepseek-v4-pro) instead of keeping kimi-k3
+    const sessionId = 'ses_2531_repro';
+    useSessionUIStore.setState({ currentSessionId: sessionId });
+    useConfigStore.setState({
+      activeDirectoryKey: DIRECTORY,
+      // Two providers side-by-side
+      providers: [
+        provider('deepseek', 'deepseek-v4-pro'),
+        provider('kimi', 'kimi-k3'),
+      ],
+      // Two primary agents, neither with a pinned model
+      agents: [
+        testAgent('build'),
+        testAgent('plan'),
+      ],
+      // The settings default model is the one from settings (e.g., "deepseek/deepseek-v4-pro")
+      settingsDefaultModel: 'deepseek/deepseek-v4-pro',
+      // Simulate the user having manually selected kimi/kimi-k3 in Build mode
+      currentProviderId: 'kimi',
+      currentModelId: 'kimi-k3',
+      currentAgentName: 'build',
+      selectionSource: 'manual',
+      currentVariant: undefined,
+      directoryScoped: {},
+    });
+
+    // User switches from Build to Plan mode
+    useConfigStore.getState().setAgent('plan');
+
+    const state = useConfigStore.getState();
+    // BUG: The model should NOT be reset — the user's manual selection should persist
+    expect(state.currentProviderId).toBe('kimi');
+    expect(state.currentModelId).toBe('kimi-k3');
+  });
+
   test('loadAgents does not fetch OpenCode config directly', async () => {
     useConfigStore.setState({
       activeDirectoryKey: DIRECTORY,
