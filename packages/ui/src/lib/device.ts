@@ -65,8 +65,6 @@ const setRootDeviceAttributes = (
   }
 
   const root = document.documentElement;
-  const isMobile = deviceType === 'mobile';
-  const isTablet = deviceType === 'tablet';
 
   root.classList.remove('device-mobile', 'device-tablet', 'device-desktop');
   root.classList.add(
@@ -79,19 +77,9 @@ const setRootDeviceAttributes = (
 
   if (isDesktopShellRuntime) {
     root.classList.add('desktop-runtime');
-    root.style.setProperty('--is-mobile', '0');
-    root.style.setProperty('--device-type', 'desktop');
-    root.style.setProperty('--font-scale', '1');
-    root.style.setProperty('--has-coarse-pointer', '0');
-    root.style.setProperty('--has-touch-input', '0');
     root.classList.remove('mobile-pointer');
   } else {
     root.classList.remove('desktop-runtime');
-    root.style.setProperty('--is-mobile', isMobile ? '1' : '0');
-    root.style.setProperty('--device-type', deviceType);
-    root.style.setProperty('--font-scale', isMobile ? '0.9' : isTablet ? '0.95' : '1');
-    root.style.setProperty('--has-coarse-pointer', hasTouchInput ? '1' : '0');
-    root.style.setProperty('--has-touch-input', hasTouchInput ? '1' : '0');
     if (hasTouchInput) {
       root.classList.add('mobile-pointer');
     } else {
