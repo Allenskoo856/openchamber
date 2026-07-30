@@ -12,7 +12,10 @@ import { MobileFilesSurface } from './MobileFilesSurface';
 
 const DRAWER_ROOT_ID = 'mobile-surface-root';
 const ENTER_DELAY_MS = 16;
-const ENTER_DURATION_MS = 200;
+// Slightly long, decelerating slide — matches the sessions drawer so both
+// sides feel like the same piece of chrome.
+const ENTER_DURATION_MS = 320;
+const DRAWER_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 export type MobileWorkspaceTab = 'changes' | 'files' | 'terminal';
 
@@ -99,21 +102,26 @@ export const MobileWorkspaceDrawer: React.FC<{
         // Settled state drops the transform entirely so the drawer isn't kept
         // on a compositing layer (iOS clips those to the safe-area viewport).
         transform: entered ? 'none' : 'translateX(100%)',
-        transition: `transform ${ENTER_DURATION_MS}ms cubic-bezier(0.32, 0.72, 0, 1)`,
+        transition: `transform ${ENTER_DURATION_MS}ms ${DRAWER_EASING}`,
         visibility: visible ? 'visible' : 'hidden',
         pointerEvents: open ? 'auto' : 'none',
       }}
     >
       <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/30 px-3">
         <div className="flex h-9 min-w-0 flex-1 items-center">
-          <SortableTabsStrip
-            items={tabItems}
-            activeId={tab}
-            onSelect={(id) => onTabChange(id as MobileWorkspaceTab)}
-            layoutMode="fit"
-            variant="active-pill"
-            className="h-full"
-          />
+          {/* Mounted only while shown: the active-pill indicator measures the
+              tabs on mount, and measuring while the drawer is parked off-screen
+              produced a stale rect that visibly corrected itself on open. */}
+          {visible ? (
+            <SortableTabsStrip
+              items={tabItems}
+              activeId={tab}
+              onSelect={(id) => onTabChange(id as MobileWorkspaceTab)}
+              layoutMode="fit"
+              variant="active-pill"
+              className="h-full"
+            />
+          ) : null}
         </div>
         <button
           type="button"

@@ -1360,7 +1360,10 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
 
 const DRAWER_ROOT_ID = 'mobile-surface-root';
 const DRAWER_ENTER_DELAY_MS = 16;
-const DRAWER_ENTER_DURATION_MS = 200;
+// Slightly long, decelerating slide — matches the workspace drawer so both
+// sides feel like the same piece of chrome.
+const DRAWER_ENTER_DURATION_MS = 320;
+const DRAWER_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 /** Full-width left drawer for the phone sessions list: covers the whole app
     and slides in from the left edge. Closes via the header X, Escape, or the
@@ -1434,7 +1437,7 @@ const MobileSessionsDrawerContainer: React.FC<{
         // Settled state drops the transform entirely so the drawer isn't kept
         // on a compositing layer (iOS clips those to the safe-area viewport).
         transform: entered ? 'none' : 'translateX(-100%)',
-        transition: `transform ${DRAWER_ENTER_DURATION_MS}ms cubic-bezier(0.32, 0.72, 0, 1)`,
+        transition: `transform ${DRAWER_ENTER_DURATION_MS}ms ${DRAWER_EASING}`,
         visibility: visible ? 'visible' : 'hidden',
         pointerEvents: open ? 'auto' : 'none',
       }}
