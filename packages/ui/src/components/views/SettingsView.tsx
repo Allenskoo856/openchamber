@@ -924,7 +924,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
                     {t(`settings.view.nav.group.${group}`)}
                   </div>
                   {pages.map((page) => {
-                    const selected = settingsSlug === page.slug;
+                    // On the mobile nav STAGE nothing is "current" — the user is
+                    // choosing, and settingsSlug only remembers the last visited
+                    // page. Keeping it highlighted read as a stuck selection.
+                    const selected = settingsSlug === page.slug && !(isMobile && mobileStage === 'nav');
                     const iconName = getSettingsNavIcon(page.slug);
                     if (!iconName && page.slug !== 'mcp') return null;
 
