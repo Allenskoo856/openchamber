@@ -45,6 +45,7 @@ type Props = {
   variant?: 'section' | 'flat';
   initialVisibleCount?: number;
   batchSize?: number;
+  isDesktopShellRuntime: boolean;
 };
 
 type RenderExtras = SessionNodeRenderExtras;
@@ -177,12 +178,10 @@ export function SidebarActivitySections(props: Props): React.ReactNode {
 
         return (
           <div key={section.key} className="relative space-y-1">
-            {/* Zone header styled like a project header band; sticky with a
-                solid sidebar backing so rows never show through. */}
             <div className={cn(
               '-ml-2.5 -mr-2',
-              stickyZoneHeaders && 'oc-zone-header-backing sticky top-0 z-20 bg-sidebar',
-            )}>
+              stickyZoneHeaders && 'sticky top-0 z-20 bg-sidebar',
+            )} data-sidebar-sticky-header={stickyZoneHeaders ? 'true' : undefined}>
               <button
                 type="button"
                 onClick={() => toggleSection(section.key)}
