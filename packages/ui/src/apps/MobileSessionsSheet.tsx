@@ -263,7 +263,7 @@ const NewWorktreeIconButton: React.FC<{
 };
 
 // Width of the swipe-revealed action area (rename + archive + delete buttons).
-const ROW_ACTIONS_WIDTH = 216;
+const ROW_ACTIONS_WIDTH = 144;
 const ROW_SWIPE_SNAP_MS = 180;
 
 /** Inline title editor shown in place of the row content while renaming. */
@@ -309,7 +309,9 @@ const SessionRenameForm: React.FC<{
           }
         }}
         aria-label={t('sessions.sidebar.session.rename.save')}
-        className="h-9 flex-1 text-[16px]"
+        // h-8 keeps the row at exactly the normal session-row height (40px),
+        // so entering/leaving rename mode causes no layout shift.
+        className="h-8 flex-1 text-[16px]"
         enterKeyHint="done"
       />
     </form>
@@ -431,34 +433,36 @@ const SessionRow: React.FC<{
           style={{ width: ROW_ACTIONS_WIDTH }}
           aria-hidden={!revealed}
         >
+          {/* Icon-only actions on the row's own background — they read as the
+              row extending to reveal extra controls, not a separate panel. */}
           <button
             type="button"
             tabIndex={revealed ? 0 : -1}
-            className="flex flex-1 flex-col items-center justify-center gap-0.5 bg-[var(--interactive-hover)] text-foreground transition-colors active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+            className="flex flex-1 items-center justify-center text-muted-foreground transition-colors active:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
             aria-label={t('mobile.sessions.renameSessionAria', { title })}
             onClick={onRequestRename}
             style={{ touchAction: 'manipulation' }}
           >
-            <RiEdit2Line className="size-4" />
-            <span className="typography-micro">{t('sessions.sidebar.session.menu.rename')}</span>
+            <RiEdit2Line className="size-[18px]" />
           </button>
           <button
             type="button"
             tabIndex={revealed ? 0 : -1}
-            className="flex flex-1 flex-col items-center justify-center gap-0.5 bg-[var(--surface-muted)] text-foreground transition-colors active:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+            className="flex flex-1 items-center justify-center text-muted-foreground transition-colors active:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
             aria-label={t('mobile.sessions.archiveSessionAria', { title })}
             onClick={onArchive}
             style={{ touchAction: 'manipulation' }}
           >
-            <RiArchiveLine className="size-4" />
-            <span className="typography-micro">{t('sessions.sidebar.bulkActions.archive')}</span>
+            <RiArchiveLine className="size-[18px]" />
           </button>
           <button
             type="button"
             tabIndex={revealed ? 0 : -1}
             className={cn(
-              'flex flex-1 flex-col items-center justify-center gap-0.5 text-destructive-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-destructive',
-              confirmingDelete ? 'bg-destructive' : 'bg-destructive/70 active:bg-destructive',
+              'flex flex-1 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-destructive',
+              confirmingDelete
+                ? 'rounded-lg bg-destructive text-destructive-foreground'
+                : 'text-[var(--status-error)] active:opacity-80',
             )}
             aria-label={confirmingDelete
               ? t('mobile.sessions.confirmDeleteSessionAria', { title })
@@ -466,8 +470,7 @@ const SessionRow: React.FC<{
             onClick={confirmingDelete ? onConfirmDelete : onRequestDelete}
             style={{ touchAction: 'manipulation' }}
           >
-            <RiDeleteBinLine className="size-4" />
-            <span className="typography-micro">{t('mobile.sessions.deleteSession')}</span>
+            <RiDeleteBinLine className="size-[18px]" />
           </button>
         </div>
       ) : null}
@@ -1053,7 +1056,15 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     // setCurrentSession) — also move the active project so the rest of the app
     // and the active highlight follow the selected session, not just the draft.
     const project = findExactProjectMatch(projectsMeta, directory ?? '');
-    if (project) setActiveProjectIdOnly(project.id);
+    if (project) {
+      setActiveProjectIdOnly(project.id);
+      // Expand the session's project (and worktree group) in the tree, so a
+      // session picked from search is actually visible — and the open-time
+      // auto-scroll can land on it — the next time the drawer opens.
+      setProjectExpanded(project.id, true);
+      const worktree = findExactWorktreeMatch(project, normalizePath(directory ?? ''));
+      if (worktree) setWorktreeExpanded(`${project.id}::${normalizePath(worktree.path)}`, true);
+    }
     void setCurrentSession(session.id, directory);
     onOpenChange(false);
   };
@@ -1169,6 +1180,9 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     if (!normalizedQuery) return [] as Session[];
     return orderSessionsByLifecycleScopes(
       sessions.filter((session) => {
+        // Subsessions are implementation noise in a flat search list — only
+        // top-level sessions are searchable.
+        if (getParentId(session)) return false;
         const directory = getSessionDirectory(session);
         const project = findExactProjectMatch(projectsMeta, directory);
         return sessionMatchesQuery(session, project?.label ?? '', normalizedQuery);
@@ -1250,30 +1264,32 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
 
   const surfaceContent = (
       <div ref={contentRootRef} className="flex h-full flex-col">
-        <div className={cn('shrink-0 px-4 pb-2 pt-1', editingOrder && 'hidden')}>
-          <div className="relative">
-            <RiSearchLine className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('mobile.sessions.search.placeholder')}
-              className={cn('h-11 pl-9', query && 'pr-10')}
-            />
-            {query ? (
-              <button
-                type="button"
-                className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label={t('mobile.sessions.clearSearchAria')}
-                onClick={() => setQuery('')}
-                style={{ touchAction: 'manipulation' }}
-              >
-                <RiCloseLine className="size-4" />
-              </button>
-            ) : null}
-          </div>
-        </div>
-
         <ScrollShadow className="min-h-0 flex-1 overflow-y-auto pb-4">
+          {/* The search bar scrolls WITH the list (iOS-style): the open-time
+              auto-scroll to the current session naturally tucks it away, and
+              scrolling to the very top brings it back. */}
+          <div className={cn('px-4 pb-2 pt-1', editingOrder && 'hidden')}>
+            <div className="relative">
+              <RiSearchLine className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t('mobile.sessions.search.placeholder')}
+                className={cn('h-11 pl-9', query && 'pr-10')}
+              />
+              {query ? (
+                <button
+                  type="button"
+                  className="absolute right-1.5 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  aria-label={t('mobile.sessions.clearSearchAria')}
+                  onClick={() => setQuery('')}
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  <RiCloseLine className="size-4" />
+                </button>
+              ) : null}
+            </div>
+          </div>
           {projectsMeta.length === 0 ? (
             <MobileSessionsEmpty
               title={t('mobile.sessions.empty.noProjectsTitle')}

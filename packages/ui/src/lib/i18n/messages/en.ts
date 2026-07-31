@@ -135,7 +135,6 @@ export const dict = {
   'mobile.sessions.toast.projectRemoved': 'Removed {label}',
   'mobile.sessions.archiveSessionAria': 'Archive {title}',
   'mobile.sessions.cancelArchiveAria': 'Cancel archiving {title}',
-  'mobile.sessions.deleteSession': 'Delete',
   'mobile.sessions.renameSessionAria': 'Rename {title}',
   'mobile.sessions.renameError': 'Failed to rename session',
   'mobile.sessions.deleteSessionAria': 'Delete {title}',

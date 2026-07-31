@@ -135,7 +135,6 @@ export const dict: Record<I18nKey, string> = {
   "mobile.sessions.toast.projectRemoved": "Se eliminó {label}",
   "mobile.sessions.archiveSessionAria": "Archivar {title}",
   "mobile.sessions.cancelArchiveAria": "Cancelar archivar {title}",
-  "mobile.sessions.deleteSession": "Eliminar",
   "mobile.sessions.renameSessionAria": "Renombrar {title}",
   "mobile.sessions.renameError": "No se pudo renombrar la sesión",
   "mobile.sessions.deleteSessionAria": "Eliminar {title}",

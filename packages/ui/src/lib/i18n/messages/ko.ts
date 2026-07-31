@@ -135,7 +135,6 @@ export const dict: Record<I18nKey, string> = {
   'mobile.sessions.toast.projectRemoved': '{label} 제거됨',
   'mobile.sessions.archiveSessionAria': '{title} 보관',
   'mobile.sessions.cancelArchiveAria': '{title} 보관 취소',
-  'mobile.sessions.deleteSession': '삭제',
   'mobile.sessions.renameSessionAria': '{title} 이름 바꾸기',
   'mobile.sessions.renameError': '세션 이름 변경에 실패했습니다',
   'mobile.sessions.deleteSessionAria': '{title} 삭제',
