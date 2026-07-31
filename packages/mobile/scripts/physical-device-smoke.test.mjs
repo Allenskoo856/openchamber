@@ -7,7 +7,6 @@ import {
   parseAndroidPhysicalDevices,
   parseIosPhysicalDevices,
 } from './physical-device-smoke.mjs';
-import { verifyPassingJunit } from './finalize-physical-evidence.mjs';
 
 test('selects only authorized physical Android devices', () => {
   const output = `List of devices attached
@@ -42,10 +41,4 @@ test('finds the OpenChamber app in devicectl output without trusting array shape
     bundleVersion: '418',
   };
   assert.equal(findInstalledApp({ result: { devices: [{ apps: [{ bundleIdentifier: 'example.other' }, app] }] } }), app);
-});
-
-test('accepts only passing Maestro JUnit evidence', () => {
-  assert.doesNotThrow(() => verifyPassingJunit('<testsuite tests="1" failures="0"><testcase name="physical"/></testsuite>'));
-  assert.throws(() => verifyPassingJunit('<testsuite tests="1"><testcase name="physical"><failure/></testcase></testsuite>'));
-  assert.throws(() => verifyPassingJunit('<testsuite tests="0"/>'));
 });

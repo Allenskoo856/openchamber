@@ -392,14 +392,6 @@ jobs:
           path: packages/electron/dist/latest.yml
           retention-days: 1
 
-      - name: Upload Windows installer for physical evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: windows-release-${{ matrix.arch }}
-          path: packages/electron/dist/*.exe
-          if-no-files-found: error
-          retention-days: 1
-
   build-desktop-electron-linux:
     needs: create-release
     strategy:

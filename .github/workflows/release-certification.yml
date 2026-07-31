@@ -52,4 +52,4 @@ jobs:
           node scripts/release-certification.mjs "$mode"
 
       - name: Run certification script tests
-        run: node --test scripts/release-certification.test.mjs scripts/physical-test-workflow.test.mjs
+        run: node --test scripts/release-certification.test.mjs

@@ -1,7 +1,7 @@
 # Secure Workspaces Production Specification
 
 Status: authoritative implementation and release specification
-Last audited: 2026-07-22
+Last audited: 2026-07-31
 
 ## 1. Purpose
 
@@ -170,83 +170,52 @@ OpenChamber and the plugin MUST use public OpenCode SDK/plugin contracts where t
 
 ## 5. Current Implementation And Release Status
 
-This section records the audited state of the current commits. It is status evidence, not a substitute for rerunning validation after any code, dependency, workflow, image, or package-pin change.
+This section records the audited state of the current candidate. Evidence is identity-bound and must be rerun after any code, dependency, plugin pin, image, package, or workflow change.
 
-### 5.1 Current Commits And Distribution
+### 5.1 Current Candidate Identity
 
-- Plugin repository `main` and OpenChamber dependency pin: `c38f878ae178a8ad342d8e01248535a711aeea46`.
-- Release tag `v0.1.0`: `eedfd5b3a08e99285f3f167c7e7d83799844c03d`.
-- Initial OpenChamber release-artifact pin commit: `aa0ed4bd37140d59c4fa5d08de791285414aa48b`.
-- OpenChamber currently pins the plugin by immutable Git commit in web and Electron package manifests.
-- The current plugin package payload is independently packable and Electron stages and verifies the exact payload.
-- OpenChamber server policy owns the exact signed runtime and gateway manifest defaults recorded in section 15; the UI does not duplicate them.
-- For the `v0.1.0` image/provider milestone, immutable Git SHA is the plugin distribution contract. npm trusted publishing is intentionally deferred to a later distribution milestone and no npm token is required now.
-- OpenChamber now consumes `@opencode-ai/sdk@1.18.8` after integrating `main`, while the pinned plugin and published runtime image remain on the audited `1.18.4` contract. The prior Secure Workspaces certification does not cover this version combination; compatibility and live provider certification must be rerun before a milestone-ready claim.
+- OpenChamber pins `@opencode-ai/sdk@1.18.9`.
+- Web and Electron pin `@openchamber/opencode-container-workspace` to immutable plugin commit `2240ebab49650da8e4153b67c487f6a88fa4bfb5`.
+- That plugin payload is version `0.1.1`, compiles against `@opencode-ai/plugin@1.18.8`, and builds its runtime image with OpenCode `1.18.8`.
+- Electron stages and verifies the exact installed plugin payload and bundles an OpenCode CLI matching the OpenChamber SDK version.
+- The runtime and gateway defaults currently present in `packages/web/server/lib/workspaces/policy.js` are historical `v0.1.0` image identities. They are not certified defaults for this candidate matrix.
+- New signed runtime and gateway images for the exact current plugin/OpenCode matrix have not yet been published, recorded, and recertified. No current-candidate image/provider milestone or complete release claim is valid yet.
 
 ### 5.2 Implemented Security And Correctness Invariants
 
-The current implementation includes:
+The implementation includes transactional Docker, Kubernetes, and Apple Container providers; authoritative ownership and immutable baselines; authenticated HTTP/SSE/WebSocket transport; managed/external egress without direct fallback; restart reconciliation; structured export/review; conflict-checked atomic host apply and recovery; immutable reviewed session handoff; proof-bound host administration; reserved-plugin mutation protection; process-attested Electron authority; exact packaged plugin/CLI verification; project-scoped web, Electron, hosted-mobile, and Capacitor UI; and explicit VS Code unsupported behavior.
 
-- typed plugin, operations, and contracts exports compiled against exact `@opencode-ai/plugin@1.18.4` contracts;
-- transactional Docker, Kubernetes, and Apple Container providers with authoritative resource ownership, immutable source baselines, independent mutable/baseline generation recovery, reconciliation, compensating credential rotation, cleanup tombstones, and explicit partial failure;
-- plugin-owned authenticated HTTP, SSE, and WebSocket compatibility transport with token injection, authoritative Origin rewriting, header stripping, smuggling protection, TLS verification, and credential rotation;
-- managed and external egress policy, separate runtime/gateway images, destination enforcement, and no direct fallback;
-- authoritative OpenCode workspace identity with immutable provider resource identity and verified recovery adoption;
-- exact-ID create compensation, provider cleanup before OpenCode row removal, provisional connected-state polling, and explicit retryable partial cleanup;
-- server-cached structured artifact v1, bounded review metadata, exact download bytes, file/hunk selection, conflict checks, atomic host apply, rollback journals, and startup recovery; the legacy raw patch boundary is removed;
-- immutable reviewed session handoff with complete cursor pagination, stale-source detection, deterministic insertion, hash verification, timeout recovery, source preservation, and cleanup-required recovery without persisted transcript text;
-- proof-bound host administration where the one-time proof binds principal, operation, project, nonce, expiry, and the exact submitted request body while persistence uses only the validated canonical copy;
-- process-attested Electron operator authority: persisted `desktop-local` and `native-electron` strings alone confer no authority, the `desktop-local` dedupe identity is reserved to the native mint, and all four native capabilities are immutable;
-- strict remote-client credential-store validation, version migration only for supported shapes, duplicate identity/hash rejection, private fsynced temporary writes, atomic replacement, and failure without authoritative-empty coercion;
-- a proof-bound Secure Workspace settings/plugin transaction with an atomic private prepared journal, exact rollback, startup recovery awaited before OpenCode launch, strict settings restoration, fsynced atomic settings/OpenCode config writes, and no non-atomic Windows copy fallback;
-- rejection of Secure Workspace mutations through generic settings and plugin routes, including package names and explicit, normalized, or symlink-equivalent plugin paths resolved by filesystem identity;
-- generic OpenCode proxy enforcement of `workspace.use`, authoritative upstream session workspace lookup, and interception of direct workspace lifecycle mutation;
-- project-scoped Workspaces UI on web, Electron, hosted mobile, and Capacitor, localized settings and workflow copy, capability-aware remote clients, and explicit VS Code unsupported behavior;
-- exact Electron plugin staging and packaged-payload verification across release workflows;
-- `OPENCODE_SKIP_START=true` authority that never silently launches or reuses managed OpenCode without an explicit external target.
+Ordinary Secure Workspace session start is server-owned and principal-bound. It uses stable operation identity, deterministic reuse/create, canonical reauthentication for create, routed-session verification, a restart-safe journal, and explicit partial/recovery errors. UI selection between Host and Secure Workspace does not replace those server checks.
 
-### 5.3 Validation Evidence At Current Commits
+### 5.3 Current Automated Validation
 
-- Plugin unit/contract suite after the local certification fixes: 96 passed, 3 environment-gated skipped.
-- OpenChamber web suite after release-artifact pinning: 836 passed, 1 platform-specific skipped.
-- Workspace-wide type-check and lint passed.
-- Production web build, documentation validation, server syntax checks, and Electron plugin staging/package tests passed.
-- Electron staged plugin payload contains 29 verified files; packaging verifier tests passed 4/4.
-- Live Docker, k3s port-forward, dedicated Colima HTTPS ingress (`existing-secret` and `cert-manager`), and Apple Container provider lifecycle/security certification passed locally; Apple Container was rerun against the published public arm64 digest.
-- Live host-to-host immutable handoff passed against OpenCode `1.18.4`, including pagination, restart, stale review, exact hashes, and timeout recovery.
-- Electron HMR and bundled custom-scheme runtime smoke passed; hosted mobile and Capacitor asset/CORS/runtime tests passed.
-- Independent final code/security audit found no reachable code blocker at the current commits.
+The current OpenChamber candidate has passed the full workspace build, type-check, and lint; 77 focused workspace server tests; 6 UI regressions; 8 Electron packaging tests; 19 Electron architecture tests; 18 Electron updater tests; 4 mobile helper tests; release-certification tests; workflow YAML parsing; and documentation validation across 396 pages and 44 sidebar links. These checks prove their covered code and packaging contracts only.
 
-These results complete the image/provider milestone, including authenticated SSE/WebSocket transport, foreign volume and occupied-port collision handling, credential rotation with old-token rejection, deterministic rollback failure injection, and public-digest provider lifecycle coverage.
+Current-candidate live Docker, Kubernetes, Apple Container, Windows, Linux, iOS, Android, interactive apply, and exact image-digest recertification have not yet run. Simulator/emulator, fixture, packaged startup, and Maestro dry-run results must not be promoted to physical platform or interactive host-apply evidence.
 
-### 5.4 Current Remote CI And Registry Status
+### 5.4 Historical Evidence
 
-The original failures at run `29916187323` were repaired. GitHub Actions run `29925151247` passed the test, multi-architecture build/smoke/vulnerability, Docker live, and Kubernetes port-forward/HTTPS ingress jobs. Push run `29926186376` also passed. Plugin commit `eedfd5b3a08e99285f3f167c7e7d83799844c03d` passed the same complete gate matrix in run `30017797840`. Current plugin commit `d9567f00fa5d1c2115fed613d8fe5b9aafe69cbb` adds transactional Apple Container credential rotation and expanded live transport/collision certification; local published-digest Apple Container certification passed, and push run `30027172196` passed all branch gates after retrying a transient Docker Hub timeout during k3d registry setup.
+The `v0.1.0` plugin/image milestone remains historical evidence for its exact `1.18.4` compatibility matrix only. Tag commit `eedfd5b3a08e99285f3f167c7e7d83799844c03d`, release run `30022813361`, and the signed public runtime/gateway digests recorded in section 15 validated that older matrix. Later historical plugin commit `d9567f00fa5d1c2115fed613d8fe5b9aafe69cbb` and run `30027172196` do not validate the current pin.
 
-Historical registry preflight run `29927614258` proved candidate creation, exact amd64/arm64 scans and smokes, and the narrow package-visibility blocker. After an organization owner made both packages public, run `30021486938` passed the complete branch gate matrix and both registry-preflight jobs, including anonymous exact-digest pulls without a personal PAT.
+Historical evidence must not be used to certify SDK `1.18.9`, plugin commit `2240ebab49650da8e4153b67c487f6a88fa4bfb5`, plugin API/OpenCode `1.18.8`, newly built images, or current native packages.
 
-Tag `v0.1.0` points to plugin commit `eedfd5b3a08e99285f3f167c7e7d83799844c03d`. Release run `30022813361` passed every branch gate and both publish jobs: exact candidates were scanned, promoted to semver tags, signed with keyless Cosign, signature-verified, and pulled anonymously. The workflow generated SBOM and provenance attestations for both multi-architecture images.
+### 5.5 Remaining Gates And Validation Model
 
-### 5.5 Milestone Status And Deferred Gates
+- Publish and certify exact signed runtime/gateway image digests for the current matrix, including both architectures, vulnerability gates, anonymous pulls, Docker, Kubernetes, transport, rollback, reconciliation, and cleanup.
+- Resolve Apple Container managed egress. It remains fail-closed because the current CLI lacks an isolation-capable multi-network primitive for gateway-only egress without direct outbound.
+- Run guided target-host sessions: packaged Windows with Docker Desktop and focused Kubernetes; native Linux AppImage with full Docker and disposable `kind`; supported macOS with Apple Container.
+- Run exact TestFlight and signed-APK physical-device checks against disposable Windows/Linux servers.
+- Complete interactive review, selection, dry-run, exact atomic apply, conflict, recovery, and cleanup evidence.
 
-- The image/provider milestone evidence applies to the commits and immutable image digests recorded in this section, but is pending recertification after the OpenChamber SDK `1.18.8` upgrade.
-- This status covers the provider, transport, isolation, artifact, handoff, release-image, and packaging contracts validated above; it is not a claim that the complete cross-platform product release is ready.
-
-Native iOS, Android, Windows, and Linux application certification is intentionally sequenced after these immediate gates. This deferral does not waive the final product-release matrix and no milestone may be called the complete cross-platform production release until those gates pass.
+These runs use an OpenChamber session directly on each target host. The assistant runs commands and validation; the operator handles UAC, reboot, system dialogs, device trust, and UI confirmation. Self-hosted GitHub runners are not required. The complete procedure is `SECURE_WORKSPACES_PHYSICAL_TEST_SETUP.md`.
 
 ## 6. OpenCode Upstream Compatibility Contract
 
 ### 6.1 Audit Baseline
 
-The latest upstream reviewed for this specification is:
+The last fully certified upstream baseline was OpenCode/SDK/plugin `1.18.4`, reviewed from `anomalyco/opencode` dev commit `5f241f1cc1fc0c266044b64bf9e860d4e37c9c1f`. The current candidate is intentionally newer and not yet fully certified: OpenChamber SDK `1.18.9`, plugin API/runtime OpenCode `1.18.8`, and plugin commit `2240ebab49650da8e4153b67c487f6a88fa4bfb5`.
 
-- repository: `anomalyco/opencode`;
-- `dev` commit: `5f241f1cc1fc0c266044b64bf9e860d4e37c9c1f`;
-- latest reviewed release: `v1.18.4`;
-- latest reviewed npm SDK: `@opencode-ai/sdk@1.18.4`;
-- OpenChamber installed SDK after the `main` integration: `1.18.8`; it is pending compatibility audit against the `1.18.4` plugin and runtime image contract.
-
-The relevant workspace HTTP surface in SDK 1.18.3 materially matches the reviewed upstream implementation. A dependency upgrade MUST still follow normal OpenChamber dependency, lockfile, CLI packaging, and compatibility validation.
+The workspace HTTP surface and generated SDK calls must be audited against this exact current combination. A dependency upgrade MUST still follow normal OpenChamber dependency, lockfile, bundled CLI, plugin staging, routing, transport, and live compatibility validation.
 
 Before every plugin or OpenChamber release, the compatibility matrix MUST record:
 
@@ -1177,7 +1146,7 @@ Cover navigation, settings persistence, provider validation, list/status/event r
 
 Cover plugin tarball and clean consumer, immutable Git pin, registry preflight, public GHCR pulls, per-architecture manifests, exact-digest smoke, image signatures/SBOM/provenance, clean OpenChamber install, all Electron release workflows, hosted web, remote mobile, and the exact compatibility matrix.
 
-The current immediate certification milestone additionally covers Apple Container and Kubernetes ingress on dedicated local environments. Native iOS, Android, Windows, and Linux packaged-app validation is deliberately sequenced afterward and remains required for the complete cross-platform product release.
+Current-candidate certification additionally requires Apple Container and Kubernetes ingress on dedicated local environments plus native iOS, Android, Windows, and Linux packaged-app validation. Historical completion of these gates for another matrix does not satisfy the current candidate.
 
 ## 27. Release Gates
 
@@ -1229,23 +1198,11 @@ The complete cross-platform product release additionally requires:
 - release signing and notarization credentials for the platform artifacts that require them;
 - npm trusted publication only when the later npm distribution milestone is activated.
 
-These remain required before claiming a complete cross-platform production release, but physical test setup is currently an explicit manual QA workstream rather than a dependency of ordinary release CI. Passing a manual physical smoke does not automatically promote it to release certification evidence.
+These remain required before claiming a complete cross-platform production release. Platform testing is a guided target-host QA workstream rather than a dependency of ordinary release CI, and passing a local smoke does not automatically promote it to release certification evidence.
 
-Manual physical mobile testing is owner-operated and automated:
+Each Windows, Linux, and macOS check runs in an OpenChamber session on the target host against an exact candidate checkout and native package. The assistant owns commands, provider setup, assertions, recovery, and cleanup; the operator owns UAC, reboot, system dialogs, and interactive UI confirmation. Tests use disposable projects and isolated OpenChamber, Chromium, OpenCode, Docker, and Kubernetes profiles. Windows covers Docker Desktop and focused Kubernetes integration; Linux covers direct AppImage execution, full Docker, and disposable `kind`; macOS covers Apple Container without weakening fail-closed managed egress. VM, unpacked package, and automated packaged smoke cannot satisfy target-host or interactive-apply gates.
 
-- `mobile-ios` and `mobile-android` are protected GitHub environments with the designated operator as the only required reviewer;
-- each environment owns a distinct fresh `MOBILE_E2E_CONNECT_URL`, because pairing credentials are single-use and MUST NOT be shared between devices;
-- iOS evidence uses the exact TestFlight version/build already installed by the operator on the sole trusted physical iOS device attached to the `mobile-ios` runner;
-- App Store Connect uses a dedicated test group containing only that operator, and automatic distribution to all other tester groups is disabled for the candidate;
-- Android evidence installs the exact signed release APK on the sole authorized physical Android device attached to the `mobile-android` runner and verifies its signing certificate digest before installation;
-- approval is the operator's explicit start signal, not a substitute for automated assertions;
-- Maestro must prove Secure Workspace creation/reuse, routed session activity, export/apply dry-run, and destructive cleanup against a disposable prepared E2E server;
-- cleanup runs after success and failure, and pairing credentials are neither logged nor included in evidence artifacts;
-- no other TestFlight user is required or enrolled in this test flow.
-
-Native Windows and Linux physical-device checks remain separate protected manual jobs and test records. VM/package smoke cannot satisfy those physical tests; each must run an exact same-repository artifact on the designated device and exercise packaged GUI startup, in-process server/runtime resources, Secure Workspace session routing, provider behavior, and cleanup.
-
-The protected `desktop-windows` and `desktop-linux` environments use dedicated self-hosted physical runners with matching labels and the designated operator as their only required reviewer. Both runner accounts have Docker available. Tests use isolated temporary OpenChamber and Chromium profiles, an environment-scoped independent step-up password, and exact candidate image digests; no personal desktop profile is mutated. Windows verifies a signature when an expected signer is configured and always attempts uninstall. Linux verifies the AppImage against its same-run update manifest. Test output is bound to the selected commit and artifact digest; hostnames, usernames, serials, and other device identifiers are excluded. Promotion to formal release evidence is a separate future decision.
+Physical mobile testing is owner-operated. iOS uses the exact TestFlight version/build delivered by the GitHub-hosted mobile release workflow and installed by the designated operator from a dedicated App Store Connect group containing no other testers. Android uses the exact signed APK after certificate, version, and build verification. Each device receives a distinct fresh single-use pairing URL for a disposable Windows/Linux OpenChamber server. Pairing credentials and device identities are not logged. Maestro proves routed session, change, export dry-run, and destructive cleanup; it does not prove interactive host apply. Self-hosted physical-device runners are not required.
 
 ## 28. Implementation Dependency Order
 

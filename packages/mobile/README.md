@@ -49,20 +49,13 @@ bun run build:android:debug
 
 These commands build and sync the native projects without launching Xcode, Android Studio, Simulator, or an emulator.
 
-## Physical Test Evidence
+## Physical Device Validation
 
-Release CI keeps simulator/emulator smoke separate from physical-device testing and does not wait for self-hosted devices. Physical tests run only through the manually dispatched `Secure Workspace Physical Tests` workflow and protected `mobile-ios` or `mobile-android` environments. The designated operator is the only required reviewer; no other TestFlight user is part of the flow.
+Release CI keeps simulator/emulator smoke separate from physical-device testing and does not wait for local devices. `.github/workflows/mobile-release.yml` builds iOS on GitHub-hosted macOS and uploads it to App Store Connect; it also produces the signed Android artifacts. Physical validation then runs locally in a guided OpenChamber session and requires no self-hosted runner.
 
-The physical jobs require:
+App Store Connect uses a dedicated Secure Workspace test group containing only the designated operator, with automatic distribution to other tester groups disabled. The operator installs the exact processed TestFlight version/build. Android uses the exact signed APK after signature, certificate digest, version, and build verification. Each device uses a separate fresh pairing URL for a disposable Windows/Linux OpenChamber backend; pairing credentials, serials, and UDIDs are not logged.
 
-- a self-hosted Mac runner labeled `mobile-ios`, with one trusted and unlocked iPhone or iPad, Xcode `devicectl`, Maestro, and the exact TestFlight candidate already installed;
-- a self-hosted runner labeled `mobile-android`, with one authorized physical Android device, `adb`, `apksigner`, Maestro, and `ANDROID_SIGNING_CERT_SHA256` configured for the `mobile-android` environment;
-- a separate fresh, unredeemed `MOBILE_E2E_CONNECT_URL` secret in each protected environment, pointing to a disposable E2E server whose default project and Secure Workspace provider policy are prepared for destructive cleanup;
-- English device/app locale and passkey automation prepared for the designated operator.
-
-App Store Connect must use a dedicated Secure Workspace test group containing only the designated operator, with automatic distribution to other tester groups disabled for the candidate. `altool` uploads the build but does not enforce tester-group membership. The operator waits for processing, installs the exact version/build from TestFlight, connects the iPhone to the runner, and only then approves `mobile-ios`.
-
-The manual workflow verifies candidate identity before opening the pairing link, runs `.maestro/secure-workspace-physical.yaml`, performs export/apply dry-run, and runs `.maestro/secure-workspace-cleanup.yaml` even when the main flow fails. Physical flows use English accessibility text exposed by the WebView; Android additionally uses Maestro's documented DevTools WebView hierarchy. DOM `data-testid` values are component-test hooks and are not treated as native accessibility identifiers. Pairing URLs are opened by the device helper and are not passed to Maestro or uploaded evidence. This automated smoke does not yet prove an interactive apply back to the host project; that procedure is tracked in `docs/SECURE_WORKSPACES_PHYSICAL_TEST_SETUP.md`.
+The local helpers verify installed candidate identity and open the pairing link before `.maestro/secure-workspace-physical.yaml`; `.maestro/secure-workspace-cleanup.yaml` runs cleanup. Physical flows use English accessibility text exposed by the WebView; Android additionally uses Maestro's documented DevTools WebView hierarchy. DOM `data-testid` values are component-test hooks, not native accessibility identifiers. The Maestro flow proves routed session/change/export dry-run behavior, not interactive apply back to the host project. Follow `docs/SECURE_WORKSPACES_PHYSICAL_TEST_SETUP.md` for the full guided procedure.
 
 ## Local Tooling
 

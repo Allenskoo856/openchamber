@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,21 +12,6 @@ const expectedBuild = process.env.OPENCHAMBER_MOBILE_BUILD;
 
 function sha256(file) {
   return crypto.createHash('sha256').update(readFileSync(file)).digest('hex');
-}
-
-function recordCandidateEvidence(result) {
-  const output = process.env.OPENCHAMBER_PHYSICAL_CANDIDATE_EVIDENCE;
-  if (!output) return;
-  const commit = process.env.OPENCHAMBER_COMMIT || process.env.GITHUB_SHA;
-  if (!/^[a-f0-9]{40}$/i.test(commit || '')) throw new Error('OPENCHAMBER_COMMIT or GITHUB_SHA must identify the exact candidate commit');
-  writeFileSync(output, `${JSON.stringify({
-    schemaVersion: 1,
-    commit,
-    bundleID: BUNDLE_ID,
-    deviceClass: 'physical',
-    verifiedAt: new Date().toISOString(),
-    ...result,
-  }, null, 2)}\n`, { mode: 0o600 });
 }
 
 function run(command, args, options = {}) {
@@ -72,17 +57,17 @@ function androidSmoke() {
   if (!apk) throw new Error('OPENCHAMBER_ANDROID_APK is required');
   const serial = androidDevice();
   const signingCertificate = process.env.OPENCHAMBER_ANDROID_SIGNING_CERT_SHA256?.replaceAll(':', '').toLowerCase();
-  const signature = run(process.env.OPENCHAMBER_APKSIGNER || 'apksigner', ['verify', '--print-certs', apk], { capture: true });
+  const signature = run(process.env.OPENCHAMBER_APKSIGNER || 'apksigner', ['verify', '--print-certs', apk], { capture: true, redactArgs: true });
   const actualCertificate = signature.match(/Signer #1 certificate SHA-256 digest:\s*([0-9a-f:]+)/i)?.[1]?.replaceAll(':', '').toLowerCase();
   if (!actualCertificate) throw new Error('Android APK signature identity is unavailable');
   if (signingCertificate && actualCertificate !== signingCertificate) throw new Error('Android signing certificate does not match the expected identity');
-  run('adb', ['-s', serial, 'install', '-r', apk]);
-  const packageInfo = run('adb', ['-s', serial, 'shell', 'dumpsys', 'package', BUNDLE_ID], { capture: true });
+  run('adb', ['-s', serial, 'install', '-r', apk], { capture: true, redactArgs: true });
+  const packageInfo = run('adb', ['-s', serial, 'shell', 'dumpsys', 'package', BUNDLE_ID], { capture: true, redactArgs: true });
   const { version, build } = parseAndroidPackageInfo(packageInfo);
   if (version !== expectedVersion || build !== expectedBuild) throw new Error(`Android candidate mismatch: expected ${expectedVersion} (${expectedBuild}), found ${version} (${build})`);
-  run('adb', ['-s', serial, 'shell', 'am', 'force-stop', BUNDLE_ID]);
+  run('adb', ['-s', serial, 'shell', 'am', 'force-stop', BUNDLE_ID], { capture: true, redactArgs: true });
   run('adb', ['-s', serial, 'shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-d', process.env.MOBILE_E2E_CONNECT_URL, BUNDLE_ID], { capture: true, redactArgs: true });
-  const pid = run('adb', ['-s', serial, 'shell', 'pidof', BUNDLE_ID], { capture: true });
+  const pid = run('adb', ['-s', serial, 'shell', 'pidof', BUNDLE_ID], { capture: true, redactArgs: true });
   if (!pid) throw new Error('Android candidate did not remain running');
   return { platform: 'android', distribution: signingCertificate ? 'release-signed-apk' : 'test-apk', version, build, artifactSha256: sha256(apk), signingCertificateSha256: actualCertificate };
 }
@@ -117,7 +102,7 @@ function iosSmoke() {
   const temporary = mkdtempSync(path.join(os.tmpdir(), 'openchamber-ios-device-'));
   const output = path.join(temporary, 'apps.json');
   try {
-    run('xcrun', ['devicectl', 'device', 'info', 'apps', '--device', device.id, '--json-output', output]);
+    run('xcrun', ['devicectl', 'device', 'info', 'apps', '--device', device.id, '--json-output', output], { capture: true, redactArgs: true });
     const app = findInstalledApp(JSON.parse(readFileSync(output, 'utf8')));
     if (!app) throw new Error('OpenChamber is not installed on the physical iOS device');
     const version = String(app.shortVersionString ?? app.version ?? app.CFBundleShortVersionString ?? '');
@@ -133,6 +118,5 @@ function iosSmoke() {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   requireExactCandidate();
   const result = platform === 'android' ? androidSmoke() : platform === 'ios' ? iosSmoke() : (() => { throw new Error('Usage: physical-device-smoke.mjs <ios|android>'); })();
-  recordCandidateEvidence(result);
   console.log(JSON.stringify({ status: 'launched', ...result }));
 }

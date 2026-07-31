@@ -1,6 +1,6 @@
 ---
 name: secure-workspaces
-description: Use when changing Secure Workspaces policy, lifecycle, providers, isolation, egress, credentials, workspace auth or transport, export/review/apply, handoff, plugin pins, runtime images, release workflows, or files under the web workspace modules and shared workspace UI.
+description: Use when changing Secure Workspaces policy, lifecycle, providers, isolation, egress, credentials, workspace auth or transport, export/review/apply, handoff, plugin pins, runtime images, release workflows, platform setup, or live/physical validation.
 ---
 
 # Secure Workspaces
@@ -10,9 +10,10 @@ description: Use when changing Secure Workspaces policy, lifecycle, providers, i
 Read the sources that own the touched boundary before editing:
 
 1. `docs/SECURE_WORKSPACES_SPECIFICATION.md` for the authoritative product, security, provider, and release contract.
-2. `packages/web/server/lib/workspaces/DOCUMENTATION.md` for the server trust boundary, lifecycle, artifact, apply, and handoff invariants.
-3. `packages/electron/README.md` for plugin staging and packaged-payload verification when Electron dependencies or packaging change.
-4. `../opencode-container-workspace/README.md` when the sibling plugin checkout is available and provider, image, or plugin contracts change.
+2. `docs/SECURE_WORKSPACES_PHYSICAL_TEST_SETUP.md` for guided target-host, packaged-app, provider, physical-mobile, interactive-apply, and cleanup validation.
+3. `packages/web/server/lib/workspaces/DOCUMENTATION.md` for the server trust boundary, lifecycle, artifact, apply, and handoff invariants.
+4. `packages/electron/README.md` for plugin staging and packaged-payload verification when Electron dependencies or packaging change.
+5. `../opencode-container-workspace/README.md` when the sibling plugin checkout is available and provider, image, or plugin contracts change.
 
 Also load every other matching skill. Common combinations are `openchamber-change-discipline`, `ui-api-decoupling`, `desktop-shell`, `relay-transport`, `settings-ui-patterns`, and `locale-ui-patterns`.
 
@@ -27,6 +28,7 @@ Also load every other matching skill. Common combinations are `openchamber-chang
 | Native authority and exact packaged plugin payload | `packages/electron` |
 | Unsupported VS Code behavior | `packages/vscode` |
 | Product and release contract | `docs/SECURE_WORKSPACES_SPECIFICATION.md` |
+| Guided platform and physical validation runbook | `docs/SECURE_WORKSPACES_PHYSICAL_TEST_SETUP.md` |
 
 Keep entrypoints, routes, bridges, and UI thin. Security decisions belong in the owning server or provider boundary.
 
@@ -76,6 +78,16 @@ Keep entrypoints, routes, bridges, and UI thin. Security decisions belong in the
 - Generic settings/plugin routes must not mutate Secure Workspace policy or the reserved plugin identity.
 - Electron packages the exact pinned plugin payload. Do not bypass staging or final payload verification.
 
+### Guided Live Validation
+
+- Run target-platform validation in an OpenChamber session on that Windows, Linux, or macOS host. A self-hosted GitHub runner is not a prerequisite.
+- The assistant owns commands, build, provider setup, assertions, recovery, and cleanup; the operator owns UAC, reboot, device trust, passkey, system dialogs, and interactive UI confirmation.
+- Use disposable projects and isolated app, OpenCode, provider, Docker, and kubeconfig profiles. Never mutate personal profiles or projects.
+- Windows validates the packaged app with Docker Desktop and focused Kubernetes integration. Linux validates the native AppImage with full Docker and disposable `kind`. macOS validates Apple Container without weakening fail-closed managed egress.
+- TestFlight delivery uses the GitHub-hosted mobile release workflow; Android delivery uses its signed artifact. Neither requires a physical-device runner.
+- Simulator, emulator, fixture, VM, unpacked package, and automated packaged smoke are not physical/live platform evidence. Maestro dry-run is not interactive host-apply evidence.
+- Do not claim production readiness until the exact plugin, SDK/OpenCode, runtime/gateway images, package, and required-platform matrix has current live evidence.
+
 ## Change Method
 
 Before implementation, state which trust boundary changes and answer:
@@ -103,6 +115,8 @@ Use package scripts as the command source of truth and validate the real risk:
 | Apple Container | Supported macOS host, immutable arm64 image, create/target/export/reconcile, collision, system restart, and cleanup |
 | Runtime/gateway images | Both architectures, exact digest, runtime smoke, HIGH/CRITICAL fixed-vulnerability gate, and anonymous pull when public |
 | Plugin pin or Electron packaging | Lockfile/install verification, staging tests, package verification, and affected packaged build/smoke |
+| Windows/Linux/macOS platform behavior | Guided run on the target host using the exact native package, isolated profiles, applicable providers, interactive apply, failure recovery, and authoritative cleanup |
+| Physical iOS/Android behavior | Exact TestFlight build or signed APK on one physical device, disposable remote server, redacted pairing, Maestro dry-run/cleanup, and separate interactive apply evidence |
 | Source/export/import shape | `bun run dead-code` in addition to affected checks |
 
 Static checks do not prove isolation, transport, provider, rollback, or platform correctness. Do not claim those gates without live evidence.
@@ -125,3 +139,4 @@ Static checks do not prove isolation, transport, provider, rollback, or platform
 - Fetch failure converted to an empty list or successful cleanup.
 - Control-plane row removed while provider resources remain.
 - Static tests presented as proof of live provider or transport security.
+- Simulator, emulator, VM, fixture, package smoke, or Maestro dry-run presented as physical platform or interactive host-apply evidence.

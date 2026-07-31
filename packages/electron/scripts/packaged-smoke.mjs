@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +10,6 @@ const timeoutMs = Number(process.env.OPENCHAMBER_PACKAGED_SMOKE_TIMEOUT_MS || 90
 
 const fail = (message) => { throw new Error(`[electron smoke] ${message}`); };
 const firstExisting = (candidates) => candidates.find((candidate) => fs.existsSync(candidate));
-const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 const resolveApp = () => {
   if (process.env.OPENCHAMBER_PACKAGED_SMOKE_EXECUTABLE) return path.resolve(process.env.OPENCHAMBER_PACKAGED_SMOKE_EXECUTABLE);
@@ -78,28 +76,6 @@ const main = async () => {
         const result = JSON.parse(fs.readFileSync(marker, 'utf8'));
         if (result.serverReady !== true || result.rendererReady !== true) fail('invalid readiness marker');
         if (requireWorkspace && (result.workspaceReady !== true || result.cleanupComplete !== true)) fail('invalid Secure Workspace marker');
-        const evidencePath = process.env.OPENCHAMBER_PHYSICAL_DESKTOP_EVIDENCE;
-        if (evidencePath) {
-          const commit = process.env.OPENCHAMBER_COMMIT || process.env.GITHUB_SHA;
-          const version = process.env.OPENCHAMBER_VERSION;
-          const artifact = process.env.OPENCHAMBER_PACKAGED_SMOKE_ARTIFACT;
-          if (!/^[a-f0-9]{40}$/i.test(commit || '') || !version || !artifact) fail('physical desktop evidence identity is incomplete');
-          fs.writeFileSync(evidencePath, `${JSON.stringify({
-            schemaVersion: 1,
-            commit,
-            platform: process.platform === 'win32' ? 'windows' : process.platform,
-            deviceClass: 'physical',
-            version,
-            artifactSha256: sha256(artifact),
-            signerIdentity: process.env.OPENCHAMBER_PACKAGED_SMOKE_SIGNER || null,
-            checksumVerified: process.env.OPENCHAMBER_PACKAGED_SMOKE_CHECKSUM_VERIFIED === '1',
-            serverReady: true,
-            rendererReady: true,
-            secureWorkspaceFlow: result.workspaceReady === true ? 'passed' : 'not-run',
-            cleanup: result.cleanupComplete === true ? 'passed' : 'not-run',
-            completedAt: new Date().toISOString(),
-          }, null, 2)}\n`, { mode: 0o600 });
-        }
         child.kill();
         return;
       }

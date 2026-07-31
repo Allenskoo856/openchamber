@@ -1,134 +1,97 @@
-# Secure Workspaces: підготовка фізичних тестових платформ
+# Secure Workspaces: guided тестування на цільових платформах
 
-Цей документ призначений для відкриття на Windows, Linux або macOS машині під час підготовки фізичних тестів Secure Workspaces. Він описує внутрішнє тестування кандидата, а не формальну сертифікацію релізу.
+Цей runbook відкривається в OpenChamber-сесії безпосередньо на Windows, Linux або macOS host. Assistant виконує діагностику, build, provider setup, перевірки та cleanup у локальному checkout; operator підтверджує UAC, reboot, системні діалоги й ручні UI-кроки. Self-hosted GitHub runner для цього процесу не потрібен.
 
-## 1. Що саме перевіряємо
+Це внутрішня live validation поточного кандидата. Вона стає release evidence лише після окремого рішення та запису exact commit, package, image і compatibility identities у `SECURE_WORKSPACES_SPECIFICATION.md`.
 
-Є три різні рівні перевірки:
+## 1. Test model
 
-1. Звичайний CI перевіряє build, unit/integration tests, iOS Simulator та Android Emulator. Він не використовує фізичні пристрої.
-2. Manual physical smoke запускається тільки через `.github/workflows/secure-workspace-physical-tests.yml`, тільки вручну і тільки після approval захищеного environment.
-3. Інтерактивний apply test, який ще треба завершити, залишатиме OpenChamber відкритим для ручного проходження `Review changes` → `Check changes` → `Apply changes`, а потім незалежно перевірятиме результат у disposable host project.
+Рівні перевірки не взаємозамінні:
 
-Manual physical workflow не викликається з `release.yml` і не блокує звичайний реліз. Passing smoke можна буде окремим рішенням підвищити до release evidence пізніше.
+1. CI перевіряє build, unit/integration tests, packaged startup, iOS Simulator та Android Emulator.
+2. Guided target-host session перевіряє реальний packaged app, OS integration, provider lifecycle і cleanup на конкретній машині.
+3. Physical mobile run перевіряє exact TestFlight build або signed APK на реальному пристрої.
+4. Interactive apply перевіряє, що workspace change не змінює host до approval, а reviewed selection застосовується атомарно й точно.
 
-Поточний Maestro flow на Android/iOS автоматично створює зміну, перевіряє export dry-run, відкидає export і видаляє workspace. Він ще не доводить реальний apply назад на host.
+Simulator, emulator, fixture, VM або unpacked package smoke не можна називати physical/live platform evidence. Один native artifact достатньо побудувати й встановити один раз на платформу, якщо його identity і bytes не змінилися.
 
-## 2. Загальні правила безпеки
+## 2. Обов'язкові правила безпеки
 
-- Не надсилати в чат Windows/macOS password, Apple ID password, passkey secret, GitHub runner registration token, signing key або pairing URL.
-- Використовувати окремі тестові облікові записи та disposable directories.
-- Не запускати self-hosted runners для довільного `pull_request` коду.
-- Обмежити runner цим repository та protected environment.
-- Єдиний дозволений operator workflow зараз: GitHub actor `yulia-ivashko`.
-- Кожен mobile run використовує свіжий одноразовий `MOBILE_E2E_CONNECT_URL`; iOS та Android не можуть ділити один URL.
-- Не використовувати `latest` images. Runtime і gateway задаються exact digest-посиланнями.
-- Logs і artifacts не повинні містити pairing URL, bearer tokens, device serial/UDID, hostname, username чи персональні project paths.
-- Cleanup є обов'язковим. Неповний cleanup означає failed test.
+- Використовувати disposable project, окремий local OS test user за можливості та ізольовані OpenChamber, Chromium, OpenCode, Docker і kubeconfig profiles.
+- Не надсилати passwords, Apple ID/TestFlight credentials, passkey secrets, signing keys, bearer tokens, pairing URLs або device serial/UDID.
+- Не використовувати personal project або звичайний OpenChamber profile для destructive lifecycle/apply tests.
+- Runtime і gateway мають бути exact digest references; `latest` і tag-only references заборонені.
+- Assistant не обходить UAC, reboot, device trust, passkey або destructive confirmation. Ці дії виконує operator локально.
+- Pairing URL одноразовий, окремий для кожного device run і не потрапляє в command output, screenshots чи artifacts.
+- Cleanup є частиною pass criteria. Cleanup failure лишається явним failure; ресурси не видаляються за name heuristics без authoritative ownership.
+- Screenshots і logs мають бути sanitized: без hostname, username, personal paths, source content, credentials і device IDs.
 
-## 3. GitHub setup
+## 3. Перед кожною сесією
 
-Repository або organization administrator має:
+1. Відкрити exact candidate branch у новій OpenChamber-сесії на target host.
+2. Переконатися, що checkout не містить personal secrets і не використовує production project.
+3. Записати локально commit SHA, package version, architecture, plugin pin, SDK/OpenCode versions і exact runtime/gateway digests.
+4. Створити disposable project із known baseline content і hash.
+5. Створити isolated app/data/config directories поза personal profile.
+6. Перевірити доступний disk/RAM і provider prerequisites.
+7. Узгодити з operator, які кроки вимагатимуть UAC, reboot, GUI clicks або підключення пристрою.
 
-1. Зареєструвати потрібні self-hosted runners.
-2. Обмежити runners цим repository.
-3. Створити environments:
-   - `desktop-windows`
-   - `desktop-linux`
-   - `mobile-android`
-   - `mobile-ios`
-4. Додати `yulia-ivashko` як єдиного required reviewer.
-5. Не дозволяти environment secrets до approval.
+Не починати provider validation, якщо current runtime/gateway digests ще не опубліковані або compatibility matrix не визначена. У такому разі можна завершити platform setup і package smoke, але результат не є provider certification.
 
-Repository variables:
+## 4. Загальна acceptance matrix
 
-- `SECURE_WORKSPACE_RUNTIME_IMAGE`: `ghcr.io/openchamber/opencode-workspace@sha256:<64 hex>`
-- `SECURE_WORKSPACE_GATEWAY_IMAGE`: `ghcr.io/openchamber/workspace-egress-gateway@sha256:<64 hex>`
+Кожний desktop host перевіряє:
 
-Environment secrets:
+- exact native package та architecture;
+- startup реального packaged executable з isolated profiles;
+- bundled OpenCode CLI і exact pinned workspace plugin payload;
+- in-process OpenChamber server і renderer readiness;
+- provider validation, create, routed ordinary session, restart/reconcile, export і cleanup;
+- authenticated HTTP, SSE і WebSocket paths, де вони входять у сценарій;
+- host project unchanged before reviewed apply;
+- file/hunk selection, dry-run, confirmation, exact atomic apply і post-apply content;
+- no unrelated host changes або owned provider resources after cleanup;
+- explicit failure/recovery result for interrupted create, app restart і cleanup retry.
 
-| Environment | Значення |
+Provider coverage:
+
+| Host | Required coverage |
 | --- | --- |
-| `desktop-windows` | `PHYSICAL_DESKTOP_SMOKE_PASSWORD`; опційно `WINDOWS_SIGNING_CERT_THUMBPRINT` для signed candidate |
-| `desktop-linux` | `PHYSICAL_DESKTOP_SMOKE_PASSWORD` |
-| `mobile-android` | свіжий `MOBILE_E2E_CONNECT_URL`; опційно `ANDROID_SIGNING_CERT_SHA256` для release-signed APK |
-| `mobile-ios` | окремий свіжий `MOBILE_E2E_CONNECT_URL` |
+| Windows | Packaged NSIS app, Docker Desktop Linux containers, focused Kubernetes integration |
+| Linux | Native AppImage, full Docker lifecycle, full disposable `kind` lifecycle |
+| macOS | Packaged app, Docker/Colima as selected, Kubernetes where applicable, Apple Container |
+| iOS | Exact TestFlight build connected to a disposable Windows/Linux OpenChamber server |
+| Android | Exact signed APK connected to a disposable Windows/Linux OpenChamber server |
 
-`PHYSICAL_DESKTOP_SMOKE_PASSWORD` є випадковим test-only step-up password. Це не особистий пароль.
+## 5. Windows target host
 
-## 4. Як зареєструвати runner
-
-GitHub показує одноразові команди в `Repository Settings` → `Actions` → `Runners` → `New self-hosted runner`.
-
-Виконати команди локально на цільовій машині, але не копіювати registration token у цей файл, issue, commit або чат.
-
-Custom labels:
-
-| Host | Label |
-| --- | --- |
-| Windows mini PC | `desktop-windows` |
-| Linux desktop | `desktop-linux` |
-| Mac із підключеним iPhone | `mobile-ios` |
-| Host із підключеним Android | `mobile-android` |
-
-GUI runners запускаються інтерактивно у залогіненій desktop session. Windows runner запускається через `run.cmd`, не як Session 0 service. Linux runner потребує активний `DISPLAY`/Wayland session.
-
-Зупинка `run.cmd`/`run.sh` або видалення runner у GitHub негайно відкликає доступ workflow до машини.
-
-## 5. Windows mini PC
-
-Відома машина:
-
-- manufacturer/model: `AZW MINI S`
-- OS: Windows 10 Home
-- architecture: `AMD64`
-- Docker поки не встановлений
-
-Це x64 mini PC, а не Raspberry Pi. Windows 10 можна використати для внутрішнього functional test, але у 2026 році результат не слід називати production platform certification. Windows 11 рекомендований, якщо hardware його підтримує.
+Відома internal-test машина: `AZW MINI S`, Windows 10 Home, `AMD64`; Docker ще не встановлений. Windows 10 придатний для functional validation, але в 2026 році не є production platform certification. Windows 11 рекомендований, якщо hardware підтримує upgrade.
 
 ### 5.1 Діагностика
 
-Запустити у PowerShell:
+Assistant запускає в PowerShell:
 
 ```powershell
-Get-ComputerInfo | Select-Object `
-  WindowsProductName,
-  WindowsVersion,
-  OsBuildNumber,
-  OsArchitecture,
-  CsProcessors,
-  CsTotalPhysicalMemory
-
-Get-CimInstance Win32_Processor | Select-Object `
-  Name,
-  VirtualizationFirmwareEnabled,
-  SecondLevelAddressTranslationExtensions
-
-Get-Tpm | Select-Object TpmPresent, TpmReady, ManufacturerVersion
+Get-ComputerInfo | Select-Object WindowsProductName,WindowsVersion,OsBuildNumber,OsArchitecture,CsProcessors,CsTotalPhysicalMemory
+Get-CimInstance Win32_Processor | Select-Object Name,VirtualizationFirmwareEnabled,SecondLevelAddressTranslationExtensions
+Get-Tpm | Select-Object TpmPresent,TpmReady,ManufacturerVersion
 Confirm-SecureBootUEFI
 wsl --status
-Get-Volume -DriveLetter C | Select-Object Size, SizeRemaining
+Get-Volume -DriveLetter C | Select-Object Size,SizeRemaining
 ```
 
-Необхідно мати virtualization/SLAT, стабільну мережу та приблизно 40–60 GB вільного місця. 16 GB RAM рекомендовано для OpenChamber + Docker + `kind`; 8 GB є мінімальним і може бути нестабільним.
+Рекомендовано 16 GB RAM і 40-60 GB вільного disk. 8 GB може бути достатньо для Docker-only run, але `kind` краще перенести на Linux.
 
 ### 5.2 Одноразова підготовка
 
-Дії, які вимагають локального Administrator/UAC:
+Operator підтверджує BIOS/UEFI, UAC і reboot для:
 
-1. Увімкнути virtualization у BIOS/UEFI, якщо вона вимкнена.
-2. Встановити WSL2:
+1. Hardware virtualization і SLAT.
+2. WSL2 через `wsl --install`.
+3. Docker Desktop x86-64 із WSL2 engine та Linux containers.
+4. Першого Docker Desktop startup/license prompt.
 
-   ```powershell
-   wsl --install
-   ```
-
-3. Перезавантажити Windows.
-4. Встановити Docker Desktop x86-64.
-5. Увімкнути WSL2 engine та Linux containers.
-6. Один раз прийняти Docker Desktop license/start prompt.
-
-Перевірка:
+Після reboot assistant перевіряє:
 
 ```powershell
 docker version
@@ -136,165 +99,97 @@ docker info
 docker run --rm hello-world
 ```
 
-Створити окремого локального Windows user для тестів. Не використовувати особистий OpenChamber profile. На dedicated runner не повинно бути іншої встановленої або запущеної копії OpenChamber під час job.
+### 5.3 Windows run
 
-### 5.3 Docker та Kubernetes
+1. Install dependencies із frozen lockfile та запустити package-scoped checks.
+2. Побудувати native Windows package через `bun run electron:build`.
+3. Запустити exact installer/package в isolated profile; не використовувати іншу встановлену OpenChamber copy.
+4. Виконати Docker acceptance matrix та interactive apply.
+5. Виконати focused Kubernetes paths/process-spawning/`kubectl` integration. За достатніх ресурсів використати disposable local `kind`; інакше підключити окремий test cluster на Linux через isolated kubeconfig.
+6. Перевірити hidden process spawning, cancellation/process-tree termination, path handling і cleanup.
+7. Видалити test app/profile/project і тільки ownership-verified Docker/Kubernetes resources.
 
-Docker provider використовує Docker Desktop Linux containers.
+## 6. Linux target host
 
-Для Kubernetes provider рекомендований disposable `kind` cluster поверх Docker Desktop, а не постійний Docker Desktop Kubernetes. Майбутній bootstrap має:
-
-1. Встановити checksum-pinned `kubectl` і `kind`.
-2. Створити окремий cluster для test run.
-3. Перевірити NetworkPolicy/CNI prerequisites.
-4. Створити test namespace та provider policy.
-5. Запустити workspace lifecycle/export/apply tests.
-6. Видалити cluster у `finally`/`always` cleanup.
-
-Якщо машина має лише 8 GB RAM, спочатку тестувати Docker provider на Windows, а Kubernetes перенести на Linux host.
-
-## 6. Linux desktop
-
-Потрібно:
-
-- x64 або ARM64 Linux, що відповідає AppImage artifact;
-- dedicated test user;
-- Docker Engine/Desktop, доступний runner user;
-- FUSE/libfuse2 для direct AppImage launch;
-- активна graphical session;
-- достатньо RAM/disk для disposable `kind`;
-- runner label `desktop-linux`.
-
-Базова перевірка:
+Потрібні native x64 або arm64 host, graphical session, Docker Engine/Desktop, FUSE/libfuse2 для direct AppImage launch і достатньо ресурсів для disposable `kind`.
 
 ```bash
 uname -a
 uname -m
 docker version
 docker info
-printf '%s\n' "$DISPLAY"
+printf '%s\n' "${XDG_SESSION_TYPE:-}" "${DISPLAY:-}" "${WAYLAND_DISPLAY:-}"
 ```
 
-Manual workflow перевіряє AppImage проти update manifest із того самого Actions artifact, запускає exact AppImage, використовує ізольовані OpenChamber/Chromium/OpenCode profiles, створює Docker workspace session і вимагає повний provider cleanup.
+Guided run:
 
-## 7. Android
+1. Install dependencies із frozen lockfile і виконати package-scoped checks.
+2. Встановити checksum-pinned `kubectl` і `kind`, якщо вони відсутні.
+3. Побудувати native AppImage через `OPENCHAMBER_TARGET_ARCH=<x64|arm64> bun run electron:build`.
+4. Виконати `bun run --cwd packages/electron verify:linux-appimage`.
+5. Запустити exact AppImage напряму з writable path у graphical session. `APPIMAGE_EXTRACT_AND_RUN=1` можна використовувати лише для діагностики, не як direct-AppImage evidence.
+6. Виконати повний Docker lifecycle/networking/recovery/apply matrix.
+7. Створити disposable `kind` cluster з NetworkPolicy-capable CNI та виконати Kubernetes ownership, RBAC denial, managed egress/direct-egress denial, restart/reconcile, export/apply і cleanup matrix.
+8. Перевірити AppImage update identity та actionable behavior для read-only/missing `APPIMAGE`.
+9. Видалити disposable cluster, profiles і project; підтвердити відсутність owned containers, networks, volumes, namespace/PVC/Secrets.
 
-Android phone не є runner. Потрібен Mac/Linux/Windows host із runner label `mobile-android`.
+## 7. macOS та Apple Container
 
-На телефоні:
+Використати supported macOS/hardware, exact native package, Apple Container CLI та окремі isolated profiles. Docker provider явно використовує Docker Desktop або Colima; Kubernetes використовує disposable `kind`.
 
-1. Увімкнути Developer options.
-2. Увімкнути USB debugging.
-3. Підключити телефон до dedicated host.
-4. Підтвердити ADB fingerprint тільки цього host.
+Apple Container run має покривати host-only networking, external egress, authenticated transport, collision, export/apply, system stop/start, reconciliation і cleanup. Managed gateway egress зараз fail-closed blocker: current Apple Container CLI не має isolation-capable multi-network primitive для gateway-only egress без direct outbound. Не позначати цей gate як passed і не послаблювати policy для тесту.
 
-На host:
+## 8. Mobile devices
 
-- Java 21
-- Android platform tools (`adb`, `apksigner`)
-- Maestro
-- рівно один authorized physical Android device
+Mobile app не містить OpenChamber server. Для physical run вона підключається до disposable backend, уже перевіреного на Windows або Linux, з isolated test project і provider policy.
 
-Перевірка:
+### 8.1 iPhone через TestFlight
 
-```bash
-adb devices
-maestro --version
-```
+- `.github/workflows/mobile-release.yml` будує iOS на GitHub-hosted macOS і завантажує IPA в App Store Connect.
+- App Store Connect використовує окрему test group тільки для designated operator; automatic distribution іншим groups вимкнена.
+- Operator чекає processing, встановлює exact version/build через TestFlight і локально підтверджує trust/passkey prompts.
+- Mac із Xcode `devicectl` та Maestro може запустити `bun run --cwd packages/mobile smoke:physical:ios`; helper перевіряє exact installed identity і не логує UDID/pairing URL.
 
-Manual workflow завантажує APK тільки з указаного same-repository Actions run, перевіряє APK signature validity, exact version/build, відкриває pairing URL без його логування та запускає Maestro dry-run/cleanup flow. Якщо заданий `ANDROID_SIGNING_CERT_SHA256`, certificate identity також має точно збігатися.
+### 8.2 Android APK
 
-## 8. iPhone/TestFlight
+- `.github/workflows/mobile-release.yml` будує signed APK/AAB; APK artifact доставляється operator без self-hosted runner.
+- Host потребує Java 21, `adb`, `apksigner`, Maestro та рівно один authorized physical device.
+- Перед install перевірити signature validity, expected certificate digest, exact version/build.
+- `bun run --cwd packages/mobile smoke:physical:android` встановлює і запускає candidate без логування serial/pairing URL.
 
-iPhone не є runner. Потрібен Mac із runner label `mobile-ios`.
+Для обох платформ `.maestro/secure-workspace-physical.yaml` покриває routed session/change/export dry-run, а `.maestro/secure-workspace-cleanup.yaml` виконує cleanup. Maestro flow не замінює ручний interactive apply до host project.
 
-Mac потребує:
+## 9. Interactive apply
 
-- підтримуваний Xcode із `xcrun devicectl`
-- Maestro
-- один trusted/unlocked iPhone або iPad
-- English app/device locale для детермінованих accessibility selectors
+1. Зафіксувати baseline hash disposable host project.
+2. Створити або reuse Secure Workspace через звичайний UI flow і підтвердити routed session.
+3. Усередині workspace зробити deterministic change без model credentials, наприклад створити `openchamber-guided-e2e.txt` з exact agreed content.
+4. До export/apply незалежно підтвердити, що host project і baseline hash не змінилися.
+5. Operator відкриває `Review changes`, перевіряє diff, виконує file/hunk selection і `Check changes` dry-run.
+6. Operator явно підтверджує `Apply changes`.
+7. Assistant перевіряє exact host bytes/mode та відсутність unselected або unrelated changes.
+8. Повторити negative path із concurrent host edit і підтвердити conflict без partial mutation.
+9. Видалити artifact/workspace і перевірити provider cleanup.
 
-Перед approval:
+## 10. Failure та recovery
 
-1. Дочекатися processing exact TestFlight build.
-2. Встановити exact version/build на iPhone.
-3. Підключити iPhone до Mac і unlock.
-4. Створити свіжий unredeemed `MOBILE_E2E_CONNECT_URL` у `mobile-ios` environment.
-5. Approve job.
+При failure:
 
-App Store Connect має використовувати окрему test group тільки з Yulia; automatic distribution до інших tester groups для цього кандидата вимкнена.
+1. Не маскувати failure повторним create або authoritative-empty result.
+2. Зберегти sanitized command/error output та exact candidate identities.
+3. Закрити app тільки якщо це не знищить потрібний crash-recovery state.
+4. Перезапустити OpenChamber і виконати authoritative reconciliation.
+5. Видаляти лише ownership-verified resources.
+6. Retry cleanup окремо та записати retained/unresolved resources.
+7. Rotate/revoke невикористану pairing session; одноразовий URL не reuse.
+8. Після діагностики видалити disposable project, profiles і cluster.
 
-Не передавати workflow Apple ID password, TestFlight password або passkey secret. Passkey automation готується локально на пристрої.
+## 11. Що записати після run
 
-## 9. macOS desktop та Apple Container
+Дозволено записати commit SHA, versions/builds, package SHA-256, platform/architecture, plugin pin, exact image digests, test result, sanitized screenshots/logs і cleanup result. Не записувати credentials, signing private keys, pairing URLs, device IDs, machine/user names, personal paths або source content.
 
-macOS desktop provider tests слід відділяти від iPhone runner, навіть якщо використовується один Mac.
+Підсумок має окремо позначати automated checks, packaged target-host validation, physical mobile validation, interactive apply та unresolved blockers. До current exact compatibility/image matrix і всіх required platform gates не використовувати формулювання `production-ready` або `release certified`.
 
-- Docker provider: явно вибраний Docker Desktop або Colima.
-- Kubernetes provider: disposable `kind`.
-- Apple Container provider: підтримувані macOS/hardware та Apple Container CLI.
+## 12. Optional future automation
 
-Apple Container managed egress зараз залишається fail-closed blocker: наявний CLI не надає isolation-capable multi-network primitive, необхідний для gateway-only egress без direct outbound. Не позначати цей gate як passed.
-
-## 10. Запуск manual physical workflow
-
-Workflow: `Secure Workspace Physical Tests`.
-
-Обов'язкові inputs:
-
-- `candidate_sha`: exact 40-character commit SHA
-- `version`: exact candidate version
-- platform boolean
-
-Для Android/Windows/Linux також потрібен `source_run_id` same-repository Actions run. Для Android/iOS потрібен exact `mobile_build_number`. Artifact name можна задати явно; defaults відповідають release artifacts.
-
-Workflow відхиляє не-Yulia actor, abbreviated SHA, відсутні platforms, нечислові run/build IDs і невідповідність checkout SHA.
-
-## 11. Інтерактивний apply test: наступна реалізація
-
-Поточний automated smoke не замінює цей сценарій. Наступна сесія має реалізувати bounded interactive harness:
-
-1. Створити disposable host project із known baseline hash.
-2. Запустити OpenChamber в isolated profile.
-3. Підготувати Docker або `kind` workspace.
-4. Відкрити app на 45–60 хвилин для Yulia.
-5. Усередині routed workspace виконати deterministic shell change без model credentials, наприклад створити `openchamber-physical-e2e.txt` з exact content.
-6. До apply підтвердити, що host project не змінився.
-7. Yulia вручну проходить `Review changes`, file/hunk selection, `Check changes`, `Apply changes`.
-8. Harness перевіряє exact host file content і відсутність сторонніх змін.
-9. Harness видаляє workspace, export artifact, Docker resources/cluster, app profile і disposable project навіть після failure/timeout.
-10. Uploaded result чітко називається manual functional test, не release certification.
-
-## 12. Що зберігати після тесту
-
-Дозволено:
-
-- commit SHA
-- candidate version/build
-- artifact SHA-256
-- platform і architecture
-- JUnit status
-- sanitized screenshots/debug logs
-- cleanup status
-
-Заборонено:
-
-- tokens і pairing secrets
-- passwords/passkeys
-- signing private keys
-- device serial/UDID
-- usernames/hostnames
-- персональні project paths або source contents
-
-## 13. Відновлення після failure
-
-1. Зупинити runner.
-2. Закрити OpenChamber.
-3. Перевірити Docker containers, networks і volumes з OpenChamber managed labels.
-4. Не видаляти ресурси за евристикою, якщо ownership не підтверджений.
-5. Запустити provider reconciliation/cleanup із authoritative workspace identity.
-6. Видалити disposable `kind` cluster.
-7. Rotate/revoke невикористаний pairing session.
-8. Не повторювати той самий one-time pairing URL.
-9. Зберегти sanitized logs і відкрити issue з exact commit/artifact identity.
+Після кількох стабільних guided runs повторювані bootstrap, verify і cleanup commands можна винести в local scripts. Scripts мають залишатися локальними, idempotent, redacted і ownership-aware. Self-hosted runner workflow додається лише за окремою потребою; він не є prerequisite для platform validation або release delivery.
