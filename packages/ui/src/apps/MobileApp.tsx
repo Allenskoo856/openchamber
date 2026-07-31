@@ -47,7 +47,7 @@ import { SyncAppEffects } from './AppEffects';
 import { MobileChangesSurface } from './MobileChangesSurface';
 import { MobileFilesSurface } from './MobileFilesSurface';
 import { BusyDots } from '@/components/chat/message/parts/BusyDots';
-import { MobileConnectionWelcome } from './MobileConnectionWelcome';
+import { MobileConnectionWelcome, type MobileConnectionNotice } from './MobileConnectionWelcome';
 import { MobileHeader } from './MobileHeader';
 import { MobileInstancesSurface } from './MobileInstancesSurface';
 import { MobileOverflowMenu, type OverflowItem } from './MobileOverflowMenu';
@@ -55,7 +55,7 @@ import { MobileSessionsSheet } from './MobileSessionsSheet';
 import { MobileFullscreenSurface } from './MobileFullscreenSurface';
 import { MobileWorkspaceDrawer, type MobileWorkspaceTab } from './MobileWorkspaceDrawer';
 import { DedicatedMobileAppProvider, type MobileAppActions } from './mobileAppContext';
-import { autoConnectLastInstance, getAutoConnectTargetLabel, reprobeActiveConnection } from './mobileConnections';
+import { autoConnectLastInstance, getAutoConnectTargetLabel, reprobeActiveConnection, type AutoConnectOutcome } from './mobileConnections';
 import { isCapacitorMobileApp, useNativeAndroidBackButton, useNativeMobileChrome, useNativeMobileLifecycle } from './mobileNativeChrome';
 import { normalizePath } from './mobilePaths';
 import { reconnectAppForTransportSwitch, resetAppForRuntimeEndpointChange } from './runtimeEndpointReset';
@@ -688,6 +688,8 @@ export function MobileApp({ apis }: MobileAppProps) {
   // splash so we don't flash the connect screen; 'done' means we either connected or
   // exhausted the attempt (then the connect screen shows).
   const [autoConnectPhase, setAutoConnectPhase] = React.useState<'pending' | 'attempting' | 'done'>('pending');
+  // Why the cold-launch auto-connect fell through to the connect screen.
+  const [autoConnectNotice, setAutoConnectNotice] = React.useState<MobileConnectionNotice | null>(null);
   // The instance the splash says we are connecting to. Read once on mount —
   // auto-connect targets the most-recent saved connection from the same list.
   const autoConnectLabel = React.useMemo(() => getAutoConnectTargetLabel(), []);
@@ -842,9 +844,17 @@ export function MobileApp({ apis }: MobileAppProps) {
     let cancelled = false;
     setAutoConnectPhase('attempting');
     void autoConnectLastInstance()
-      .catch(() => false)
-      .then(() => {
-        if (!cancelled) setAutoConnectPhase('done');
+      .catch((): AutoConnectOutcome => ({ status: 'no-candidate' }))
+      .then((outcome) => {
+        if (cancelled) return;
+        // Landing on the connect screen silently reads as data loss — say WHY
+        // the saved instance didn't come back (unreachable vs revoked auth).
+        if (outcome.status === 'unreachable') {
+          setAutoConnectNotice({ kind: 'unreachable', label: outcome.label });
+        } else if (outcome.status === 'needs-login') {
+          setAutoConnectNotice({ kind: 'auth-expired', label: outcome.label });
+        }
+        setAutoConnectPhase('done');
       });
     return () => {
       cancelled = true;
@@ -1071,7 +1081,12 @@ export function MobileApp({ apis }: MobileAppProps) {
         </main>
       );
     }
-    return <MobileConnectionWelcome onConnected={() => setConnectionEpoch((value) => value + 1)} />;
+    return (
+      <MobileConnectionWelcome
+        onConnected={() => setConnectionEpoch((value) => value + 1)}
+        notice={autoConnectNotice}
+      />
+    );
   }
 
   if (!isConnected && !isReconnecting) {

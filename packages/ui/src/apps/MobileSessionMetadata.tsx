@@ -4,22 +4,17 @@ import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { preloadProviderLogos } from '@/hooks/useProviderLogo';
-import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useI18n } from '@/lib/i18n';
 import { isIPadApp } from '@/lib/platform';
 import { clampPercent, formatQuotaResetLabel, formatQuotaValueLabel, formatWindowLabel, QUOTA_PROVIDERS, resolveUsageTone } from '@/lib/quota';
 import { getDisplayModelName } from '@/lib/quota/model-families';
-import { sessionEvents } from '@/lib/sessionEvents';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useGitStatus, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
 import type { QuotaProviderId, UsageWindow } from '@/types';
 import { useUIStore, type TimeFormatPreference } from '@/stores/useUIStore';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useSessionMessages } from '@/sync/sync-context';
-
-import { normalizePath } from './mobilePaths';
 
 const IPAD_METADATA_POPOVER_WIDTH = 380;
 
@@ -135,12 +130,11 @@ const SessionMetadataOverlay: React.FC<{
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
   contextDisplay: ContextDisplay;
-  branchLabel: string;
   usageGroups: MobileUsageProviderGroup[];
   usageDisplayMode: 'usage' | 'remaining';
   isUsageLoading: boolean;
   timeFormatPreference: TimeFormatPreference;
-}> = ({ open, onClose, anchorRef, contextDisplay, branchLabel, usageGroups, usageDisplayMode, isUsageLoading, timeFormatPreference }) => {
+}> = ({ open, onClose, anchorRef, contextDisplay, usageGroups, usageDisplayMode, isUsageLoading, timeFormatPreference }) => {
   const { t } = useI18n();
   const panelRef = React.useRef<HTMLDivElement>(null);
   const [shouldRender, setShouldRender] = React.useState(open);
@@ -255,9 +249,6 @@ const SessionMetadataOverlay: React.FC<{
         }}
       >
         <div className="space-y-1">
-          <MetadataRow icon="git-branch" label={t('mobile.header.metadata.branch')}>
-            {branchLabel}
-          </MetadataRow>
           {contextDisplay ? (
             <MetadataRow
               iconNode={<ContextProgressIcon percentage={contextDisplay.percentage} />}
@@ -374,7 +365,6 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
   onOpenChange,
   currentSessionId,
   effectiveDirectory,
-  gitDirectory,
   isNewSessionDraftOpen,
   primaryLabel,
   secondaryLabel,
@@ -383,19 +373,13 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
   onOpenChange: (open: boolean | ((open: boolean) => boolean)) => void;
   currentSessionId: string | null;
   effectiveDirectory: string | null;
-  gitDirectory: string | null;
   isNewSessionDraftOpen: boolean;
   primaryLabel: string;
   secondaryLabel: string;
 }) {
   const { t } = useI18n();
-  const { git } = useRuntimeAPIs();
   const metadataTriggerRef = React.useRef<HTMLButtonElement>(null);
   const activeSessionMessages = useSessionMessages(currentSessionId ?? '', effectiveDirectory || undefined);
-  const isGitRepo = useIsGitRepo(gitDirectory);
-  const gitStatus = useGitStatus(gitDirectory);
-  const ensureStatus = useGitStore((state) => state.ensureStatus);
-  const fetchStatus = useGitStore((state) => state.fetchStatus);
   const providers = useConfigStore((state) => state.providers);
   const currentProviderId = useConfigStore((state) => state.currentProviderId);
   const currentModelId = useConfigStore((state) => state.currentModelId);
@@ -417,19 +401,6 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
 
   useQuotaAutoRefresh();
-
-  React.useEffect(() => {
-    if (!gitDirectory) return;
-    void ensureStatus(gitDirectory, git);
-  }, [ensureStatus, git, gitDirectory]);
-
-  React.useEffect(() => {
-    if (!gitDirectory) return;
-    return sessionEvents.onGitRefreshHint((hint) => {
-      if (normalizePath(hint.directory) !== gitDirectory) return;
-      void fetchStatus(gitDirectory, git);
-    });
-  }, [fetchStatus, git, gitDirectory]);
 
   React.useEffect(() => {
     void loadQuotaSettings();
@@ -514,10 +485,6 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
     ? { percentage: contextPercentage, tokens: contextTokens, colorClass: contextColorClass }
     : null;
 
-  const branchLabel = isGitRepo === true
-    ? (gitStatus?.current?.trim() || t('gitView.branch.detachedHead'))
-    : t('common.unavailable');
-
   const usageGroups = React.useMemo<MobileUsageProviderGroup[]>(() => {
     const resultsByProvider = new Map(quotaResults.map((result) => [result.providerId, result]));
     return QUOTA_PROVIDERS
@@ -591,14 +558,15 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         onClick={() => onOpenChange((currentOpen) => !currentOpen)}
         style={{ touchAction: 'manipulation' }}
       >
-        <Icon name="apps-2-ai" className="size-5" />
+        {/* Live context gauge doubles as the metadata trigger: filled by the
+            session's context usage, an empty ring on a fresh draft. */}
+        <ContextProgressIcon percentage={contextDisplay?.percentage ?? 0} />
       </button>
       <SessionMetadataOverlay
         open={open}
         onClose={() => onOpenChange(false)}
         anchorRef={metadataTriggerRef}
         contextDisplay={contextDisplay}
-        branchLabel={branchLabel}
         usageGroups={usageGroups}
         usageDisplayMode={quotaDisplayMode}
         isUsageLoading={isQuotaLoading}

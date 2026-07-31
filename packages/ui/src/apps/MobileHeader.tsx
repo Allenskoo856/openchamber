@@ -1,10 +1,13 @@
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
+import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useI18n } from '@/lib/i18n';
 import { resolveProjectForDirectory, resolveProjectForSessionDirectory } from '@/lib/projectResolution';
+import { sessionEvents } from '@/lib/sessionEvents';
 import { cn } from '@/lib/utils';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { useGitStatus, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSession } from '@/sync/sync-context';
@@ -46,6 +49,31 @@ export const MobileHeader: React.FC<{
   const currentSession = useSession(currentSessionId, effectiveDirectory || undefined);
   const isNewSessionDraftOpen = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
 
+  // Branch lives in the header's metadata line (project · branch), both for an
+  // open session and for the draft screen.
+  const { git } = useRuntimeAPIs();
+  const isGitRepo = useIsGitRepo(gitDirectory);
+  const gitStatus = useGitStatus(gitDirectory);
+  const ensureStatus = useGitStore((state) => state.ensureStatus);
+  const fetchStatus = useGitStore((state) => state.fetchStatus);
+
+  React.useEffect(() => {
+    if (!gitDirectory) return;
+    void ensureStatus(gitDirectory, git);
+  }, [ensureStatus, git, gitDirectory]);
+
+  React.useEffect(() => {
+    if (!gitDirectory) return;
+    return sessionEvents.onGitRefreshHint((hint) => {
+      if (normalizePath(hint.directory) !== gitDirectory) return;
+      void fetchStatus(gitDirectory, git);
+    });
+  }, [fetchStatus, git, gitDirectory]);
+
+  const branchLabel = isGitRepo === true
+    ? (gitStatus?.current?.trim() || t('gitView.branch.detachedHead'))
+    : null;
+
   const projectLabel = React.useMemo(() => {
     const directory = normalizePath(effectiveDirectory);
     if (!directory) return t('mobile.header.noProject');
@@ -58,7 +86,11 @@ export const MobileHeader: React.FC<{
 
   const sessionTitle = currentSession?.title?.trim();
   const primaryLabel = sessionTitle || (currentSessionId ? t('mobile.sessions.untitled') : projectLabel);
-  const secondaryLabel = currentSessionId ? projectLabel : '';
+  // Open session: "project · branch" under the title. Draft: the project is
+  // the title, so the metadata line is just the branch.
+  const secondaryLabel = currentSessionId
+    ? [projectLabel, branchLabel].filter(Boolean).join(' · ')
+    : (branchLabel ?? '');
 
   React.useEffect(() => {
     setMetadataOpen(false);
@@ -96,7 +128,6 @@ export const MobileHeader: React.FC<{
             onOpenChange={setMetadataOpen}
             currentSessionId={currentSessionId}
             effectiveDirectory={effectiveDirectory}
-            gitDirectory={gitDirectory}
             isNewSessionDraftOpen={isNewSessionDraftOpen}
             primaryLabel={primaryLabel}
             secondaryLabel={secondaryLabel}

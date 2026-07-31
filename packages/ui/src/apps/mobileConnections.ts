@@ -976,28 +976,41 @@ export const getAutoConnectTargetLabel = (): string | null => {
 // the runtime endpoint when reachable AND we already have a usable bearer token;
 // returns false — caller shows the connect screen — when there is no saved
 // instance, it's unreachable, or it needs a (re)login. No prompts or UI state.
-export const autoConnectLastInstance = async (): Promise<boolean> => {
+export type AutoConnectOutcome =
+  | { status: 'connected' }
+  /** No saved instance / no saved token — nothing to report to the user. */
+  | { status: 'no-candidate' }
+  | { status: 'unreachable'; label: string }
+  /** The saved token was rejected (expired/revoked) — the user must sign in again. */
+  | { status: 'needs-login'; label: string };
+
+export const autoConnectLastInstance = async (): Promise<AutoConnectOutcome> => {
   await migrateLegacyInlineTokens();
   const candidate = readConnections()[0]; // sorted most-recent-first
-  if (!candidate) return false;
+  if (!candidate) return { status: 'no-candidate' };
 
   // The runtime transport needs a bearer token; only auto-connect when one is
   // already saved. A missing/expired token must go through the login UI.
   let token: string | undefined;
   if (isCapacitorApp()) {
-    if (!candidate.hasToken) return false;
+    if (!candidate.hasToken) return { status: 'no-candidate' };
     token = await readSecureToken(secureTokenKeyOf(candidate));
-    if (!token) return false;
+    if (!token) return { status: 'no-candidate' };
   } else {
     token = candidate.clientToken;
-    if (!token) return false;
+    if (!token) return { status: 'no-candidate' };
   }
 
-  const result = await probeConnectionCandidates(candidate.candidates, token);
-  if (result.status !== 'ok') return false;
+  // Fast probe: the cold-launch splash should decide in a couple of seconds,
+  // not sit through the full connect timeouts on a dead LAN candidate. A slow
+  // network that fails the fast probe still lands on the connect screen where
+  // a manual tap retries with the full budget.
+  const result = await probeConnectionCandidates(candidate.candidates, token, { fast: true });
+  if (result.status === 'needs-login') return { status: 'needs-login', label: candidate.label };
+  if (result.status !== 'ok') return { status: 'unreachable', label: candidate.label };
   await upsertMobileConnection({ id: candidate.id, label: candidate.label, candidates: candidate.candidates }); // bump lastUsedAt (keeps token)
   switchToTransport(result.transport, token, { runtimeKey: secureTokenKeyOf(candidate) });
-  return true;
+  return { status: 'connected' };
 };
 
 export const validateMobileConnectionSession = async (input: {

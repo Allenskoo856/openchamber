@@ -10,7 +10,16 @@ import { connectionDisplayUrl, useMobileConnection } from './mobileConnections';
 import { isQrScanSupported, parseConnectionPayload, scanConnectionQr } from './mobileQrScan';
 import { mobileConnectionInputClass, mobileInputKeyboardProps } from './mobileConnectionUi';
 
-export const MobileConnectionWelcome: React.FC<{ onConnected: () => void }> = ({ onConnected }) => {
+export type MobileConnectionNotice = {
+  kind: 'unreachable' | 'auth-expired';
+  label: string;
+};
+
+export const MobileConnectionWelcome: React.FC<{
+  onConnected: () => void;
+  /** Why the user landed here (failed cold-launch auto-connect) — shown as a banner. */
+  notice?: MobileConnectionNotice | null;
+}> = ({ onConnected, notice = null }) => {
   const { t } = useI18n();
   const conn = useMobileConnection(onConnected);
   const { connections, isBusy, isPasswordBusy, error, pendingConnection } = conn;
@@ -104,6 +113,22 @@ export const MobileConnectionWelcome: React.FC<{ onConnected: () => void }> = ({
           <OpenChamberLogo width={72} height={72} className="size-[72px]" />
           <h1 className="typography-h2 text-foreground">{t('mobile.connect.welcome.title')}</h1>
         </div>
+
+        {notice ? (
+          <div
+            role="status"
+            className="flex w-full items-start gap-3 rounded-[18px] border border-[color-mix(in_srgb,var(--status-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_10%,transparent)] px-3.5 py-3"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[color-mix(in_srgb,var(--status-warning)_16%,transparent)] text-[var(--status-warning)]">
+              <Icon name={notice.kind === 'auth-expired' ? 'lock' : 'cloud-off'} className="size-[18px]" />
+            </span>
+            <p className="min-w-0 flex-1 self-center typography-small text-foreground">
+              {notice.kind === 'auth-expired'
+                ? t('mobile.connect.notice.authExpired', { label: notice.label })
+                : t('mobile.connect.notice.unreachable', { label: notice.label })}
+            </p>
+          </div>
+        ) : null}
 
         {pendingConnection ? (
           <form className="flex w-full flex-col gap-3" onSubmit={handlePasswordSubmit}>
