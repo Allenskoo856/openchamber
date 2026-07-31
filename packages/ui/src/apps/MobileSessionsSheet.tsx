@@ -308,14 +308,20 @@ const SessionRenameForm: React.FC<{
         aria-label={t('sessions.sidebar.session.rename.save')}
         placeholder={t('sessions.sidebar.session.menu.rename')}
         // 16px prevents the iOS focus zoom; the bare input keeps the row height.
+        // The inline min-height overrides mobile.css's global 36px input
+        // floor, which otherwise makes the rename row taller than the 40px
+        // session row.
         className="min-w-0 flex-1 bg-transparent text-[16px] typography-ui-label text-foreground outline-none placeholder:text-muted-foreground"
+        style={{ minHeight: 0 }}
         enterKeyHint="done"
       />
       <button
         type="submit"
         aria-label={t('sessions.sidebar.session.rename.save')}
         className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        style={{ touchAction: 'manipulation' }}
+        // Inline mins beat mobile.css's global 36px button touch-target floor
+        // so the controls fit the 40px row.
+        style={{ touchAction: 'manipulation', minHeight: 0, minWidth: 0 }}
       >
         <Icon name="check" className="size-4" />
       </button>
@@ -324,7 +330,7 @@ const SessionRenameForm: React.FC<{
         onClick={onCancel}
         aria-label={t('sessions.sidebar.session.rename.cancel')}
         className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        style={{ touchAction: 'manipulation' }}
+        style={{ touchAction: 'manipulation', minHeight: 0, minWidth: 0 }}
       >
         <Icon name="close" className="size-4" />
       </button>
