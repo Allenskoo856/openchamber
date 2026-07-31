@@ -739,6 +739,13 @@ export function MobileApp({ apis }: MobileAppProps) {
         disconnect();
         return;
       }
+      if (outcome === 'needs-login') {
+        // Token explicitly rejected (revoked/expired) — tell the user why they
+        // land back on the connect screen instead of silently bouncing them.
+        setAutoConnectNotice({ kind: 'auth-expired', label: getAutoConnectTargetLabel() ?? '' });
+        disconnect();
+        return;
+      }
       if (outcome === 'unreachable') {
         // Right after a resume or Wi-Fi switch the network is often still
         // settling (on Android without a SIM there is NO connectivity at all for
@@ -752,6 +759,9 @@ export function MobileApp({ apis }: MobileAppProps) {
             if (retry === 'unchanged') {
               refreshInPlace();
               return;
+            }
+            if (retry === 'needs-login') {
+              setAutoConnectNotice({ kind: 'auth-expired', label: getAutoConnectTargetLabel() ?? '' });
             }
             disconnect();
           });
@@ -860,6 +870,57 @@ export function MobileApp({ apis }: MobileAppProps) {
       cancelled = true;
     };
     // Run once on mount — auto-connect is a cold-launch concern only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cold launch with a PERSISTED runtime endpoint (the auto-connect effect
+  // above skips this case): the app used to just sit on the recovery splash
+  // for 8s while bootstrap failed, then show a vague "unable to reach server"
+  // screen. Classify the failure with a fast re-probe instead: unreachable or
+  // rejected auth drops straight to the connect screen with a banner saying
+  // why; a switched/alive transport lets bootstrap proceed as usual.
+  React.useEffect(() => {
+    // NOTE: do NOT gate on isConnected here — the persisted store can claim a
+    // stale `isConnected: true` at mount, which would skip the classification
+    // exactly when it's needed. Check it at resolution time instead.
+    if (!isNativeMobileApp || !getRuntimeApiBaseUrl()) return;
+    let cancelled = false;
+    const dropToConnectScreen = (notice: MobileConnectionNotice | null) => {
+      if (notice) setAutoConnectNotice(notice);
+      switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
+      setConnectionEpoch((value) => value + 1);
+    };
+    void reprobeActiveConnection().then(async (outcome) => {
+      if (cancelled) return;
+      // A genuinely live connection established itself while we probed.
+      if (outcome === 'switched' || outcome === 'unchanged') return;
+      const label = getAutoConnectTargetLabel();
+      if (outcome === 'needs-login') {
+        dropToConnectScreen({ kind: 'auth-expired', label: label ?? '' });
+        return;
+      }
+      if (outcome === 'unreachable') {
+        dropToConnectScreen(label ? { kind: 'unreachable', label } : null);
+        return;
+      }
+      // 'no-connection': at cold start the runtime key may not map to a saved
+      // connection yet — fall back to the auto-connect path, which both
+      // classifies the failure and connects when everything is actually fine.
+      const fallback = await autoConnectLastInstance().catch((): AutoConnectOutcome => ({ status: 'no-candidate' }));
+      if (cancelled || fallback.status === 'connected') return;
+      if (fallback.status === 'needs-login') {
+        dropToConnectScreen({ kind: 'auth-expired', label: fallback.label });
+      } else if (fallback.status === 'unreachable') {
+        dropToConnectScreen({ kind: 'unreachable', label: fallback.label });
+      } else {
+        dropToConnectScreen(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Run once on mount — a cold-launch classification only; live drops are
+    // handled by the resume/online re-probe paths.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -985,7 +1046,12 @@ export function MobileApp({ apis }: MobileAppProps) {
       setShowConnectionRecovery(false);
       return;
     }
-    const timeout = window.setTimeout(() => setShowConnectionRecovery(true), 8000);
+    // Native decides faster: the cold-start classification has usually already
+    // resolved by then, so this is the "server picked but bootstrap won't
+    // finish" fallback (e.g. older servers where auth can't be probed).
+    const timeout = window.setTimeout(() => {
+      setShowConnectionRecovery(true);
+    }, isNativeMobileApp ? 4000 : 8000);
     return () => window.clearTimeout(timeout);
   }, [isConnected, isNativeMobileApp, connectionEpoch, runtimeEndpointEpoch]);
 
@@ -1042,7 +1108,9 @@ export function MobileApp({ apis }: MobileAppProps) {
               <>
                 <div className="space-y-2">
                   <h1 className="typography-h3 text-foreground">{t('sessionAuth.error.networkTitle')}</h1>
-                  <p className="typography-body text-muted-foreground">{t('sessionAuth.error.networkDescription')}</p>
+                  {/* Native copy — the browser-oriented sessionAuth description
+                      (Desktop Network Access etc.) reads as noise here. */}
+                  <p className="typography-body text-muted-foreground">{t('mobile.connect.recovery.description')}</p>
                 </div>
                 <Button
                   type="button"
@@ -1082,10 +1150,12 @@ export function MobileApp({ apis }: MobileAppProps) {
       );
     }
     return (
-      <MobileConnectionWelcome
-        onConnected={() => setConnectionEpoch((value) => value + 1)}
-        notice={autoConnectNotice}
-      />
+      <>
+        <MobileConnectionWelcome
+          onConnected={() => setConnectionEpoch((value) => value + 1)}
+          notice={autoConnectNotice}
+        />
+      </>
     );
   }
 

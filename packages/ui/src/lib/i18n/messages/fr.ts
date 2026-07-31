@@ -2623,6 +2623,7 @@ export const dict = {
   'mobile.connect.connecting': 'Connexion...',
   'mobile.connect.notice.unreachable': 'Impossible de joindre {label}. Vérifiez que le serveur est en marche.',
   'mobile.connect.notice.authExpired': 'L\'accès à {label} a expiré ou a été révoqué. Reconnectez-vous.',
+  'mobile.connect.recovery.description': 'Connexion au serveur enregistré impossible. Vérifiez qu\'il est en marche ou choisissez une autre instance.',
   'mobile.connect.scanQr': 'Scanner le code QR',
   'mobile.connect.welcome.scanHint': 'Sur votre ordinateur, ouvrez « Ajouter un appareil » pour afficher un code QR, puis scannez-le ici.',
   'mobile.connect.advanced': 'Avancé',

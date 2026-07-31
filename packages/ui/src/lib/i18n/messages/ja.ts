@@ -58,6 +58,7 @@ export const dict: Record<I18nKey, string> = {
   'mobile.connect.connecting': '接続中...',
   'mobile.connect.notice.unreachable': '{label}に接続できませんでした。サーバーが起動しているか確認してください。',
   'mobile.connect.notice.authExpired': '{label}へのアクセスは期限切れか取り消されました。再度サインインしてください。',
+  'mobile.connect.recovery.description': '保存済みサーバーに接続できませんでした。サーバーが起動しているか確認するか、別のインスタンスを選んでください。',
   'mobile.connect.password.label': 'パスワード',
   'mobile.connect.password.placeholder': 'OpenChamber のパスワード',
   'mobile.connect.unlockButton': 'ロックを解除して接続',

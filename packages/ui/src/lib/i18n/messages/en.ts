@@ -54,6 +54,7 @@ export const dict = {
   'mobile.connect.connecting': 'Connecting...',
   'mobile.connect.notice.unreachable': 'Couldn\'t reach {label}. Check that the server is running.',
   'mobile.connect.notice.authExpired': 'Access to {label} has expired or was revoked. Sign in again.',
+  'mobile.connect.recovery.description': 'Could not connect to the saved server. Check that it is running, or pick another instance.',
   'mobile.connect.scanQr': 'Scan QR code',
   'mobile.connect.welcome.scanHint': 'On your computer, open «Add a device» to show a QR code, then scan it here.',
   'mobile.connect.advanced': 'Advanced',

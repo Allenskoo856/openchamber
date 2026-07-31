@@ -55,6 +55,7 @@ export const dict: Record<I18nKey, string> = {
   "mobile.connect.connecting": "Підключення...",
   "mobile.connect.notice.unreachable": "Не вдалося з'єднатися з {label}. Перевірте, що сервер запущено.",
   "mobile.connect.notice.authExpired": "Доступ до {label} протух або був відкликаний. Увійдіть знову.",
+  "mobile.connect.recovery.description": "Не вдалося з'єднатися зі збереженим сервером. Перевірте, що він запущений, або оберіть інший інстанс.",
   "mobile.connect.scanQr": "Сканувати QR-код",
   "mobile.connect.welcome.scanHint": "На компʼютері відкрийте «Додати пристрій», щоб показати QR-код, і відскануйте його тут.",
   "mobile.connect.advanced": "Додатково",

@@ -55,6 +55,7 @@ export const dict: Record<I18nKey, string> = {
   "mobile.connect.connecting": "Conectando...",
   "mobile.connect.notice.unreachable": "Não foi possível conectar a {label}. Verifique se o servidor está em execução.",
   "mobile.connect.notice.authExpired": "O acesso a {label} expirou ou foi revogado. Entre novamente.",
+  "mobile.connect.recovery.description": "Não foi possível conectar ao servidor salvo. Verifique se ele está em execução ou escolha outra instância.",
   "mobile.connect.scanQr": "Ler código QR",
   "mobile.connect.welcome.scanHint": "No seu computador, abra «Adicionar um dispositivo» para mostrar um código QR e escaneie aqui.",
   "mobile.connect.advanced": "Avançado",

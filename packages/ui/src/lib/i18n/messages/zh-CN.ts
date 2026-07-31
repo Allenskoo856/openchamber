@@ -55,6 +55,7 @@ export const dict: Record<I18nKey, string> = {
   'mobile.connect.connecting': '连接中...',
   'mobile.connect.notice.unreachable': '无法连接到 {label}。请确认服务器正在运行。',
   'mobile.connect.notice.authExpired': '对 {label} 的访问已过期或被撤销。请重新登录。',
+  'mobile.connect.recovery.description': '无法连接到已保存的服务器。请确认它正在运行，或选择其他实例。',
   'mobile.connect.scanQr': '扫描二维码',
   'mobile.connect.welcome.scanHint': '在电脑上打开「添加设备」显示二维码，然后在这里扫描。',
   'mobile.connect.advanced': '高级',

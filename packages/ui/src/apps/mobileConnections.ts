@@ -844,7 +844,12 @@ const probeConnectionCandidates = async (
           continue;
         }
       }
-      const session = await requestWithTimeout(`${url}/auth/session`, { method: 'GET', credentials: 'include', headers }, requestOptions);
+      // With a bearer token, probe EXACTLY the way the runtime authenticates:
+      // bearer-only, no cookies. A leftover valid oc_ui_session cookie in the
+      // WebView otherwise answers "authenticated" for a revoked/expired token,
+      // the probe passes, and the app dies later on bootstrap's bearer-only
+      // requests. Cookie auth stays for the token-less (browser) flow.
+      const session = await requestWithTimeout(`${url}/auth/session`, { method: 'GET', credentials: token ? 'omit' : 'include', headers }, requestOptions);
       if (session?.status === 401) return { status: 'needs-login' };
       if (!session || (!session.ok && session.status !== 404)) continue;
       const status = await readSessionStatus(session);
@@ -993,9 +998,13 @@ export const autoConnectLastInstance = async (): Promise<AutoConnectOutcome> => 
   // already saved. A missing/expired token must go through the login UI.
   let token: string | undefined;
   if (isCapacitorApp()) {
-    if (!candidate.hasToken) return { status: 'no-candidate' };
+    if (!candidate.hasToken) {
+      return { status: 'no-candidate' };
+    }
     token = await readSecureToken(secureTokenKeyOf(candidate));
-    if (!token) return { status: 'no-candidate' };
+    if (!token) {
+      return { status: 'no-candidate' };
+    }
   } else {
     token = candidate.clientToken;
     if (!token) return { status: 'no-candidate' };
@@ -1032,7 +1041,9 @@ export const validateMobileConnectionSession = async (input: {
   const health = await requestWithTimeout(`${url}/health`, { method: 'GET', headers }, requestOptions);
   if (!health?.ok) return false;
 
-  const session = await requestWithTimeout(`${url}/auth/session`, { method: 'GET', credentials: 'include', headers }, requestOptions);
+  // Bearer-only when a token is present — see the probe note about stale
+  // session cookies masking a revoked token.
+  const session = await requestWithTimeout(`${url}/auth/session`, { method: 'GET', credentials: token ? 'omit' : 'include', headers }, requestOptions);
   if (!session || (!session.ok && session.status !== 404)) return false;
 
   const status = await readSessionStatus(session);
@@ -1142,7 +1153,7 @@ export const isActiveRuntimeConnection = (connection: MobileSavedConnection): bo
   return Boolean(runtimeKey) && secureTokenKeyOf(connection) === runtimeKey;
 };
 
-export type ReprobeOutcome = 'switched' | 'unchanged' | 'unreachable' | 'no-connection';
+export type ReprobeOutcome = 'switched' | 'unchanged' | 'unreachable' | 'needs-login' | 'no-connection';
 
 // App-resume re-probe: when the app wakes (Capacitor `isActive`), the network may
 // have changed while it slept, so re-select the active device's transport and
@@ -1176,7 +1187,8 @@ export const reprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
     switchToTransport(better.transport, token, { runtimeKey: secureTokenKeyOf(active) });
     return 'switched';
   }
-  if (better.status === 'needs-login') return 'unreachable';
+  // The shared token was explicitly rejected — no transport will accept it.
+  if (better.status === 'needs-login') return 'needs-login';
 
   // 2. No better transport — is the current one still alive on its live channel?
   if (currentIndex >= 0) {
@@ -1199,6 +1211,7 @@ export const reprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
     switchToTransport(fallback.transport, token, { runtimeKey: secureTokenKeyOf(active) });
     return 'switched';
   }
+  if (fallback.status === 'needs-login') return 'needs-login';
   return 'unreachable';
 };
 

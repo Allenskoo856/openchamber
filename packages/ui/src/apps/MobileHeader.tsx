@@ -70,9 +70,9 @@ export const MobileHeader: React.FC<{
     });
   }, [fetchStatus, git, gitDirectory]);
 
-  const branchLabel = isGitRepo === true
-    ? (gitStatus?.current?.trim() || t('gitView.branch.detachedHead'))
-    : null;
+  // Only a real, resolved branch name — while git status is still loading (or
+  // on a detached HEAD) show nothing rather than a scary placeholder.
+  const branchLabel = isGitRepo === true ? (gitStatus?.current?.trim() || null) : null;
 
   const projectLabel = React.useMemo(() => {
     const directory = normalizePath(effectiveDirectory);

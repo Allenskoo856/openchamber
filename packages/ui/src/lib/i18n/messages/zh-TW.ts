@@ -55,6 +55,7 @@ export const dict: Record<I18nKey, string> = {
   'mobile.connect.connecting': '連線中...',
   'mobile.connect.notice.unreachable': '無法連線至 {label}。請確認伺服器正在執行。',
   'mobile.connect.notice.authExpired': '對 {label} 的存取已過期或被撤銷。請重新登入。',
+  'mobile.connect.recovery.description': '無法連線至已儲存的伺服器。請確認它正在執行，或選擇其他執行個體。',
   'mobile.connect.scanQr': '掃描 QR code',
   'mobile.connect.welcome.scanHint': '在電腦上開啟「新增裝置」顯示 QR 代碼，然後在這裡掃描。',
   'mobile.connect.advanced': '進階',

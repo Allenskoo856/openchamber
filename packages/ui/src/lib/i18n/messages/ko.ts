@@ -55,6 +55,7 @@ export const dict: Record<I18nKey, string> = {
   'mobile.connect.connecting': '연결 중...',
   'mobile.connect.notice.unreachable': '{label}에 연결할 수 없습니다. 서버가 실행 중인지 확인하세요.',
   'mobile.connect.notice.authExpired': '{label} 액세스가 만료되었거나 취소되었습니다. 다시 로그인하세요.',
+  'mobile.connect.recovery.description': '저장된 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인하거나 다른 인스턴스를 선택하세요.',
   'mobile.connect.scanQr': 'QR 코드 스캔',
   'mobile.connect.welcome.scanHint': '컴퓨터에서 「기기 추가」를 열어 QR 코드를 표시한 뒤 여기에서 스캔하세요.',
   'mobile.connect.advanced': '고급',
