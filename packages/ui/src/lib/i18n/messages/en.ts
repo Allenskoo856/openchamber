@@ -186,6 +186,8 @@ export const dict = {
   'mobile.files.copyPathAria': 'Copy file path',
   'mobile.files.copyContent': 'Copy content',
   'mobile.files.copyContentAria': 'Copy file content',
+  'mobile.files.editAria': 'Edit file',
+  'mobile.files.doneEditingAria': 'Done editing',
   'mobile.files.toast.pathCopied': 'Path copied',
   'mobile.files.toast.contentCopied': 'Content copied',
   'mobile.files.toast.copyFailed': 'Copy failed',

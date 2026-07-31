@@ -187,6 +187,8 @@ export const dict: Record<I18nKey, string> = {
   'mobile.files.copyPathAria': '复制文件路径',
   'mobile.files.copyContent': '复制内容',
   'mobile.files.copyContentAria': '复制文件内容',
+  'mobile.files.editAria': '编辑文件',
+  'mobile.files.doneEditingAria': '完成编辑',
   'mobile.files.toast.pathCopied': '路径已复制',
   'mobile.files.toast.contentCopied': '内容已复制',
   'mobile.files.toast.copyFailed': '复制失败',

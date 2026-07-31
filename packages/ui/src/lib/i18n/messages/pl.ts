@@ -188,6 +188,8 @@ export const dict: Record<I18nKey, string> = {
   'mobile.files.copyPathAria': 'Kopiuj ścieżkę pliku',
   'mobile.files.copyContent': 'Kopiuj zawartość',
   'mobile.files.copyContentAria': 'Kopiuj zawartość pliku',
+  'mobile.files.editAria': 'Edytuj plik',
+  'mobile.files.doneEditingAria': 'Zakończ edycję',
   'mobile.files.toast.pathCopied': 'Ścieżka skopiowana',
   'mobile.files.toast.contentCopied': 'Zawartość skopiowana',
   'mobile.files.toast.copyFailed': 'Kopiowanie nie powiodło się',

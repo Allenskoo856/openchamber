@@ -6,7 +6,7 @@ import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 export type OverflowItem = {
-  key: 'files' | 'changes' | 'terminal' | 'mcp' | 'instances' | 'update' | 'settings';
+  key: 'files' | 'changes' | 'terminal' | 'mcp' | 'notes' | 'instances' | 'update' | 'settings';
   icon?: IconName;
   iconNode?: React.ReactNode;
   label: string;

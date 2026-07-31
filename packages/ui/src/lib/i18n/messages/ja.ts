@@ -187,6 +187,8 @@ export const dict: Record<I18nKey, string> = {
   'mobile.files.copyPathAria': 'ファイルパスをコピー',
   'mobile.files.copyContent': '内容をコピー',
   'mobile.files.copyContentAria': 'ファイル内容をコピー',
+  'mobile.files.editAria': 'ファイルを編集',
+  'mobile.files.doneEditingAria': '編集を終了',
   'mobile.files.toast.pathCopied': 'パスをコピーしました',
   'mobile.files.toast.contentCopied': '内容をコピーしました',
   'mobile.files.toast.copyFailed': 'コピーに失敗しました',

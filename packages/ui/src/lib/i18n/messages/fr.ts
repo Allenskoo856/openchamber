@@ -2755,6 +2755,8 @@ export const dict = {
   'mobile.files.copyPathAria': 'Copier le chemin du fichier',
   'mobile.files.copyContent': 'Copier le contenu',
   'mobile.files.copyContentAria': 'Copier le contenu du fichier',
+  'mobile.files.editAria': 'Modifier le fichier',
+  'mobile.files.doneEditingAria': 'Terminer la modification',
   'mobile.files.toast.pathCopied': 'Chemin copié',
   'mobile.files.toast.contentCopied': 'Contenu copié',
   'mobile.files.toast.copyFailed': 'Échec de la copie',

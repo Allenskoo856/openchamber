@@ -187,6 +187,8 @@ export const dict: Record<I18nKey, string> = {
   "mobile.files.copyPathAria": "Скопіювати шлях до файлу",
   "mobile.files.copyContent": "Скопіювати вміст",
   "mobile.files.copyContentAria": "Скопіювати вміст файлу",
+  "mobile.files.editAria": "Редагувати файл",
+  "mobile.files.doneEditingAria": "Завершити редагування",
   "mobile.files.toast.pathCopied": "Шлях скопійовано",
   "mobile.files.toast.contentCopied": "Вміст скопійовано",
   "mobile.files.toast.copyFailed": "Не вдалося скопіювати",

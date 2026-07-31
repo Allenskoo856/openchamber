@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import { OpenChamberLogo } from '@/components/ui/OpenChamberLogo';
 import { ChatView } from '@/components/views/ChatView';
+import { PlanView } from '@/components/views/PlanView';
 import { SettingsView } from '@/components/views/SettingsView';
 import { TerminalView } from '@/components/views/TerminalView';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
@@ -44,6 +45,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { SyncProvider } from '@/sync/sync-context';
 
 import { SyncAppEffects } from './AppEffects';
+import { ProjectContextPanel } from '@/components/layout/RightSidebarTabs';
 import { MobileChangesSurface } from './MobileChangesSurface';
 import { MobileFilesSurface } from './MobileFilesSurface';
 import { BusyDots } from '@/components/chat/message/parts/BusyDots';
@@ -98,7 +100,7 @@ const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
     to the chat. The sessions drawer, the workspace drawer (Changes / Files /
     Terminal tabs on phones), and the overflow menu are separate layers.
     'terminal' is iPad-only here — phones get it as a workspace tab. */
-type MobileSurface = 'terminal' | 'mcp' | 'instances' | 'settings' | 'update';
+type MobileSurface = 'terminal' | 'mcp' | 'notes' | 'instances' | 'settings' | 'update';
 
 const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onActiveConnectionDeleted }) => {
   const { t } = useI18n();
@@ -109,6 +111,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
   const [workspaceTab, setWorkspaceTab] = React.useState<MobileWorkspaceTab>('changes');
   const [isMcpRefreshing, setIsMcpRefreshing] = React.useState(false);
+  // A plan opened from the Project notes surface, shown as a second fullscreen
+  // layer on top of it (back returns to the notes).
+  const [openPlan, setOpenPlan] = React.useState<{ path: string; title: string } | null>(null);
   const [settingsInitialMobileStage, setSettingsInitialMobileStage] = React.useState<'nav' | 'page-content'>('nav');
   const [overflowOpen, setOverflowOpen] = React.useState(false);
   // When set, the Changes surface opens directly into the per-file diff for this path.
@@ -129,6 +134,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const closeSurface = React.useCallback(() => {
     setActiveSurface(null);
     setPendingChangesDiff(null);
+    setOpenPlan(null);
   }, []);
 
   const openSurface = React.useCallback((surface: MobileSurface) => {
@@ -284,12 +290,16 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       closeWorkspace();
       return true;
     }
+    if (openPlan) {
+      setOpenPlan(null);
+      return true;
+    }
     if (activeSurface) {
       closeSurface();
       return true;
     }
     return false;
-  }, [activeSurface, closeSurface, closeWorkspace, overflowOpen, sessionsSheetOpen, workspaceOpen]);
+  }, [activeSurface, closeSurface, closeWorkspace, openPlan, overflowOpen, sessionsSheetOpen, workspaceOpen]);
 
   useNativeAndroidBackButton(handleNativeBack);
 
@@ -357,6 +367,12 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         iconNode: <McpIcon className="size-5 shrink-0 text-muted-foreground" />,
         label: t('mobile.menu.mcp'),
         onSelect: () => openSurface('mcp'),
+      });
+      items.push({
+        key: 'notes',
+        icon: 'sticky-note',
+        label: t('contextRail.surface.notes'),
+        onSelect: () => openSurface('notes'),
       });
       if (showCapacitorOnlyFeatures) {
         items.push({
@@ -608,6 +624,35 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                 hideHeader
                 mobileListDensity
               />
+            </ErrorBoundary>
+          </MobileFullscreenSurface>
+        ) : null}
+
+        {activeSurface === 'notes' ? (
+          <MobileFullscreenSurface
+            open
+            onClose={closeSurface}
+            ariaLabel={t('contextRail.surface.notes')}
+            title={t('contextRail.surface.notes')}
+          >
+            <ErrorBoundary>
+              <ProjectContextPanel
+                onActionComplete={closeSurface}
+                onOpenPlan={setOpenPlan}
+              />
+            </ErrorBoundary>
+          </MobileFullscreenSurface>
+        ) : null}
+
+        {activeSurface === 'notes' && openPlan ? (
+          <MobileFullscreenSurface
+            open
+            onClose={() => setOpenPlan(null)}
+            ariaLabel={openPlan.title}
+            title={openPlan.title}
+          >
+            <ErrorBoundary>
+              <PlanView targetPath={openPlan.path} onNavigatedToChat={closeSurface} />
             </ErrorBoundary>
           </MobileFullscreenSurface>
         ) : null}

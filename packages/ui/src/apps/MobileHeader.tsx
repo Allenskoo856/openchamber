@@ -192,7 +192,7 @@ export const MobileHeader: React.FC<{
               }}
               style={{ touchAction: 'manipulation' }}
             >
-              <Icon name="layout-right" className="size-5" />
+              <Icon name="tools" className="size-5" />
               {workspaceDirty ? (
                 <span className="absolute right-2 top-2 inline-flex size-2 rounded-full bg-primary" aria-hidden />
               ) : null}

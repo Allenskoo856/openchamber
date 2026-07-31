@@ -187,6 +187,8 @@ export const dict: Record<I18nKey, string> = {
   'mobile.files.copyPathAria': '파일 경로 복사',
   'mobile.files.copyContent': '내용 복사',
   'mobile.files.copyContentAria': '파일 내용 복사',
+  'mobile.files.editAria': '파일 편집',
+  'mobile.files.doneEditingAria': '편집 완료',
   'mobile.files.toast.pathCopied': '경로가 복사되었습니다',
   'mobile.files.toast.contentCopied': '내용이 복사되었습니다',
   'mobile.files.toast.copyFailed': '복사하지 못했습니다',
