@@ -248,10 +248,10 @@ export const MainLayout: React.FC = () => {
     }, [mobileLeftDrawerOpen, mobileRightSidebarOpen, setMobileSessionPanelOpen]);
 
     const secondaryView = React.useMemo(() => {
-        // Desktop surfaces live in the context panel; the only full-view
-        // overlays left there are the terminal (promoted by project actions)
-        // and the diagram viewer. Mobile keeps the full tab set.
-        if (!isMobile && activeMainTab !== 'terminal' && activeMainTab !== 'diagram') {
+        // Desktop surfaces live in the context panel; the full-view overlays
+        // are the terminal (promoted by project actions), diagram viewer, and
+        // Workspace lifecycle surface. Mobile keeps the full tab set.
+        if (!isMobile && activeMainTab !== 'terminal' && activeMainTab !== 'diagram' && activeMainTab !== 'workspaces') {
             return null;
         }
         switch (activeMainTab) {

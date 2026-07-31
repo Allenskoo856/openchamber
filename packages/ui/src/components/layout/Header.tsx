@@ -1762,9 +1762,10 @@ export const Header: React.FC<HeaderProps> = ({
 
   useEffect(() => {
     // Project actions may intentionally promote the terminal to the desktop
-    // main view, and diagram clicks open the diagram viewer; every other
-    // legacy main tab now lives in the context panel on desktop.
-    if (!isMobile && activeMainTab !== 'chat' && activeMainTab !== 'terminal' && activeMainTab !== 'diagram') {
+    // main view, diagram clicks open the diagram viewer, and Workspaces is a
+    // desktop lifecycle surface; every other legacy main tab lives in the
+    // context panel on desktop.
+    if (!isMobile && activeMainTab !== 'chat' && activeMainTab !== 'terminal' && activeMainTab !== 'diagram' && activeMainTab !== 'workspaces') {
       setActiveMainTab('chat');
     }
   }, [activeMainTab, isMobile, setActiveMainTab]);
@@ -2027,14 +2028,6 @@ export const Header: React.FC<HeaderProps> = ({
         remoteUpdateError={remoteUpdateError}
         onOpenRemoteUpdate={openRemoteInstanceUpdate}
         timeFormatPreference={timeFormatPreference}
-      />
-      <HeaderIconActionButton
-        visible={!isVSCode}
-        title={t('settings.workspaces.title')}
-        ariaLabel={t('settings.workspaces.title')}
-        onClick={() => setActiveMainTab(activeMainTab === 'workspaces' ? 'chat' : 'workspaces')}
-        pressed={activeMainTab === 'workspaces'}
-        Icon={'shield-check'}
       />
       <DesktopGitHubControl
         isMobile={isMobile}
