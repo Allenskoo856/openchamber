@@ -13,9 +13,11 @@ import updaterPkg from 'electron-updater';
 import { ElectronSshManager } from './ssh-manager.mjs';
 import { createTrayController } from './tray.mjs';
 import { resolveManagedOpenCodeCwd } from './opencode-cwd.mjs';
+import { resolveStartupUrlProbePlan } from './startup-url-selection.mjs';
 import { sanitizeRuntimeRequestHeaders } from './runtime-request-headers.mjs';
 import { assertUpdaterCapability } from './updater-capability.mjs';
 import { checkForDesktopUpdate } from './updater-check.mjs';
+import { resolveUpdaterChannel } from './updater-channel.mjs';
 import { resolveUpdaterFeed } from './updater-feed.mjs';
 import {
   buildLinuxInstalledApps,
@@ -36,6 +38,7 @@ const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isDev = process.env.OPENCHAMBER_ELECTRON_DEV === '1' || !app.isPackaged;
+const electronStartupStartedAt = performance.now();
 
 const DEEP_LINK_PROTOCOL = 'openchamber';
 const UI_PROTOCOL = 'openchamber-ui';
@@ -86,6 +89,13 @@ if (isDev) {
 }
 app.setAppUserModelId(APP_USER_MODEL_ID);
 app.commandLine.appendSwitch('proxy-bypass-list', '<-loopback>');
+// Lift Chromium's ~6-connections-per-host cap for the loopback backend. The
+// packaged renderer is cross-origin (openchamber-ui:// → http://127.0.0.1), so
+// every API call also needs a CORS preflight; during startup a few slow
+// OpenCode-proxied requests otherwise hold the whole pool and every other
+// request — including opening the first session — queues for seconds behind
+// them. Loopback has no per-host connection cost that the cap protects.
+app.commandLine.appendSwitch('ignore-connections-limit', '127.0.0.1,localhost');
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -121,6 +131,32 @@ log.transports.console.level = isDev ? 'debug' : 'warn';
 // the fact. Route all console calls through electron-log so server-side
 // diagnostics are persisted.
 Object.assign(console, log.functions);
+
+const STARTUP_PERF_ENABLED_VALUES = new Set(['1', 'true']);
+const ELECTRON_STARTUP_PERF_PHASES = new Set([
+  'electron.app.ready',
+  'electron.server.start',
+  'electron.server.ready',
+  'electron.navigation.start',
+  'electron.navigation.ready',
+  'electron.renderer.dom-ready',
+  'electron.renderer.loaded',
+  'electron.window.ready-to-show',
+]);
+const ELECTRON_STARTUP_DOCUMENT_CLASSES = new Set(['splash', 'application']);
+const recordElectronStartupPerformance = (phase, details = {}) => {
+  const enabled = STARTUP_PERF_ENABLED_VALUES.has(String(process.env.OPENCHAMBER_STARTUP_PERF ?? '').toLowerCase());
+  if (!enabled || !ELECTRON_STARTUP_PERF_PHASES.has(phase)) return;
+  const event = {
+    phase,
+    at: Date.now(),
+    totalDurationMs: Math.max(0, performance.now() - electronStartupStartedAt),
+  };
+  if (Number.isFinite(details.durationMs) && details.durationMs >= 0) event.durationMs = details.durationMs;
+  if (ELECTRON_STARTUP_DOCUMENT_CLASSES.has(details.documentClass)) event.documentClass = details.documentClass;
+  log.info('[startup-performance]', event);
+};
+const classifyStartupDocument = (url) => String(url || '').startsWith('data:') ? 'splash' : 'application';
 
 const LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 try {
@@ -1367,6 +1403,8 @@ const shouldSkipLocalServer = () => {
 };
 
 const spawnLocalServer = async () => {
+  const serverStartedAt = performance.now();
+  recordElectronStartupPerformance('electron.server.start');
   inheritUserShellEnv();
 
   const settings = readSettingsRoot();
@@ -1450,6 +1488,9 @@ const spawnLocalServer = async () => {
 
   state.serverHandle = handle;
   state.sidecarUrl = url;
+  recordElectronStartupPerformance('electron.server.ready', {
+    durationMs: performance.now() - serverStartedAt,
+  });
 
   await mutateSettingsRoot((root) => {
     root.desktopLocalPort = port;
@@ -1739,8 +1780,19 @@ const isBenignNavigationAbort = (error) => {
 };
 
 const navigateWindow = async (browserWindow, url, { allowAbort = false } = {}) => {
+  const navigationStartedAt = performance.now();
+  const documentClass = classifyStartupDocument(url);
+  if (browserWindow.__ocLabel === 'main') {
+    recordElectronStartupPerformance('electron.navigation.start', { documentClass });
+  }
   try {
     await browserWindow.loadURL(url);
+    if (browserWindow.__ocLabel === 'main') {
+      recordElectronStartupPerformance('electron.navigation.ready', {
+        documentClass,
+        durationMs: performance.now() - navigationStartedAt,
+      });
+    }
   } catch (error) {
     if (allowAbort && isBenignNavigationAbort(error)) {
       return;
@@ -2503,6 +2555,11 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
   });
 
   browserWindow.webContents.on('dom-ready', () => {
+    if (browserWindow.__ocLabel === 'main') {
+      recordElectronStartupPerformance('electron.renderer.dom-ready', {
+        documentClass: classifyStartupDocument(browserWindow.webContents.getURL()),
+      });
+    }
     const initScript = browserWindow.__ocInitScript;
     if (initScript) {
       void browserWindow.webContents.executeJavaScript(initScript).catch(() => {});
@@ -2510,6 +2567,11 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
   });
 
   browserWindow.webContents.on('did-finish-load', () => {
+    if (browserWindow.__ocLabel === 'main') {
+      recordElectronStartupPerformance('electron.renderer.loaded', {
+        documentClass: classifyStartupDocument(browserWindow.webContents.getURL()),
+      });
+    }
     browserWindow.webContents.setZoomFactor(1);
     if (state.mainWindow && browserWindow.id === state.mainWindow.id && pendingDeepLinks.length > 0) {
       const timer = setTimeout(flushPendingDeepLinks, 400);
@@ -2518,6 +2580,11 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
   });
 
   browserWindow.once('ready-to-show', () => {
+    if (browserWindow.__ocLabel === 'main') {
+      recordElectronStartupPerformance('electron.window.ready-to-show', {
+        documentClass: classifyStartupDocument(browserWindow.webContents.getURL()),
+      });
+    }
     browserWindow.show();
     browserWindow.focus();
     if (useVibrancy) applyMacVibrancy(browserWindow);
@@ -2829,16 +2896,22 @@ const resolveInitialUrl = async () => {
   const hmrUiPort = process.env.OPENCHAMBER_HMR_UI_PORT || '5173';
   const hmrApiUrl = `http://127.0.0.1:${hmrApiPort}`;
   const hmrUiUrl = `http://127.0.0.1:${hmrUiPort}`;
+  const usePackagedUi = shouldUsePackagedUi();
   const skipLocalServer = shouldSkipLocalServer();
+  const startupProbePlan = resolveStartupUrlProbePlan({
+    development: isDev,
+    packagedUi: usePackagedUi,
+    skipLocalServer,
+  });
   const localUrl = skipLocalServer
     ? null
-    : isDev && await waitForHealth(hmrApiUrl, 5_000, 100)
+    : startupProbePlan.probeHmrApi && await waitForHealth(hmrApiUrl, 5_000, 100)
       ? hmrApiUrl
       : await spawnLocalServer();
 
-  const localUiUrl = shouldUsePackagedUi()
+  const localUiUrl = usePackagedUi
     ? buildPackagedUiUrl('/index.html')
-    : isDev && await waitForHealth(hmrUiUrl, 8_000, 100)
+    : startupProbePlan.probeHmrUi && await waitForHealth(hmrUiUrl, 8_000, 100)
     ? hmrUiUrl
     : localUrl;
 
@@ -2858,14 +2931,14 @@ const resolveInitialUrl = async () => {
     apiBaseUrl = envTarget;
     clientToken = '';
     requestHeaders = {};
-    initialUrl = shouldUsePackagedUi() ? localUiUrl : envTarget;
+    initialUrl = usePackagedUi ? localUiUrl : envTarget;
   } else if (config.defaultHostId && config.defaultHostId !== LOCAL_HOST_ID) {
     const host = config.hosts.find((entry) => entry.id === config.defaultHostId);
     if (host?.url) {
       apiBaseUrl = host.apiUrl || host.url;
       clientToken = host.clientToken || '';
       requestHeaders = sanitizeRuntimeRequestHeaders(host.requestHeaders || {});
-      initialUrl = shouldUsePackagedUi() ? localUiUrl : host.url;
+      initialUrl = usePackagedUi ? localUiUrl : host.url;
     }
   }
 
@@ -2927,10 +3000,17 @@ const setupAutoUpdater = () => {
   const testBuild = typeof __OPENCHAMBER_UPDATER_E2E_BUILD__ !== 'undefined'
     && __OPENCHAMBER_UPDATER_E2E_BUILD__ === true;
   const feed = resolveUpdaterFeed({ testBuild });
+  const updaterChannel = feed.provider === 'github'
+    ? resolveUpdaterChannel({ platform: process.platform, architecture: process.arch })
+    : null;
+  if (updaterChannel) {
+    autoUpdater.channel = updaterChannel;
+  }
   autoUpdater.setFeedURL(feed);
   log.info('[electron] updater feed configured', {
     provider: feed.provider,
     target: feed.provider === 'github' ? `${feed.owner}/${feed.repo}` : feed.url,
+    channel: updaterChannel || 'latest',
   });
 
   autoUpdater.on('download-progress', (progress) => {
@@ -5086,6 +5166,7 @@ app.on('activate', async () => {
 });
 
 app.whenReady().then(async () => {
+  recordElectronStartupPerformance('electron.app.ready');
   const loginItemSettings = readLoginItemSettings();
   const isBackgroundStart = shouldStartInBackground(loginItemSettings);
   log.info('[electron] app starting', {
