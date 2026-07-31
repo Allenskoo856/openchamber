@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 /** File-mutating tools most often involved in edit loops. */
-export const EDIT_LOOP_TOOLS = new Set([
+const EDIT_LOOP_TOOLS = new Set([
   'edit',
   'write',
   'multiedit',
@@ -24,7 +24,7 @@ const hashText = (value) => createHash('sha256').update(String(value ?? ''), 'ut
 /** Collapse whitespace so trivial reformats count as near-identical. */
 export const normalizeContent = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
-export const extractFilePath = (tool, input, metadata) => {
+const extractFilePath = (tool, input, metadata) => {
   const source = isRecord(input) ? input : {};
   const meta = isRecord(metadata) ? metadata : {};
   const fromInput = typeof source.filePath === 'string' ? source.filePath
@@ -58,7 +58,7 @@ export const extractFilePath = (tool, input, metadata) => {
   return '';
 };
 
-export const extractContentSignature = (tool, input) => {
+const extractContentSignature = (tool, input) => {
   const source = isRecord(input) ? input : {};
   switch (tool) {
     case 'edit':
