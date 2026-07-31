@@ -290,7 +290,10 @@ const SessionRenameForm: React.FC<{
 
   return (
     <form
-      className="flex min-h-10 min-w-0 flex-1 items-center gap-2 py-1 pr-2"
+      // Fixed h-10 (not min-h): the session row is exactly 40px for a
+      // single-line title, and a hard height keeps the rename state identical
+      // no matter what intrinsic size the input/buttons resolve to.
+      className="flex h-10 min-w-0 flex-1 items-center gap-2 pr-2"
       style={{ paddingLeft: indent }}
       onSubmit={(event) => {
         event.preventDefault();
