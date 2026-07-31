@@ -4,6 +4,8 @@ import { togglePermissionAutoAccept } from "../../components/chat/permissionAuto
 const storage = new Map<string, string>()
 const createSessionCalls: Array<{ title?: string; directory: string | null; parentID: string | null; metadata?: unknown }> = []
 const permissionAutoAcceptCalls: Array<[string, boolean]> = []
+const confirmedWorkspaceRoutes: Array<[string, string]> = []
+let registeredRuntimeAPIs: Record<string, unknown> | null = null
 
 const getMockCalls = (fn: unknown): unknown[][] => ((fn as { mock?: { calls: unknown[][] } }).mock?.calls ?? [])
 
@@ -53,6 +55,11 @@ const deferredStorage: Storage = {
 
 mock.module("@/stores/utils/safeStorage", () => ({
   getDeferredSafeStorage: () => deferredStorage,
+  createDeferredSafeJSONStorage: () => ({
+    getItem: () => null,
+    setItem: () => undefined,
+    removeItem: () => undefined,
+  }),
 }))
 
 mock.module("@/lib/opencode/client", () => ({
@@ -107,8 +114,13 @@ mock.module("@/stores/useGlobalSessionsStore", () => ({
     getState: () => ({
       activeSessions: [],
       archivedSessions: [],
+      upsertSession: mock(() => undefined),
     }),
   },
+  rememberConfirmedSessionWorkspaceRoute: mock((sessionID: string, workspaceID: string) => {
+    confirmedWorkspaceRoutes.push([sessionID, workspaceID])
+  }),
+  resolveConfirmedSessionWorkspaceRoute: () => undefined,
   resolveGlobalSessionDirectory: () => null,
 }))
 
@@ -132,6 +144,15 @@ mock.module("@/stores/useSkillsStore", () => ({
   useSkillsStore: {
     getState: () => ({
       skills: [],
+    }),
+  },
+}))
+
+mock.module("@/stores/useUIStore", () => ({
+  useUIStore: {
+    getState: () => ({
+      sessionGoalDefaultBudgetEnabled: false,
+      sessionGoalDefaultBudget: 0,
     }),
   },
 }))
@@ -169,6 +190,14 @@ mock.module("@/lib/runtime-switch", () => ({
 
 mock.module("@/lib/userSendAnimation", () => ({
   markPendingUserSendAnimation: () => undefined,
+}))
+
+mock.module("@/lib/sessionGoalActions", () => ({
+  setSessionGoal: mock(async () => undefined),
+}))
+
+mock.module("@/contexts/runtimeAPIRegistry", () => ({
+  getRegisteredRuntimeAPIs: () => registeredRuntimeAPIs,
 }))
 
 mock.module("../sync-context", () => ({
@@ -242,6 +271,7 @@ mock.module("../session-actions", () => ({
   unrevertSession: mock(async () => undefined),
   forkFromMessage: mock(async () => undefined),
   fetchMessagesForSession: mock(async () => undefined),
+  getSessionLastAssistantModel: () => null,
 }))
 
 const { materializeOpenDraftSession, useSessionUIStore } = await import("../session-ui-store")
@@ -298,6 +328,8 @@ describe("issue 2039 draft auto-accept", () => {
     storage.clear()
     createSessionCalls.length = 0
     permissionAutoAcceptCalls.length = 0
+    confirmedWorkspaceRoutes.length = 0
+    registeredRuntimeAPIs = null
 
     useSessionUIStore.setState({
       currentSessionId: null,
@@ -347,5 +379,82 @@ describe("issue 2039 draft auto-accept", () => {
     expect(result).toBeNull()
     expect(createSessionCalls).toHaveLength(0)
     expect(permissionAutoAcceptCalls).toHaveLength(0)
+  })
+
+  test("materializes a secure draft through the idempotent workspace API", async () => {
+    const startSession = mock(async (input: { operationID: string; directory: string }) => ({
+      status: "completed" as const,
+      operationID: input.operationID,
+      workspaceID: "wrk_secure",
+      sessionID: "ses_secure",
+      session: { id: "ses_secure", directory: input.directory, workspaceID: "wrk_secure" },
+    }))
+    registeredRuntimeAPIs = { workspaces: { startSession } }
+    useSessionUIStore.setState({
+      newSessionDraft: {
+        open: true,
+        selectedProjectId: "project-secure",
+        directoryOverride: "/secure/project",
+        parentID: null,
+        workspaceMode: "secure",
+        workspaceOperationID: null,
+      },
+    })
+
+    const result = await materializeOpenDraftSession({ providerID: "provider", modelID: "model" })
+
+    expect(result?.sessionId).toBe("ses_secure")
+    expect(result?.directory).toBe("/secure/project")
+    expect(createSessionCalls).toHaveLength(0)
+    expect(getMockCalls(startSession)).toHaveLength(1)
+    expect((getMockCalls(startSession)[0]?.[0] as { directory: string }).directory).toBe("/secure/project")
+    expect(confirmedWorkspaceRoutes).toEqual([["ses_secure", "wrk_secure"]])
+  })
+
+  test("retries the same secure operation after bound reauthentication", async () => {
+    const startSession = mock(async (input: { operationID: string; directory: string; reauthProof?: string }) => {
+      if (!input.reauthProof) throw Object.assign(new Error("Reauthentication required"), { code: "WORKSPACE_SESSION_REAUTH_REQUIRED" })
+      return {
+        status: "completed" as const,
+        operationID: input.operationID,
+        workspaceID: "wrk_secure",
+        sessionID: "ses_secure",
+        session: { id: "ses_secure", directory: input.directory, workspaceID: "wrk_secure" },
+      }
+    })
+    const workspaceReauthenticate = mock(async () => ({ proof: "proof", nonce: "nonce", expiresAt: Date.now() + 60_000 }))
+    registeredRuntimeAPIs = { workspaces: { startSession } }
+    useSessionUIStore.setState({
+      newSessionDraft: {
+        open: true,
+        selectedProjectId: "project-secure",
+        directoryOverride: "/secure/project",
+        parentID: null,
+        title: "Secure task",
+        workspaceMode: "secure",
+        workspaceOperationID: null,
+      },
+    })
+
+    await materializeOpenDraftSession({ providerID: "provider", modelID: "model", workspaceReauthenticate })
+
+    const calls = getMockCalls(startSession)
+    expect(calls).toHaveLength(2)
+    expect((calls[0]?.[0] as { operationID: string }).operationID).toBe((calls[1]?.[0] as { operationID: string }).operationID)
+    const retried = calls[1]?.[0] as { reauthProof?: string; reauthNonce?: string }
+    expect(retried.reauthProof).toBe("proof")
+    expect(retried.reauthNonce).toBe("nonce")
+    const reauthInput = getMockCalls(workspaceReauthenticate)[0]?.[0] as {
+      operation: string
+      project: string
+      payload: { directory: string; title: string }
+    }
+    expect(reauthInput.operation).toBe("workspace.session.start")
+    expect(reauthInput.project).toBe("/secure/project")
+    expect(reauthInput.payload).toEqual({
+      operationID: (calls[0]?.[0] as { operationID: string }).operationID,
+      directory: "/secure/project",
+      title: "Secure task",
+    })
   })
 })

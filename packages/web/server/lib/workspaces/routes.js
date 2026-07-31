@@ -12,6 +12,7 @@ import {
 import { buildPluginOptions, readWorkspaceSettings } from './policy.js';
 import { isWorkspacePluginEntry, WORKSPACE_PLUGIN_PACKAGE } from './plugin-identity.js';
 import { createWorkspaceSessionHandoff, WorkspaceHandoffJournal } from './session-handoff.js';
+import { OrdinarySessionJournal, startOrdinaryWorkspaceSession } from './ordinary-session-start.js';
 
 const WORKSPACE_ADAPTER_PROBE_TIMEOUT_MS = 10_000;
 const WORKSPACE_CREATE_STATUS_REQUEST_TIMEOUT_MS = 3_000;
@@ -216,6 +217,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
   const lockRoot = path.join(workspaceDataRoot, 'locks');
   const artifactCache = exportArtifactCache ?? new WorkspaceArtifactCache({ rootDirectory: path.join(openchamberDataDir, 'workspace-exports') });
   const operationJournal = handoffJournal ?? new WorkspaceHandoffJournal({ rootDirectory: path.join(openchamberDataDir, 'workspace-handoffs') });
+  const ordinarySessionJournal = new OrdinarySessionJournal({ rootDirectory: path.join(openchamberDataDir, 'workspace-sessions') });
   const settingsTransactionFile = path.join(openchamberDataDir, 'workspace-settings-transaction.json');
   let settingsMutationQueue = Promise.resolve();
 
@@ -525,6 +527,30 @@ export function registerWorkspaceRoutes(app, dependencies) {
   };
   app.post('/api/workspaces/create', handleWorkspaceCreate);
   app.post('/api/experimental/workspace', handleWorkspaceCreate);
+
+  app.post('/api/workspaces/sessions/start', async (req, res) => {
+    const operationID = typeof req.body?.operationID === 'string' ? req.body.operationID : '';
+    const directory = typeof req.body?.directory === 'string' ? req.body.directory.trim() : '';
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 200) : '';
+    const authorization = await authorizeCapabilityRequest(req, res, 'workspace.use');
+    if (!authorization) return;
+    try {
+      const context = await persistedContext(directory, null);
+      const provider = context.settings.defaultProvider;
+      const payload = { operationID, directory: context.directory, title };
+      const result = await startOrdinaryWorkspaceSession({ operationID, principal: authorization.principal, directory: context.directory, projectID: context.project.id, title, provider, client: await sdkClient(context.directory), journal: ordinarySessionJournal, maxAttempts: workspaceCreateStatusMaxAttempts, pollIntervalMs: workspaceCreateStatusPollIntervalMs, authorizeCreation: async () => {
+        const capabilities = Array.isArray(authorization.context?.client?.capabilities) ? authorization.context.client.capabilities : [];
+        if (authorization.context?.type !== 'session' && !capabilities.includes('workspace.admin')) throw Object.assign(new Error('Client capability required: workspace.admin'), { statusCode: 403, code: 'WORKSPACE_SESSION_UNAUTHORIZED' });
+        if (!await uiAuthController.consumeReauthProof(req, { operation: 'workspace.session.start', project: context.directory, bodyHash: reauthBodyHash(payload) })) {
+          throw Object.assign(new Error('Reauthentication required'), { statusCode: 428, code: 'WORKSPACE_SESSION_REAUTH_REQUIRED' });
+        }
+        return true;
+      } });
+      return res.status(result.status === 'completed' ? 201 : 202).json(result);
+    } catch (error) {
+      return res.status(error?.statusCode || 409).json({ code: error?.code || 'WORKSPACE_SESSION_START_FAILED', message: safeErrorMessage(error, 'Failed to start workspace session'), retryable: error?.retryable === true || error?.statusCode === 428, operationID, ...(error?.workspaceID ? { workspaceID: error.workspaceID } : {}), ...(error?.sessionID ? { sessionID: error.sessionID } : {}) });
+    }
+  });
 
   const handleWorkspaceCleanup = async (req, res) => {
     const id = typeof req.params?.id === 'string' ? req.params.id : '';

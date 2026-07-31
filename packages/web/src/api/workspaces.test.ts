@@ -45,4 +45,17 @@ describe('web workspace security API', () => {
     expect(runtimeFetch).toHaveBeenNthCalledWith(1, '/api/workspaces/handoffs/draft', expect.objectContaining({ method: 'POST', body: JSON.stringify(operation.binding) }));
     expect(runtimeFetch).toHaveBeenNthCalledWith(2, '/api/workspaces/handoffs/operation-1/commit', expect.objectContaining({ method: 'POST', body: JSON.stringify(commit) }));
   });
+
+  it('preserves structured reauthentication errors and proof headers', async () => {
+    runtimeFetch.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'WORKSPACE_SESSION_REAUTH_REQUIRED', message: 'Reauthentication required', retryable: true, operationID: 'op-1' }), { status: 428 }));
+    const { createWebWorkspaceSecurityAPI } = await import('./workspaces');
+    const api = createWebWorkspaceSecurityAPI();
+    await expect(api.startSession({ operationID: 'op-1', directory: '/project', title: 'Draft' })).rejects.toMatchObject({ code: 'WORKSPACE_SESSION_REAUTH_REQUIRED', status: 428, operationID: 'op-1', retryable: true });
+
+    runtimeFetch.mockResolvedValueOnce(new Response(JSON.stringify({ status: 'completed', operationID: 'op-1', workspaceID: 'workspace-1', session: { id: 'session-1', workspaceID: 'workspace-1' } }), { status: 201 }));
+    await api.startSession({ operationID: 'op-1', directory: '/project', title: 'Draft', reauthProof: 'proof', reauthNonce: 'nonce' });
+    expect(runtimeFetch).toHaveBeenLastCalledWith('/api/workspaces/sessions/start', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-OpenChamber-Reauth-Proof': 'proof', 'X-OpenChamber-Reauth-Nonce': 'nonce' }),
+    }));
+  });
 });

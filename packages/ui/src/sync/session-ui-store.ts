@@ -14,13 +14,15 @@
 
 import { create } from "zustand"
 import type { Session, Part, Message, TextPart } from "@opencode-ai/sdk/v2/client"
+import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry'
 import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } from "@/stores/types/sessionTypes"
 import type { WorktreeMetadata } from "@/types/worktree"
+import type { WorkspaceReauthProofResult, WorkspaceSessionStartResult } from '@/lib/api/types'
 import { opencodeClient } from "@/lib/opencode/client"
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { useConfigStore } from "@/stores/useConfigStore"
 import { useProjectsStore } from "@/stores/useProjectsStore"
-import { useGlobalSessionsStore, resolveConfirmedSessionWorkspaceRoute, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
+import { useGlobalSessionsStore, rememberConfirmedSessionWorkspaceRoute, resolveConfirmedSessionWorkspaceRoute, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
 import { useDirectoryStore } from "@/stores/useDirectoryStore"
 import { useSessionFoldersStore } from "@/stores/useSessionFoldersStore"
 import { useCommandsStore } from "@/stores/useCommandsStore"
@@ -210,6 +212,8 @@ type SendMessageOptions = {
   sessionId?: string
   directory?: string
   delivery?: 'steer'
+  workspaceReauthenticate?: (input: { operation: 'workspace.session.start'; project: string; payload: Record<string, unknown> }) => Promise<WorkspaceReauthProofResult | null>
+  workspaceProgress?: (phase: 'preparing' | 'connecting' | 'creating' | 'opening' | null) => void
 }
 
 type AssistantMessageSessionExecution = {
@@ -247,6 +251,8 @@ export type NewSessionDraftState = {
   initialPrompt?: string
   syntheticParts?: SyntheticContextPart[]
   targetFolderId?: string
+  workspaceMode?: 'host' | 'secure'
+  workspaceOperationID?: string | null
 }
 
 export type ViewportAnchor = {
@@ -294,6 +300,8 @@ export type SessionUIState = {
   openNewSessionDraft: (options?: Partial<NewSessionDraftState>) => void
   closeNewSessionDraft: () => void
   setNewSessionDraftTarget: (target: { projectId?: string | null; selectedProjectId?: string | null; directoryOverride?: string | null }, options?: { force?: boolean }) => void
+  setNewSessionWorkspaceMode: (mode: 'host' | 'secure') => void
+  setNewSessionWorkspaceOperationID: (operationID: string | null) => void
   setDraftPreserveDirectoryOverride: (value: boolean) => void
   setDraftPermissionAutoAcceptEnabled: (enabled: boolean) => void
   acknowledgeSessionAbort: (sessionId: string) => void
@@ -422,6 +430,8 @@ const DEFAULT_DRAFT: NewSessionDraftState = {
   open: false,
   directoryOverride: null,
   parentID: null,
+  workspaceMode: 'host',
+  workspaceOperationID: null,
 }
 
 const activeSessionByRuntime = new Map<string, string | null>()
@@ -433,6 +443,7 @@ type RuntimeSessionMemory = {
   availableWorktreesByProject: Map<string, WorktreeMetadata[]>
 }
 const runtimeSessionMemory = new Map<string, RuntimeSessionMemory>()
+const workspaceStartInFlight = new Map<string, Promise<WorkspaceSessionStartResult>>()
 
 const runtimeMemoryKey = (value?: string | null): string => {
   const key = (value ?? getRuntimeKey()).trim()
@@ -483,6 +494,8 @@ export async function materializeOpenDraftSession(selection: {
   modelID: string
   agent?: string
   variant?: string
+  workspaceReauthenticate?: SendMessageOptions['workspaceReauthenticate']
+  workspaceProgress?: SendMessageOptions['workspaceProgress']
 }): Promise<MaterializedDraftSession | null> {
   const store = useSessionUIStore.getState()
   const draft = store.newSessionDraft
@@ -502,7 +515,41 @@ export async function materializeOpenDraftSession(selection: {
 
   await waitForWorktreeBootstrapIfConfigured(draftDirectoryOverride, draftProjectId)
 
-  const created = await store.createSession(draft.title, draftDirectoryOverride, draft.parentID ?? null)
+  let created: Session | null
+  if (draft.workspaceMode === 'secure') {
+    selection.workspaceProgress?.('preparing')
+    const workspaceAPI = getRegisteredRuntimeAPIs()?.workspaces
+    if (!workspaceAPI || !draftDirectoryOverride) throw new Error('Secure Workspace requires a project directory')
+    const operationID = draft.workspaceOperationID ?? crypto.randomUUID()
+    store.setNewSessionWorkspaceOperationID(operationID)
+    selection.workspaceProgress?.('creating')
+    let startPromise = workspaceStartInFlight.get(operationID)
+    if (!startPromise) {
+      startPromise = (async () => {
+        try {
+          return await workspaceAPI.startSession({ operationID, directory: draftDirectoryOverride, title: draft.title })
+        } catch (error) {
+          const structured = error as { code?: string }
+          if (structured.code !== 'WORKSPACE_SESSION_REAUTH_REQUIRED' || !selection.workspaceReauthenticate) throw error
+          const proof = await selection.workspaceReauthenticate({ operation: 'workspace.session.start', project: draftDirectoryOverride, payload: { operationID, directory: draftDirectoryOverride, title: draft.title ?? '' } })
+          if (!proof) throw error
+          return workspaceAPI.startSession({ operationID, directory: draftDirectoryOverride, title: draft.title, reauthProof: proof.proof, reauthNonce: proof.nonce })
+        }
+      })()
+      workspaceStartInFlight.set(operationID, startPromise)
+      void startPromise.then(() => workspaceStartInFlight.delete(operationID), () => workspaceStartInFlight.delete(operationID))
+    }
+    const result = await startPromise
+    selection.workspaceProgress?.(result.status === 'completed' ? 'opening' : 'connecting')
+    if (result.status !== 'completed' || !result.session) throw new Error('Secure Workspace session is not ready')
+    created = result.session
+    const confirmedWorkspaceID = result.workspaceID ?? created.workspaceID
+    if (confirmedWorkspaceID) rememberConfirmedSessionWorkspaceRoute(created.id, confirmedWorkspaceID)
+    useGlobalSessionsStore.getState().upsertSession(created)
+    store.setNewSessionDraftTarget({ directoryOverride: draftDirectoryOverride })
+  } else {
+    created = await store.createSession(draft.title, draftDirectoryOverride, draft.parentID ?? null)
+  }
   if (!created?.id) throw new Error("Failed to create session")
 
   persistDraftTarget({
@@ -862,6 +909,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
           ...s.newSessionDraft,
           selectedProjectId: target.projectId ?? target.selectedProjectId ?? s.newSessionDraft.selectedProjectId,
           directoryOverride: target.directoryOverride ?? s.newSessionDraft.directoryOverride,
+          workspaceOperationID: (target.directoryOverride !== undefined || target.projectId !== undefined || target.selectedProjectId !== undefined)
+            ? null
+            : s.newSessionDraft.workspaceOperationID,
         },
       }
     })
@@ -871,6 +921,13 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       useDirectoryStore.getState().setDirectory(nextDirectory)
     }
   },
+
+  setNewSessionWorkspaceMode: (mode) => set((s) => ({
+    newSessionDraft: { ...s.newSessionDraft, workspaceMode: mode, workspaceOperationID: null },
+  })),
+  setNewSessionWorkspaceOperationID: (operationID) => set((s) => ({
+    newSessionDraft: { ...s.newSessionDraft, workspaceOperationID: operationID },
+  })),
 
   setDraftPreserveDirectoryOverride: (value) =>
     set((s) => {
@@ -1123,6 +1180,8 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         modelID,
         agent: trimmedAgent,
         variant,
+        workspaceReauthenticate: options?.workspaceReauthenticate,
+        workspaceProgress: options?.workspaceProgress,
       })
       if (!createdDraftSession) throw new Error("Failed to create session")
 

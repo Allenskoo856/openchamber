@@ -1660,6 +1660,7 @@ const MobileOverflowMenu: React.FC<{
         {items.map((item, index) => (
           <button
             key={item.key}
+            data-testid={`mobile-menu-${item.key}`}
             type="button"
             role="menuitem"
             className={cn(
@@ -2049,6 +2050,7 @@ const MobileHeader: React.FC<{
           ) : null}
 
           <button
+            data-testid="mobile-menu"
             type="button"
             className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={t('mobile.header.openMenuAria')}

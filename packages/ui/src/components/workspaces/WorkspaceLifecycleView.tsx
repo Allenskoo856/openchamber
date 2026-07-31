@@ -533,7 +533,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
         <div className="flex flex-wrap items-center gap-2">
           <ProviderBadge provider={selectedWorkspace?.type ?? policy.provider} />
           {selectedWorkspace ? <StatusBadge status={selectedStatus} /> : null}
-          <Button size="sm" variant="outline" onClick={() => void loadWorkspaces()} disabled={busy}>{t('settings.workspaces.export.load')}</Button>
+          <Button size="sm" variant="outline" data-testid="workspace-load" onClick={() => void loadWorkspaces()} disabled={busy}>{t('settings.workspaces.export.load')}</Button>
           <Button size="sm" variant="ghost" onClick={openSettings}>{t('gitView.pr.actions.openSettings')}</Button>
         </div>
       </header>
@@ -543,7 +543,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
           <section className="min-w-0 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="typography-ui-label font-semibold text-foreground">{t('settings.workspaces.lifecycle.title')}</h2>
-              <Button size="sm" onClick={() => void createWorkspace()} disabled={busy || adminBlocked || !configured || !directory}>{t('settings.workspaces.lifecycle.create')}</Button>
+              <Button size="sm" data-testid="workspace-create" onClick={() => void createWorkspace()} disabled={busy || adminBlocked || !configured || !directory}>{t('settings.workspaces.lifecycle.create')}</Button>
             </div>
             {initialLoading ? <p className="typography-meta text-muted-foreground">{t('common.loading')}</p> : null}
             {!initialLoading && !configured ? (
@@ -558,6 +558,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
                 const selected = workspace.id === selectedWorkspaceID;
                 return (
                   <button
+                    data-testid="workspace-row"
                     key={workspace.id}
                     type="button"
                     className={cn('flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary', selected ? 'border-[var(--interactive-border)] bg-interactive-selection text-interactive-selection-foreground' : 'border-border hover:bg-interactive-hover')}
@@ -586,11 +587,11 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="mr-auto typography-ui-label font-semibold text-foreground">{selectedWorkspace.name || selectedWorkspace.id}</h2>
-                  <Button size="sm" onClick={() => void startSession()} disabled={busy || selectedStatus !== 'connected'}>{t('settings.workspaces.lifecycle.startSession')}</Button>
+                  <Button size="sm" data-testid="workspace-start-session" onClick={() => void startSession()} disabled={busy || selectedStatus !== 'connected'}>{t('settings.workspaces.lifecycle.startSession')}</Button>
                    <Button size="sm" variant="outline" onClick={() => void createHandoffDraft(selectedWorkspace.id)} disabled={busy || handoffBusy || !currentSessionID || selectedStatus !== 'connected'}>{t('settings.workspaces.handoff.continueWorkspace')}</Button>
                    <Button size="sm" variant="outline" onClick={() => void createHandoffDraft(null)} disabled={busy || handoffBusy || !currentSessionID}>{t('settings.workspaces.handoff.continueHost')}</Button>
                   <Button size="sm" variant="outline" onClick={() => void reconcileSelectedWorkspace()} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.reconcile')}</Button>
-                  <Button size="sm" variant="destructive" onClick={() => setRemoveWorkspaceID(selectedWorkspace.id)} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.delete')}</Button>
+                   <Button size="sm" variant="destructive" data-testid="workspace-delete" onClick={() => setRemoveWorkspaceID(selectedWorkspace.id)} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.delete')}</Button>
                 </div>
                  {!currentSessionID ? <p className="typography-meta text-muted-foreground">{t('settings.workspaces.handoff.noCurrentSession')}</p> : null}
               </div>
@@ -602,7 +603,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
                   <h2 className="typography-ui-label font-semibold text-foreground">{t('settings.workspaces.export.title')}</h2>
                   <p className="typography-meta text-muted-foreground">{t('settings.workspaces.export.description')}</p>
                 </div>
-                <Button size="sm" onClick={() => void exportSelectedWorkspace()} disabled={busy || adminBlocked || !selectedWorkspaceID}>{t('settings.workspaces.export.review')}</Button>
+                <Button size="sm" data-testid="workspace-export-review" onClick={() => void exportSelectedWorkspace()} disabled={busy || adminBlocked || !selectedWorkspaceID}>{t('settings.workspaces.export.review')}</Button>
               </div>
               {artifactReview ? (
                 <div className="space-y-3">
@@ -637,13 +638,13 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
               ) : null}
               {exportID ? (
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => void applyExport(true)} disabled={applyBusy || applyBlocked || selections.length === 0}>{t('settings.workspaces.export.check')}</Button>
+                  <Button size="sm" variant="outline" data-testid="workspace-apply-dry-run" onClick={() => void applyExport(true)} disabled={applyBusy || applyBlocked || selections.length === 0}>{t('settings.workspaces.export.check')}</Button>
                   <Button size="sm" onClick={() => void applyExport(false)} disabled={applyBusy || applyBlocked || selections.length === 0}>{t('settings.workspaces.export.apply')}</Button>
                   <Button size="sm" variant="outline" onClick={() => void downloadExport()} disabled={applyBusy || adminBlocked}>{t('settings.workspaces.export.download')}</Button>
-                  <Button size="sm" variant="ghost" onClick={() => void discardExport()} disabled={applyBusy || adminBlocked}>{t('settings.workspaces.export.discard')}</Button>
+                  <Button size="sm" variant="ghost" data-testid="workspace-export-discard" onClick={() => void discardExport()} disabled={applyBusy || adminBlocked}>{t('settings.workspaces.export.discard')}</Button>
                 </div>
               ) : null}
-              {applyMessage ? <p className="typography-meta text-muted-foreground" role="status">{applyMessage}</p> : null}
+              {applyMessage ? <p className="typography-meta text-muted-foreground" role="status" data-testid="workspace-apply-message">{applyMessage}</p> : null}
             </div>
           </section>
         </div>
@@ -660,7 +661,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       <Dialog open={removeWorkspaceID !== null} onOpenChange={(open) => { if (!open && !busy) setRemoveWorkspaceID(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{t('settings.workspaces.lifecycle.confirmDeleteTitle')}</DialogTitle><DialogDescription>{policy.preserveOnDelete ? t('settings.workspaces.lifecycle.confirmDeletePreserve') : t('settings.workspaces.lifecycle.confirmDelete')}</DialogDescription></DialogHeader>
-          <DialogFooter><Button variant="ghost" onClick={() => setRemoveWorkspaceID(null)} disabled={busy}>{t('settings.common.actions.cancel')}</Button><Button variant="destructive" onClick={() => void confirmRemoveWorkspace()} disabled={busy}>{t('settings.workspaces.lifecycle.delete')}</Button></DialogFooter>
+          <DialogFooter><Button variant="ghost" onClick={() => setRemoveWorkspaceID(null)} disabled={busy}>{t('settings.common.actions.cancel')}</Button><Button variant="destructive" data-testid="workspace-delete-confirm" onClick={() => void confirmRemoveWorkspace()} disabled={busy}>{t('settings.workspaces.lifecycle.delete')}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={handoff !== null} onOpenChange={(open) => { if (!open && !handoffBusy) { setHandoff(null); setHandoffText(''); setHandoffError(''); } }}>

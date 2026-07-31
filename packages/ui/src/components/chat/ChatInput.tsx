@@ -51,6 +51,9 @@ import { MobileModelButton } from './MobileModelButton';
 import { MobileSessionStatusBar } from './MobileSessionStatusBar';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { toast } from '@/components/ui';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 // useMessageStore removed — messages now come from sync system
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { isIMECompositionEvent } from '@/lib/ime';
@@ -68,6 +71,7 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useCommandsStore } from '@/stores/useCommandsStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
+import type { WorkspaceReauthProofResult } from '@/lib/api/types';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { usePermissionStore } from '@/stores/permissionStore';
 import { togglePermissionAutoAccept } from './permissionAutoAccept';
@@ -313,6 +317,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         s.newSessionDraft?.open ? s.newSessionDraft.permissionAutoAcceptEnabled === true : false
     ));
     const setNewSessionDraftTarget = useSessionUIStore((s) => s.setNewSessionDraftTarget);
+    const setNewSessionWorkspaceMode = useSessionUIStore((s) => s.setNewSessionWorkspaceMode);
     const setDraftPermissionAutoAcceptEnabled = useSessionUIStore((s) => s.setDraftPermissionAutoAcceptEnabled);
     const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
     const abortPromptSessionId = useSessionUIStore((s) => s.abortPromptSessionId);
@@ -334,6 +339,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const currentManagementSessionId = currentSessionId;
     const [reviewDialogOpen, setReviewDialogOpen] = React.useState(false);
     const [reviewFlowSubmitting, setReviewFlowSubmitting] = React.useState(false);
+    const [workspaceReauth, setWorkspaceReauth] = React.useState<{
+        project: string;
+        payload: Record<string, unknown>;
+        resolve: (proof: WorkspaceReauthProofResult | null) => void;
+    } | null>(null);
+    const [workspaceReauthPassword, setWorkspaceReauthPassword] = React.useState('');
+    const [workspaceReauthBusy, setWorkspaceReauthBusy] = React.useState(false);
+    const [workspaceReauthError, setWorkspaceReauthError] = React.useState('');
+    const [workspaceProgress, setWorkspaceProgress] = React.useState<'preparing' | 'connecting' | 'creating' | 'opening' | null>(null);
+    const [workspaceRecovery, setWorkspaceRecovery] = React.useState<{ code: string; message: string } | null>(null);
+    const workspaceSubmitInFlightRef = React.useRef(false);
 
     const currentProviderId = useConfigStore((state) => state.currentProviderId);
     const currentModelId = useConfigStore((state) => state.currentModelId);
@@ -357,7 +373,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const isExpandedInput = useUIStore((state) => state.isExpandedInput);
     const setExpandedInput = useUIStore((state) => state.setExpandedInput);
     const setTimelineDialogOpen = useUIStore((state) => state.setTimelineDialogOpen);
-    const { git: runtimeGit, vscode: vscodeApi } = useRuntimeAPIs();
+    const runtimeAPIs = useRuntimeAPIs();
+    const { git: runtimeGit, vscode: vscodeApi } = runtimeAPIs;
     const cycleAgentShortcutOverride = useUIStore((state) => state.shortcutOverrides.cycle_agent);
     const cycleAgentShortcut = React.useMemo(() => (
         getEffectiveShortcutCombo('cycle_agent', cycleAgentShortcutOverride ? { cycle_agent: cycleAgentShortcutOverride } : undefined)
@@ -997,7 +1014,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
 
-        const sendMessageOptions = delivery ? { delivery } : undefined;
+        const requestWorkspaceReauth = async (input: { operation: 'workspace.session.start'; project: string; payload: Record<string, unknown> }) => {
+            if (!runtimeAPIs.workspaces) return null;
+            try {
+                return await runtimeAPIs.workspaces.reauthenticate(input);
+            } catch {
+                return new Promise<WorkspaceReauthProofResult | null>((resolve) => {
+                    setWorkspaceReauthPassword('');
+                    setWorkspaceReauthError('');
+                    setWorkspaceReauth({ project: input.project, payload: input.payload, resolve });
+                });
+            }
+        };
+        const secureWorkspaceDraft = newSessionDraft?.workspaceMode === 'secure';
+        const sendMessageOptions = delivery || secureWorkspaceDraft
+            ? { delivery, workspaceReauthenticate: requestWorkspaceReauth, workspaceProgress: setWorkspaceProgress }
+            : undefined;
 
         // Inline review comments and synthetic context are consumed before
         // assembly so a failed send can restore exactly what it took.
@@ -1111,6 +1143,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             if (command && commandIsAvailable) {
                 const variables = buildCommandVariables(command, argument);
                 try {
+                    if (secureWorkspaceDraft && workspaceSubmitInFlightRef.current) return;
+                    if (secureWorkspaceDraft) {
+                        workspaceSubmitInFlightRef.current = true;
+                        setWorkspaceRecovery(null);
+                    }
                     await sessionActions.waitForConnectionOrThrow();
                     const visibleText = await renderMagicPrompt(command.visiblePrompt, variables.visible);
                     const instructionsText = await renderMagicPrompt(command.instructionsPrompt, variables.instructions);
@@ -1129,6 +1166,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     scrollToBottom?.();
                 } catch (error) {
                     toast.error(error instanceof Error ? error.message : t(command.errorToastKey));
+                } finally {
+                    if (secureWorkspaceDraft) {
+                        workspaceSubmitInFlightRef.current = false;
+                        setWorkspaceProgress(null);
+                    }
                 }
                 return;
             }
@@ -1164,6 +1206,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             ...additionalParts.flatMap(p => p.attachments ?? []),
         ];
 
+        if (secureWorkspaceDraft && workspaceSubmitInFlightRef.current) return;
+        if (secureWorkspaceDraft) {
+            workspaceSubmitInFlightRef.current = true;
+            setWorkspaceRecovery(null);
+        }
         const sendPromise = sendMessage(
             primaryText,
             providerIdToSend,
@@ -1199,6 +1246,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 setLinkedPr(null);
             }
         }).catch((error: unknown) => {
+            const structuredCode = typeof error === 'object' && error !== null && 'code' in error
+                ? String((error as { code?: unknown }).code ?? '')
+                : '';
             const rawMessage =
                 error instanceof Error
                     ? error.message
@@ -1235,6 +1285,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 return;
             }
 
+            if (structuredCode === 'WORKSPACE_SESSION_PARTIAL' || structuredCode === 'WORKSPACE_SESSION_CONNECTION_TIMEOUT') {
+                setWorkspaceRecovery({ code: structuredCode, message: rawMessage });
+                toast.error(t('settings.workspaces.newSession.partial'));
+                return;
+            }
+
             if (isSoftNetworkError) {
                 if (allAttachments.length > 0) {
                     useInputStore.getState().setAttachedFiles(allAttachments);
@@ -1247,6 +1303,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 useInputStore.getState().setAttachedFiles(allAttachments);
             }
             toast.error(rawMessage || t('chat.chatInput.toast.messageSendFailed'));
+        }).finally(() => {
+            setWorkspaceProgress(null);
+            workspaceSubmitInFlightRef.current = false;
         });
 
         if (!isMobile) {
@@ -2357,6 +2416,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         };
     }, []);
 
+    const confirmWorkspaceReauth = async () => {
+        if (!workspaceReauth || !runtimeAPIs.workspaces || workspaceReauthBusy) return;
+        setWorkspaceReauthBusy(true);
+        setWorkspaceReauthError('');
+        try {
+            const proof = await runtimeAPIs.workspaces.reauthenticate({ operation: 'workspace.session.start', project: workspaceReauth.project, payload: workspaceReauth.payload, password: workspaceReauthPassword });
+            workspaceReauth.resolve(proof);
+            setWorkspaceReauth(null);
+            setWorkspaceReauthPassword('');
+        } catch (error) {
+            setWorkspaceReauthError(error instanceof Error ? error.message : t('settings.workspaces.reauth.failed'));
+        } finally {
+            setWorkspaceReauthBusy(false);
+        }
+    };
+
     return (
         <>
         <form
@@ -2380,6 +2455,38 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                             draftProjectLabel,
                         )}
                     </h1>
+                </div>
+            ) : null}
+            {newSessionDraftOpen && newSessionDraft?.workspaceMode === 'secure' && !selectedDraftDirectory ? (
+                <p className="chat-input-column mb-2 text-center typography-meta text-muted-foreground" role="status">{t('settings.workspaces.newSession.chooseProject')}</p>
+            ) : null}
+            {newSessionDraftOpen && !isVSCode ? (
+                <div className="chat-input-column mb-3 flex flex-wrap items-center justify-center gap-2" role="group" aria-label={t('settings.workspaces.title')}>
+                    <Button type="button" size="sm" variant="chip" data-testid="workspace-mode-host" aria-pressed={newSessionDraft?.workspaceMode !== 'secure'} onClick={() => setNewSessionWorkspaceMode('host')}>
+                        {t('settings.workspaces.newSession.host')}
+                    </Button>
+                    <Button type="button" size="sm" variant="chip" data-testid="workspace-mode-secure" aria-pressed={newSessionDraft?.workspaceMode === 'secure'} onClick={() => setNewSessionWorkspaceMode('secure')} disabled={!selectedDraftDirectory}>
+                        {t('settings.workspaces.newSession.secure')}
+                    </Button>
+                </div>
+            ) : null}
+            {workspaceProgress ? (
+                <div className="chat-input-column mb-2 text-center typography-meta text-muted-foreground" role="status">
+                    {workspaceProgress === 'preparing'
+                        ? t('settings.workspaces.newSession.phasePreparing')
+                        : workspaceProgress === 'connecting'
+                            ? t('settings.workspaces.newSession.phaseConnecting')
+                            : workspaceProgress === 'creating'
+                                ? t('settings.workspaces.newSession.phaseCreating')
+                                : t('settings.workspaces.newSession.phaseOpening')}
+                </div>
+            ) : null}
+            {workspaceRecovery ? (
+                <div className="chat-input-column mb-3 flex flex-wrap items-center justify-center gap-2" role="alert">
+                    <span className="typography-meta text-[var(--status-warning)]">{t('settings.workspaces.newSession.partial')}</span>
+                    <Button type="submit" size="sm" variant="outline" data-testid="workspace-session-retry" disabled={workspaceProgress !== null}>
+                        {t('settings.workspaces.newSession.retry')}
+                    </Button>
                 </div>
             ) : null}
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
@@ -2726,6 +2833,25 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 />
             ) : null}
         </form>
+        <Dialog open={workspaceReauth !== null} onOpenChange={(open) => {
+            if (!open && !workspaceReauthBusy) {
+                workspaceReauth?.resolve(null);
+                setWorkspaceReauth(null);
+            }
+        }}>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle>{t('settings.workspaces.reauth.title')}</DialogTitle>
+                    <DialogDescription>{t('settings.workspaces.reauth.prompt')}</DialogDescription>
+                </DialogHeader>
+                <Input type="password" autoComplete="current-password" value={workspaceReauthPassword} onChange={(event) => setWorkspaceReauthPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void confirmWorkspaceReauth(); }} placeholder={t('sessionAuth.password.placeholder')} aria-label={t('sessionAuth.password.placeholder')} disabled={workspaceReauthBusy} autoFocus />
+                {workspaceReauthError ? <p className="typography-meta text-[var(--status-error)]" role="alert">{workspaceReauthError}</p> : null}
+                <DialogFooter>
+                    <Button variant="ghost" onClick={() => { workspaceReauth?.resolve(null); setWorkspaceReauth(null); }} disabled={workspaceReauthBusy}>{t('settings.common.actions.cancel')}</Button>
+                    <Button size="sm" onClick={() => void confirmWorkspaceReauth()} disabled={workspaceReauthBusy}>{t('settings.workspaces.reauth.confirm')}</Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
 
         {/* Issue Picker Dialog */}
         <GitHubIssuePickerDialog

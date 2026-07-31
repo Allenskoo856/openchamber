@@ -21,6 +21,9 @@ export const createVSCodeWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
   async reauthenticate() {
     throw new Error(unsupported);
   },
+  async startSession() {
+    throw Object.assign(new Error('Secure Workspace sessions are not supported in VS Code'), { code: 'WORKSPACE_UNSUPPORTED' });
+  },
   async validateProvider(): Promise<WorkspaceProviderValidationResult> {
     return { available: false, error: unsupported };
   },

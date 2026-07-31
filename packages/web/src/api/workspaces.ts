@@ -8,6 +8,8 @@ import type {
   WorkspaceProviderValidationResult,
   WorkspaceSecurityAPI,
   WorkspaceHandoffOperation,
+  WorkspaceSessionStartError,
+  WorkspaceSessionStartResult,
 } from '@openchamber/ui/lib/api/types';
 import { runtimeFetch } from '@openchamber/ui/lib/runtime-fetch';
 import { requestReauthProof } from './reauth';
@@ -149,6 +151,20 @@ export const createWebWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
     });
     if (!response.ok) return { ...payload, applied: false, error: payload.error || response.statusText };
     return payload;
+  },
+
+  async startSession(input): Promise<WorkspaceSessionStartResult> {
+    const payload = { operationID: input.operationID, directory: input.directory.trim(), title: input.title?.trim() ?? '' };
+    const response = await runtimeFetch('/api/workspaces/sessions/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...proofHeaders(input.reauthProof, input.reauthNonce) },
+      body: JSON.stringify(payload),
+    });
+    const result = await readJson<WorkspaceSessionStartResult | WorkspaceSessionStartError>(response, {
+      code: 'WORKSPACE_SESSION_START_FAILED', message: response.statusText, retryable: false, operationID: payload.operationID,
+    });
+    if (!response.ok) throw Object.assign(new Error('message' in result ? result.message : response.statusText), { ...result, status: response.status });
+    return result as WorkspaceSessionStartResult;
   },
 
   async createHandoffDraft(input): Promise<WorkspaceHandoffOperation> {

@@ -12,9 +12,9 @@ Read/use actions remain available to capability-scoped remote clients. Once a st
 
 Cleanup, detach, apply, and export discard retain explicit confirmation. Export review supports whole-file, text-hunk, and binary whole-file selection through the existing runtime API contract.
 
-## Product Direction
+## Ordinary New Session Contract
 
-The normal entrypoint is the existing new-session flow. The user chooses a project and chooses to create the session in a Secure Workspace; OpenChamber then reuses or creates/connects the workspace, creates the routed session, and opens chat without requiring a detour through `WorkspaceLifecycleView`.
+The normal entrypoint is the existing desktop/mobile new-session flow. Host remains the default; the user explicitly chooses a project and Secure Workspace mode. The UI sends one runtime-owned idempotent operation ID to the server and never selects provider resources or images. The server reuses an applicable connected workspace or requires `workspace.admin` plus request-bound reauthentication before creating one, waits boundedly for `connected`, creates and verifies the routed session, and returns its authoritative workspace binding. Retries preserve the operation ID so timeout or post-create verification failure cannot create duplicates. The prompt is sent only after successful session verification.
 
 The shield is the secondary management/recovery surface. It can be opened without a selected session, but only with an explicit project context; otherwise it must ask for a project instead of using a hidden last directory. Workspace bootstrap runs list discovery, starts sync through the generated SDK, and performs a bounded status wait. Successful session creation publishes the runtime directory and workspace identity, selects the session, switches to chat, and must make the session visible in the matching sidebar scope immediately.
 

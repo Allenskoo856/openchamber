@@ -1,5 +1,6 @@
 import type { WorktreeMetadata } from '@/types/worktree';
 import type { DraftStarterRef } from '@/lib/draftStarters';
+import type { Session } from '@opencode-ai/sdk/v2/client';
 
 type RuntimePlatform = 'web' | 'desktop' | 'vscode';
 
@@ -865,6 +866,35 @@ export interface WorkspaceLifecycleResult {
   error?: string;
 }
 
+export type WorkspaceSessionStartErrorCode =
+  | 'WORKSPACE_SESSION_INVALID_REQUEST'
+  | 'WORKSPACE_SESSION_REAUTH_REQUIRED'
+  | 'WORKSPACE_SESSION_UNAUTHORIZED'
+  | 'WORKSPACE_SESSION_UNSUPPORTED_RUNTIME'
+  | 'WORKSPACE_SESSION_CONNECTION_TIMEOUT'
+  | 'WORKSPACE_SESSION_PARTIAL'
+  | 'WORKSPACE_SESSION_WORKSPACE_UNAVAILABLE'
+  | 'WORKSPACE_SESSION_IDEMPOTENCY_CONFLICT'
+  | 'WORKSPACE_SESSION_START_FAILED';
+
+export interface WorkspaceSessionStartResult {
+  status: 'completed' | 'partial' | 'connecting';
+  operationID: string;
+  session?: Session;
+  workspaceID?: string;
+  sessionID?: string;
+}
+
+export interface WorkspaceSessionStartError {
+  status?: number;
+  code: WorkspaceSessionStartErrorCode;
+  message: string;
+  retryable: boolean;
+  operationID: string;
+  workspaceID?: string;
+  sessionID?: string;
+}
+
 export interface WorkspaceArtifactDownload {
   blob: Blob;
   fileName: string;
@@ -876,6 +906,7 @@ export interface WorkspaceApplySelection {
 }
 
 export type WorkspacePrivilegedOperation =
+  | 'workspace.session.start'
   | 'workspace.configure'
   | 'workspace.validate'
   | 'workspace.create'
@@ -910,6 +941,7 @@ export interface WorkspaceSecurityAPI {
   downloadArtifact(input: { exportID: string; workspaceID: string }): Promise<WorkspaceArtifactDownload>;
   discardArtifact(input: { exportID: string; workspaceID: string }): Promise<{ discarded: boolean }>;
   applyExport(input: { directory: string; checkOnly?: boolean; exportID: string; selections: WorkspaceApplySelection[]; workspaceID: string; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceApplyResult>;
+  startSession(input: { operationID: string; directory: string; title?: string; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceSessionStartResult>;
   createHandoffDraft(input: WorkspaceHandoffBinding): Promise<WorkspaceHandoffOperation>;
   commitHandoff(input: WorkspaceHandoffBinding & { operationID: string; draftID: string; draftRevision: number; draftHash: string; text: string }): Promise<WorkspaceHandoffOperation>;
   inspectHandoff(operationID: string): Promise<WorkspaceHandoffOperation>;

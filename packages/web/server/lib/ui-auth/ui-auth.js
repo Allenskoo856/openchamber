@@ -16,6 +16,7 @@ const REAUTH_PROOF_OPERATIONS = new Set([
   'workspace.configure',
   'workspace.validate',
   'workspace.create',
+  'workspace.session.start',
   'workspace.cleanup',
   'workspace.reconcile',
   'workspace.export',
