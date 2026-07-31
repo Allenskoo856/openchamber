@@ -111,10 +111,10 @@ const SESSIONS_PER_BUCKET = 7;
 // Left padding for session rows so the title's first letter aligns with its
 // parent label. Root/project-level sessions align with the project label;
 // worktree sessions sit one level deeper. SessionRow adds 16px (dot + gap) on top.
-const PROJECT_SESSION_INDENT = 28;
-const WORKTREE_SESSION_INDENT = 40;
+const PROJECT_SESSION_INDENT = 40;
+const WORKTREE_SESSION_INDENT = 56;
 // Extra left padding applied to each nested subsession level.
-const CHILD_INDENT_STEP = 14;
+const CHILD_INDENT_STEP = 16;
 
 const getParentId = (session: Session): string | null =>
   (session as Session & { parentID?: string | null }).parentID ?? null;
@@ -266,7 +266,10 @@ const NewWorktreeIconButton: React.FC<{
 const ROW_ACTIONS_WIDTH = 144;
 const ROW_SWIPE_SNAP_MS = 180;
 
-/** Inline title editor shown in place of the row content while renaming. */
+/** Inline title editor shown in place of the row content while renaming.
+    Mirrors the desktop sidebar rename: a bare transparent input at the row's
+    own typography (no bordered field — the row keeps its exact height) with
+    explicit save/cancel icon buttons. */
 const SessionRenameForm: React.FC<{
   initialTitle: string;
   indent: number;
@@ -275,11 +278,8 @@ const SessionRenameForm: React.FC<{
 }> = ({ initialTitle, indent, onSubmit, onCancel }) => {
   const { t } = useI18n();
   const [value, setValue] = React.useState(initialTitle);
-  const submittedRef = React.useRef(false);
 
   const commit = () => {
-    if (submittedRef.current) return;
-    submittedRef.current = true;
     const next = value.trim();
     if (!next || next === initialTitle.trim()) {
       onCancel();
@@ -291,29 +291,43 @@ const SessionRenameForm: React.FC<{
   return (
     <form
       className="flex min-h-10 min-w-0 flex-1 items-center gap-2 py-1 pr-2"
-      style={{ paddingLeft: Math.max(indent - 4, 8) }}
+      style={{ paddingLeft: indent }}
       onSubmit={(event) => {
         event.preventDefault();
         commit();
       }}
     >
-      <Input
+      <input
         autoFocus
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        onBlur={commit}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            submittedRef.current = true;
-            onCancel();
-          }
+          event.stopPropagation();
+          if (event.key === 'Escape') onCancel();
         }}
         aria-label={t('sessions.sidebar.session.rename.save')}
-        // h-8 keeps the row at exactly the normal session-row height (40px),
-        // so entering/leaving rename mode causes no layout shift.
-        className="h-8 flex-1 text-[16px]"
+        placeholder={t('sessions.sidebar.session.menu.rename')}
+        // 16px prevents the iOS focus zoom; the bare input keeps the row height.
+        className="min-w-0 flex-1 bg-transparent text-[16px] typography-ui-label text-foreground outline-none placeholder:text-muted-foreground"
         enterKeyHint="done"
       />
+      <button
+        type="submit"
+        aria-label={t('sessions.sidebar.session.rename.save')}
+        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        style={{ touchAction: 'manipulation' }}
+      >
+        <Icon name="check" className="size-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        aria-label={t('sessions.sidebar.session.rename.cancel')}
+        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        style={{ touchAction: 'manipulation' }}
+      >
+        <Icon name="close" className="size-4" />
+      </button>
     </form>
   );
 };
@@ -528,13 +542,6 @@ const SessionRow: React.FC<{
             <span className="flex items-center gap-2.5">
               <span
                 className={cn(
-                  'size-1.5 shrink-0 rounded-full',
-                  active ? 'bg-primary' : 'bg-muted-foreground/30',
-                )}
-                aria-hidden
-              />
-              <span
-                className={cn(
                   'block min-w-0 flex-1 truncate typography-ui-label',
                   active ? 'text-primary' : 'text-foreground',
                 )}
@@ -546,7 +553,7 @@ const SessionRow: React.FC<{
               ) : null}
             </span>
             {contextLabel ? (
-              <span className="block truncate typography-micro text-muted-foreground pl-4">{contextLabel}</span>
+              <span className="block truncate typography-micro text-muted-foreground">{contextLabel}</span>
             ) : null}
           </span>
         </button>
