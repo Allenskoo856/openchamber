@@ -290,10 +290,11 @@ const SessionRenameForm: React.FC<{
 
   return (
     <form
-      // Fixed h-10 (not min-h): the session row is exactly 40px for a
-      // single-line title, and a hard height keeps the rename state identical
-      // no matter what intrinsic size the input/buttons resolve to.
-      className="flex h-10 min-w-0 flex-1 items-center gap-2 pr-2"
+      // Fixed 36px: the session row's real height is NOT Tailwind's min-h-10 —
+      // mobile.css's global button touch-target rule (min-height: 36px) wins
+      // that specificity fight, so single-line rows resolve to 36px. Pin the
+      // rename state to the same 36px.
+      className="flex h-9 min-w-0 flex-1 items-center gap-2 pr-2"
       style={{ paddingLeft: indent }}
       onSubmit={(event) => {
         event.preventDefault();
@@ -536,7 +537,15 @@ const SessionRow: React.FC<{
         ) : (
         <button
           type="button"
-          className="flex min-h-10 min-w-0 flex-1 items-center gap-2.5 py-1 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+          // Single-line rows: fixed h-9 (36px) to match SessionRenameForm
+          // exactly — min-h-* utilities lose the specificity fight against
+          // mobile.css's global 36px button floor anyway, so make the real
+          // height explicit. Two-line rows (search results with a context
+          // subtitle) keep flexible height.
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-2.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset',
+            contextLabel ? 'min-h-10 py-1' : 'h-9',
+          )}
           style={{ paddingLeft: indent, touchAction: 'manipulation' }}
           onClick={() => {
             // A tap while the actions are out just closes them.
