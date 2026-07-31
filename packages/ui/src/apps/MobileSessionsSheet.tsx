@@ -111,10 +111,10 @@ const SESSIONS_PER_BUCKET = 7;
 // Left padding for session rows so the title's first letter aligns with its
 // parent label. Root/project-level sessions align with the project label;
 // worktree sessions sit one level deeper. SessionRow adds 16px (dot + gap) on top.
-const PROJECT_SESSION_INDENT = 36;
-const WORKTREE_SESSION_INDENT = 52;
+const PROJECT_SESSION_INDENT = 28;
+const WORKTREE_SESSION_INDENT = 40;
 // Extra left padding applied to each nested subsession level.
-const CHILD_INDENT_STEP = 18;
+const CHILD_INDENT_STEP = 14;
 
 const getParentId = (session: Session): string | null =>
   (session as Session & { parentID?: string | null }).parentID ?? null;
@@ -296,6 +296,7 @@ const SessionRow: React.FC<{
   const title = session.title?.trim() || t('mobile.sessions.untitled');
   return (
     <div
+      data-active-session={active || undefined}
       className={cn(
         'relative flex items-center gap-1 transition-colors',
         active && !confirmingArchive && 'bg-[color-mix(in_srgb,var(--primary)_10%,transparent)]',
@@ -321,7 +322,7 @@ const SessionRow: React.FC<{
       <button
         type="button"
         className={cn(
-          'flex min-h-12 min-w-0 flex-1 items-center gap-2.5 py-2 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset',
+          'flex min-h-10 min-w-0 flex-1 items-center gap-2.5 py-1 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset',
           confirmingArchive && 'opacity-50',
         )}
         style={{ paddingLeft: indent, touchAction: 'manipulation' }}
@@ -395,7 +396,7 @@ const ShowMoreRow: React.FC<{
   return (
     <button
       type="button"
-      className="flex min-h-10 w-full items-center gap-2 py-1.5 pr-3 text-left text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+      className="flex min-h-9 w-full items-center gap-2 py-1 pr-3 text-left text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
       style={{ paddingLeft: indent, touchAction: 'manipulation' }}
       onClick={onClick}
     >
@@ -413,7 +414,7 @@ const ShowFewerRow: React.FC<{
   return (
     <button
       type="button"
-      className="flex min-h-10 w-full items-center gap-2 py-1.5 pr-3 text-left text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+      className="flex min-h-9 w-full items-center gap-2 py-1 pr-3 text-left text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
       style={{ paddingLeft: indent, touchAction: 'manipulation' }}
       onClick={onClick}
     >
@@ -660,10 +661,29 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     for (const session of liveSessions) {
       if (!seenIds.has(session.id)) merged.push(session);
     }
-    return merged;
+    // Archived sessions never show on mobile (no archived view here): the live
+    // overlay can carry them for the active directory, and they'd otherwise
+    // surface in search and then "disappear" once the overlay refreshes.
+    return merged.filter((session) => !session.time?.archived);
   }, [globalActiveSessions, liveSessions]);
 
   const normalizedQuery = query.trim().toLowerCase();
+
+  // On open, bring the current session (or at least its project) into view —
+  // the list keeps its scroll position between opens, so a long project list
+  // otherwise lands wherever it was left. Rows carry data-active-* markers.
+  const contentRootRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      const root = contentRootRef.current;
+      if (!root) return;
+      const target = root.querySelector<HTMLElement>('[data-active-session="true"]')
+        ?? root.querySelector<HTMLElement>('[data-active-project="true"]');
+      target?.scrollIntoView({ block: 'center' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
 
   const projectNodes = React.useMemo<ProjectNode[]>(() => {
     const nodes: ProjectNode[] = projectsMeta.map((project) => ({
@@ -1024,7 +1044,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     ) : null;
 
   const surfaceContent = (
-      <div className="flex h-full flex-col">
+      <div ref={contentRootRef} className="flex h-full flex-col">
         <div className={cn('shrink-0 px-4 pb-2 pt-1', editingOrder && 'hidden')}>
           <div className="relative">
             <RiSearchLine className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -1115,7 +1135,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                       >
                         <button
                           type="button"
-                          className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                          className="flex min-h-12 min-w-0 flex-1 items-center gap-3 px-3 py-1.5 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
                           onClick={() => handleSelectProject(project)}
                           style={{ touchAction: 'manipulation' }}
                         >
@@ -1185,10 +1205,10 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                     key={node.project.id}
                     className={cn(nodeIndex > 0 && 'border-t border-border/30')}
                   >
-                    <div className="flex min-h-14 w-full items-center">
+                    <div data-active-project={node.isActive || undefined} className="flex min-h-12 w-full items-center">
                       <button
                         type="button"
-                        className="flex min-h-14 min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                        className="flex min-h-12 min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
                         onClick={() => toggleProject(node.project.id, projectExpanded)}
                         aria-expanded={projectExpanded}
                         aria-label={
@@ -1235,7 +1255,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                                   <div key={bucket.key}>
                                     <button
                                       type="button"
-                                      className="flex min-h-11 w-full items-center gap-2 py-1.5 pl-4 pr-3 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                                      className="flex min-h-10 w-full items-center gap-2 py-1 pl-4 pr-3 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
                                       onClick={() => toggleWorktree(node.project.id, bucket.key, worktreeExpanded)}
                                       aria-expanded={worktreeExpanded}
                                       aria-label={
