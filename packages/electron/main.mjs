@@ -33,6 +33,8 @@ import {
 } from './linux-autostart.mjs';
 import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
 import { mintOutsideFileGrant } from '@openchamber/web/server/lib/fs/routes.js';
+import { isPackagedSmokeEnabled, writePackagedSmokeReady } from './packaged-smoke.mjs';
+import { runPackagedWorkspaceSmoke } from './packaged-workspace-smoke.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -47,6 +49,36 @@ const PACKAGED_APP_USER_MODEL_ID = 'dev.openchamber.desktop';
 const DEV_APP_USER_MODEL_ID = 'dev.openchamber.desktop.dev';
 const APP_USER_MODEL_ID = app.isPackaged ? PACKAGED_APP_USER_MODEL_ID : DEV_APP_USER_MODEL_ID;
 const BACKGROUND_START_ARG = '--background';
+const packagedSmoke = isPackagedSmokeEnabled({ argv: process.argv, env: process.env, packaged: app.isPackaged });
+let packagedSmokeServerReady = false;
+let packagedSmokeRendererReady = false;
+let packagedSmokeExitScheduled = false;
+let packagedSmokeWorkspaceRunning = false;
+const packagedWorkspaceSmoke = packagedSmoke && process.env.OPENCHAMBER_PACKAGED_SMOKE_WORKSPACE === '1';
+const maybeFinishPackagedSmoke = async () => {
+  if (!packagedSmoke || packagedSmokeExitScheduled) return;
+  if (!packagedSmokeServerReady || !packagedSmokeRendererReady || packagedSmokeWorkspaceRunning) return;
+  packagedSmokeWorkspaceRunning = true;
+  try {
+    if (packagedWorkspaceSmoke) {
+      await runPackagedWorkspaceSmoke({
+        baseUrl: state.sidecarUrl,
+        clientToken: state.clientToken,
+        password: process.env.OPENCHAMBER_PACKAGED_SMOKE_PASSWORD,
+        directory: process.env.OPENCHAMBER_PACKAGED_SMOKE_PROJECT,
+        runtimeImage: process.env.OPENCHAMBER_PACKAGED_SMOKE_RUNTIME_IMAGE,
+        gatewayImage: process.env.OPENCHAMBER_PACKAGED_SMOKE_GATEWAY_IMAGE,
+      });
+    }
+    if (!writePackagedSmokeReady({ env: process.env, serverReady: packagedSmokeServerReady, rendererReady: packagedSmokeRendererReady, requireWorkspace: packagedWorkspaceSmoke, workspaceReady: true })) return;
+    packagedSmokeExitScheduled = true;
+    setTimeout(() => app.exit(0), 100);
+  } catch (error) {
+    log.error('[electron smoke] packaged Secure Workspace validation failed:', error instanceof Error ? error.message : 'unknown error');
+    packagedSmokeExitScheduled = true;
+    setTimeout(() => app.exit(1), 100);
+  }
+};
 
 const getLoginItemOptions = () => {
   if (process.platform === 'win32') {
@@ -1499,6 +1531,8 @@ const spawnLocalServer = async () => {
   state.serverHandle = handle;
   state.sidecarUrl = url;
   state.clientToken = localClientToken;
+  packagedSmokeServerReady = true;
+  maybeFinishPackagedSmoke();
   recordElectronStartupPerformance('electron.server.ready', {
     durationMs: performance.now() - serverStartedAt,
   });
@@ -2583,6 +2617,10 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
       });
     }
     browserWindow.webContents.setZoomFactor(1);
+    if (packagedSmoke && browserWindow.__ocLabel === 'main' && classifyStartupDocument(browserWindow.webContents.getURL()) === 'application') {
+      packagedSmokeRendererReady = true;
+      maybeFinishPackagedSmoke();
+    }
     if (state.mainWindow && browserWindow.id === state.mainWindow.id && pendingDeepLinks.length > 0) {
       const timer = setTimeout(flushPendingDeepLinks, 400);
       if (typeof timer?.unref === 'function') timer.unref();

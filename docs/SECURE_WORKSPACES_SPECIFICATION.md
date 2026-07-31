@@ -1229,17 +1229,33 @@ The complete cross-platform product release additionally requires:
 - release signing and notarization credentials for the platform artifacts that require them;
 - npm trusted publication only when the later npm distribution milestone is activated.
 
-These gates are deferred in execution order, not cancelled. Until they pass, status language MUST say `image/provider milestone ready` rather than `complete production release ready`.
+These remain required before claiming a complete cross-platform production release, but physical test setup is currently an explicit manual QA workstream rather than a dependency of ordinary release CI. Passing a manual physical smoke does not automatically promote it to release certification evidence.
+
+Manual physical mobile testing is owner-operated and automated:
+
+- `mobile-ios` and `mobile-android` are protected GitHub environments with the designated operator as the only required reviewer;
+- each environment owns a distinct fresh `MOBILE_E2E_CONNECT_URL`, because pairing credentials are single-use and MUST NOT be shared between devices;
+- iOS evidence uses the exact TestFlight version/build already installed by the operator on the sole trusted physical iOS device attached to the `mobile-ios` runner;
+- App Store Connect uses a dedicated test group containing only that operator, and automatic distribution to all other tester groups is disabled for the candidate;
+- Android evidence installs the exact signed release APK on the sole authorized physical Android device attached to the `mobile-android` runner and verifies its signing certificate digest before installation;
+- approval is the operator's explicit start signal, not a substitute for automated assertions;
+- Maestro must prove Secure Workspace creation/reuse, routed session activity, export/apply dry-run, and destructive cleanup against a disposable prepared E2E server;
+- cleanup runs after success and failure, and pairing credentials are neither logged nor included in evidence artifacts;
+- no other TestFlight user is required or enrolled in this test flow.
+
+Native Windows and Linux physical-device checks remain separate protected manual jobs and test records. VM/package smoke cannot satisfy those physical tests; each must run an exact same-repository artifact on the designated device and exercise packaged GUI startup, in-process server/runtime resources, Secure Workspace session routing, provider behavior, and cleanup.
+
+The protected `desktop-windows` and `desktop-linux` environments use dedicated self-hosted physical runners with matching labels and the designated operator as their only required reviewer. Both runner accounts have Docker available. Tests use isolated temporary OpenChamber and Chromium profiles, an environment-scoped independent step-up password, and exact candidate image digests; no personal desktop profile is mutated. Windows verifies a signature when an expected signer is configured and always attempts uninstall. Linux verifies the AppImage against its same-run update manifest. Test output is bound to the selected commit and artifact digest; hostnames, usernames, serials, and other device identifiers are excluded. Promotion to formal release evidence is a separate future decision.
 
 ## 28. Implementation Dependency Order
 
-The core implementation, public image release, and OpenChamber artifact pins are complete at the commits recorded in section 5. The remaining execution order is:
+The implementation and certification work is delivered as one release candidate and one non-bypassable release gate. Workstreams may execute concurrently, but no partial workstream changes release status. Completion requires:
 
-1. Keep this specification synchronized with current implementation, evidence, and release decisions.
-2. Finish the remaining SSE/WebSocket, volume/port collision, credential rotation, and failure-injection cases.
-3. Record final provider evidence and remaining deferred platform gates.
-4. Declare only the image/provider milestone ready.
-5. Complete iOS, Android, Windows, Linux, physical-device, and platform-signing gates before the complete product release.
+1. Keep this specification synchronized with current implementation, exact identities, evidence, and release decisions.
+2. Produce and certify the exact compatibility matrix and immutable image digests.
+3. Complete transport, collision, credential rotation, failure-injection, artifact/apply, and restart-recovery coverage.
+4. Complete hosted web, Electron, iOS, Android, Windows, Linux, physical-device, and platform-signing evidence.
+5. Pass the unified current-commit certification gate and final security review before publication.
 
 ## 29. Validation Responsibilities
 
@@ -1275,6 +1291,6 @@ The contributor cannot inspect or change organization-level Actions/package poli
 
 The preferred remedy is a one-time organization/package policy or visibility change. The owner MUST NOT share a personal token or password. A PAT secret is not the default design.
 
-Later complete-product gates may require owner-provided protected infrastructure or credentials for Apple application signing/notarization, native Windows/Linux release infrastructure, physical mobile devices, production-like Kubernetes environments, and npm organization trusted-publisher setup when npm distribution is activated.
+Complete-product gates require owner-provided protected infrastructure or credentials for Apple application signing/notarization, native Windows/Linux release infrastructure, physical mobile devices, and production-like Kubernetes environments. npm organization trusted-publisher setup is required only when npm distribution is activated.
 
 For every owner-run check, contributors MUST provide exact commands, prerequisites, expected results, cleanup steps, and evidence to record.

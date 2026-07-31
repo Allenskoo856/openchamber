@@ -14,6 +14,9 @@ const targetArchitecture = resolveTargetArchitecture({ environment: env, builder
 const stagedPlugin = verifyStagedWorkspacePlugin({ electronRoot });
 console.log(`[electron] verified staged workspace plugin (${stagedPlugin.fileCount} files).`);
 
+if (process.platform === 'win32' && env.OPENCHAMBER_REQUIRE_WINDOWS_SIGNING === '1' && !env.CSC_LINK && !env.WINDOWS_CSC_LINK) {
+  throw new Error('Windows production packaging requires CSC_LINK or WINDOWS_CSC_LINK for Authenticode signing.');
+}
 if (process.platform === 'win32' && !env.CSC_LINK && !env.WINDOWS_CSC_LINK) {
   env.CSC_IDENTITY_AUTO_DISCOVERY = 'false';
   console.log('[electron] Windows code signing disabled; building unsigned installer.');
