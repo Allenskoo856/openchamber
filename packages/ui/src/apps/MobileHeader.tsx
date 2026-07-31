@@ -1,19 +1,14 @@
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
-import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useI18n } from '@/lib/i18n';
-import { resolveProjectForDirectory, resolveProjectForSessionDirectory } from '@/lib/projectResolution';
-import { sessionEvents } from '@/lib/sessionEvents';
 import { cn } from '@/lib/utils';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useGitStatus, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSession } from '@/sync/sync-context';
 
 import { MobileSessionMetadataButton } from './MobileSessionMetadata';
-import { getProjectDisplayLabel, normalizePath } from './mobilePaths';
+import { MobileSessionSwitcher } from './MobileSessionSwitcher';
 
 export type MobileHeaderSurfaceShortcuts = {
   activePanel: 'files' | 'changes' | null;
@@ -27,89 +22,66 @@ export const MobileHeader: React.FC<{
   onOpenMenu: () => void;
   /** Phone only: opens the right workspace drawer (Changes / Files / Terminal). */
   onOpenWorkspace?: () => void;
-  /** Shows a dirty-changes dot on the workspace button. */
-  workspaceDirty?: boolean;
   /** iPad only: Files/Changes header shortcuts that toggle the right sidebar. */
   surfaceShortcuts?: MobileHeaderSurfaceShortcuts;
-}> = ({ onOpenSessions, onOpenMenu, onOpenWorkspace, workspaceDirty = false, surfaceShortcuts }) => {
+}> = ({ onOpenSessions, onOpenMenu, onOpenWorkspace, surfaceShortcuts }) => {
   const { t } = useI18n();
   const [metadataOpen, setMetadataOpen] = React.useState(false);
+  const [switcherOpen, setSwitcherOpen] = React.useState(false);
+  const titleRef = React.useRef<HTMLButtonElement>(null);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const currentSessionDirectory = useSessionUIStore(
     React.useCallback((state) => (currentSessionId ? state.getDirectoryForSession(currentSessionId) : null), [currentSessionId]),
   );
   const effectiveDirectory = currentSessionDirectory || currentDirectory;
-  const gitDirectory = normalizePath(effectiveDirectory) || null;
-  const projects = useProjectsStore((state) => state.projects);
-  const availableWorktreesByProject = useSessionUIStore((state) => state.availableWorktreesByProject);
-  const currentWorktreeMetadata = useSessionUIStore(
-    React.useCallback((state) => (currentSessionId ? state.worktreeMetadata.get(currentSessionId) ?? null : null), [currentSessionId]),
-  );
   const currentSession = useSession(currentSessionId, effectiveDirectory || undefined);
   const isNewSessionDraftOpen = useSessionUIStore((state) => Boolean(state.newSessionDraft?.open));
 
-  // Branch lives in the header's metadata line (project · branch), both for an
-  // open session and for the draft screen.
-  const { git } = useRuntimeAPIs();
-  const isGitRepo = useIsGitRepo(gitDirectory);
-  const gitStatus = useGitStatus(gitDirectory);
-  const ensureStatus = useGitStore((state) => state.ensureStatus);
-  const fetchStatus = useGitStore((state) => state.fetchStatus);
-
-  React.useEffect(() => {
-    if (!gitDirectory) return;
-    void ensureStatus(gitDirectory, git);
-  }, [ensureStatus, git, gitDirectory]);
-
-  React.useEffect(() => {
-    if (!gitDirectory) return;
-    return sessionEvents.onGitRefreshHint((hint) => {
-      if (normalizePath(hint.directory) !== gitDirectory) return;
-      void fetchStatus(gitDirectory, git);
-    });
-  }, [fetchStatus, git, gitDirectory]);
-
-  // Only a real, resolved branch name — while git status is still loading (or
-  // on a detached HEAD) show nothing rather than a scary placeholder.
-  const branchLabel = isGitRepo === true ? (gitStatus?.current?.trim() || null) : null;
-
-  const projectLabel = React.useMemo(() => {
-    const directory = normalizePath(effectiveDirectory);
-    if (!directory) return t('mobile.header.noProject');
-    const metadataProject = currentWorktreeMetadata?.projectDirectory
-      ? resolveProjectForDirectory(projects, currentWorktreeMetadata.projectDirectory)
-      : null;
-    const project = metadataProject ?? resolveProjectForSessionDirectory(projects, availableWorktreesByProject, directory);
-    return getProjectDisplayLabel(project, directory) || t('mobile.header.noProject');
-  }, [availableWorktreesByProject, currentWorktreeMetadata?.projectDirectory, effectiveDirectory, projects, t]);
-
   const sessionTitle = currentSession?.title?.trim();
-  const primaryLabel = sessionTitle || (currentSessionId ? t('mobile.sessions.untitled') : projectLabel);
-  // Open session: "project · branch" under the title. Draft: the project is
-  // the title, so the metadata line is just the branch.
-  const secondaryLabel = currentSessionId
-    ? [projectLabel, branchLabel].filter(Boolean).join(' · ')
-    : (branchLabel ?? '');
+  // Single-line title, desktop-style: session title, or the "New session"
+  // placeholder on the draft screen. No project/branch metadata line.
+  const primaryLabel = sessionTitle
+    || (currentSessionId ? t('mobile.sessions.untitled') : t('sessions.switcher.draftTitle'));
 
   React.useEffect(() => {
     setMetadataOpen(false);
+    setSwitcherOpen(false);
   }, [currentSessionId, effectiveDirectory]);
 
   const handleOpenSessions = React.useCallback(() => {
     setMetadataOpen(false);
+    setSwitcherOpen(false);
     onOpenSessions();
   }, [onOpenSessions]);
 
   const handleOpenMenu = React.useCallback(() => {
     setMetadataOpen(false);
+    setSwitcherOpen(false);
     onOpenMenu();
   }, [onOpenMenu]);
+
+  // The two header popovers are mutually exclusive.
+  const handleMetadataOpenChange = React.useCallback((value: boolean | ((open: boolean) => boolean)) => {
+    setMetadataOpen((current) => {
+      const next = typeof value === 'function' ? value(current) : value;
+      if (next) setSwitcherOpen(false);
+      return next;
+    });
+  }, []);
+
+  const toggleSwitcher = React.useCallback(() => {
+    setSwitcherOpen((current) => {
+      const next = !current;
+      if (next) setMetadataOpen(false);
+      return next;
+    });
+  }, []);
 
   return (
     <>
       <header
-        className="oc-mobile-header relative z-30 flex shrink-0 items-center gap-1 border-b border-border/30 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+        className="oc-mobile-header relative z-30 flex shrink-0 items-center gap-1 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
         style={{ paddingTop: 'var(--oc-safe-area-top, 0px)' }}
       >
         <div className="flex h-[var(--oc-header-height,56px)] w-full items-center gap-1 px-2">
@@ -123,14 +95,37 @@ export const MobileHeader: React.FC<{
             <Icon name="list-unordered" className="size-5" />
           </button>
 
+          {/* Session title doubles as the recent-sessions switcher trigger. */}
+          <button
+            ref={titleRef}
+            type="button"
+            className="flex min-w-0 flex-1 items-center rounded-lg px-2 py-1.5 text-left transition-colors active:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label={t('sessions.switcher.openAria')}
+            aria-haspopup="dialog"
+            aria-expanded={switcherOpen}
+            onClick={toggleSwitcher}
+            style={{ touchAction: 'manipulation' }}
+          >
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="block min-w-0 truncate typography-ui-label text-foreground">{primaryLabel}</span>
+              {/* Discoverability: the chevron marks the title as a disclosure
+                  trigger and flips while the switcher is open. */}
+              <Icon
+                name="arrow-down-s"
+                className={cn(
+                  'size-4 shrink-0 text-muted-foreground transition-transform duration-150',
+                  switcherOpen && 'rotate-180',
+                )}
+              />
+            </span>
+          </button>
+
           <MobileSessionMetadataButton
             open={metadataOpen}
-            onOpenChange={setMetadataOpen}
+            onOpenChange={handleMetadataOpenChange}
             currentSessionId={currentSessionId}
             effectiveDirectory={effectiveDirectory}
             isNewSessionDraftOpen={isNewSessionDraftOpen}
-            primaryLabel={primaryLabel}
-            secondaryLabel={secondaryLabel}
           />
 
           {surfaceShortcuts ? (
@@ -184,22 +179,25 @@ export const MobileHeader: React.FC<{
           {onOpenWorkspace ? (
             <button
               type="button"
-              className="relative flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               aria-label={t('mobile.header.openWorkspaceAria')}
               onClick={() => {
                 setMetadataOpen(false);
+                setSwitcherOpen(false);
                 onOpenWorkspace();
               }}
               style={{ touchAction: 'manipulation' }}
             >
               <Icon name="tools" className="size-5" />
-              {workspaceDirty ? (
-                <span className="absolute right-2 top-2 inline-flex size-2 rounded-full bg-primary" aria-hidden />
-              ) : null}
             </button>
           ) : null}
         </div>
       </header>
+      <MobileSessionSwitcher
+        open={switcherOpen}
+        onClose={() => setSwitcherOpen(false)}
+        anchorRef={titleRef}
+      />
     </>
   );
 };

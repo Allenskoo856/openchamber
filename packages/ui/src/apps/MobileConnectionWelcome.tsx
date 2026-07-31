@@ -117,12 +117,12 @@ export const MobileConnectionWelcome: React.FC<{
         {notice ? (
           <div
             role="status"
-            className="flex w-full items-start gap-3 rounded-[18px] border border-[color-mix(in_srgb,var(--status-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_10%,transparent)] px-3.5 py-3"
+            className="flex w-full items-center gap-3 rounded-[18px] border border-[color-mix(in_srgb,var(--status-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_10%,transparent)] px-3.5 py-3"
           >
             <span className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[color-mix(in_srgb,var(--status-warning)_16%,transparent)] text-[var(--status-warning)]">
               <Icon name={notice.kind === 'auth-expired' ? 'lock' : 'cloud-off'} className="size-[18px]" />
             </span>
-            <p className="min-w-0 flex-1 self-center typography-small text-foreground">
+            <p className="min-w-0 flex-1 typography-small text-foreground">
               {notice.kind === 'auth-expired'
                 ? t('mobile.connect.notice.authExpired', { label: notice.label })
                 : t('mobile.connect.notice.unreachable', { label: notice.label })}
@@ -132,7 +132,7 @@ export const MobileConnectionWelcome: React.FC<{
 
         {pendingConnection ? (
           <form className="flex w-full flex-col gap-3" onSubmit={handlePasswordSubmit}>
-            <div className="flex items-center gap-3 rounded-[18px] border border-border/70 bg-surface-elevated px-3.5 py-3">
+            <div className="flex items-center gap-3 rounded-[18px] border border-border bg-surface-elevated px-3.5 py-3">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-interactive-hover text-foreground">
                 <Icon name="lock" className="size-[18px]" />
               </span>
@@ -195,7 +195,7 @@ export const MobileConnectionWelcome: React.FC<{
                 <h2 className="text-center typography-micro uppercase tracking-[0.14em] text-muted-foreground">
                   {t('mobile.connect.saved.title')}
                 </h2>
-                <div className="overflow-hidden rounded-[18px] border border-border/70 bg-surface-elevated">
+                <div className="overflow-hidden rounded-[18px] border border-border bg-surface-elevated">
                   {connections.map((connection) => {
                     const isConnectingRow = connectingId === connection.id;
                     return (
@@ -203,7 +203,7 @@ export const MobileConnectionWelcome: React.FC<{
                         key={connection.id}
                         type="button"
                         disabled={isBusy}
-                        className="flex min-h-14 w-full items-center gap-3 border-b border-border/60 px-3.5 py-2.5 text-left last:border-b-0 hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:opacity-70"
+                        className="flex min-h-14 w-full items-center gap-3 border-b border-border px-3.5 py-2.5 text-left last:border-b-0 hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:opacity-70"
                         onClick={() => {
                           setConnectingId(connection.id);
                           void conn.connect({ id: connection.id, candidates: connection.candidates, clientToken: connection.clientToken, label: connection.label })

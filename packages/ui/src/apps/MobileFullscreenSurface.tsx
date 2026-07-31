@@ -168,7 +168,7 @@ export const MobileFullscreenSurface: React.FC<MobileFullscreenSurfaceProps> = (
       }}
     >
       {!headerless ? (
-        <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/30 px-3">
+        <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border px-3">
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"

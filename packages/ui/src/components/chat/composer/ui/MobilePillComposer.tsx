@@ -19,7 +19,6 @@ import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Theme } from '@/types/theme';
-import { MobileSessionPanelTrigger } from '../../MobileSessionStatusBar';
 import { ComposerAttachmentControls } from './ComposerAttachmentControls';
 
 export interface MobilePillComposerProps {
@@ -83,10 +82,6 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                 className="flex h-11 min-w-0 flex-1 items-center gap-x-0.5 rounded-full border border-border/80 pl-2 pr-1 shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)]"
                 style={{ backgroundColor: currentTheme?.colors?.surface?.subtle }}
             >
-                <MobileSessionPanelTrigger
-                    footerIconButtonClass={footerIconButtonClass}
-                    iconSizeClass={iconSizeClass}
-                />
                 <ComposerAttachmentControls
                     isVSCode={isVSCode}
                     footerIconButtonClass={footerIconButtonClass}

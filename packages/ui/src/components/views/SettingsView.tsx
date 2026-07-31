@@ -242,7 +242,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
   const settingsSlug = resolveSettingsSlug(settingsPageRaw);
 
   const [mobileStage, setMobileStage] = React.useState<MobileStage>(initialMobileStage);
-  const autoNavSlugRef = React.useRef<string | null>(null);
+  // Seed with the mount-time slug when opening at the nav stage: the slug
+  // persists across opens, and the deep-link auto-jump below must react only
+  // to slug CHANGES after mount — not re-enter the previously visited page
+  // every time settings reopen.
+  const autoNavSlugRef = React.useRef<string | null>(initialMobileStage === 'nav' ? settingsSlug : null);
 
   // No starter page on desktop: 'home' (fresh state) resolves to General.
   // settingsPage persists in the UI store, so subsequent opens restore the

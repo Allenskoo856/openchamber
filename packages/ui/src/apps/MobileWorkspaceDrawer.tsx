@@ -6,6 +6,7 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/sortable-tabs-strip';
 import { TerminalView } from '@/components/views/TerminalView';
 import { useI18n } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 import { MobileChangesSurface } from './MobileChangesSurface';
 import { MobileFilesSurface } from './MobileFilesSurface';
@@ -45,6 +46,18 @@ export const MobileWorkspaceDrawer: React.FC<{
   React.useEffect(() => {
     tabRef.current = tab;
   }, [tab]);
+
+  // Tabs the user has actually opened — their panes stay mounted afterwards.
+  const [visitedTabs, setVisitedTabs] = React.useState<ReadonlySet<MobileWorkspaceTab>>(() => new Set());
+  React.useEffect(() => {
+    if (!open) return;
+    setVisitedTabs((current) => {
+      if (current.has(tab)) return current;
+      const next = new Set(current);
+      next.add(tab);
+      return next;
+    });
+  }, [open, tab]);
 
   if (typeof document !== 'undefined' && !rootRef.current) {
     let root = document.getElementById(DRAWER_ROOT_ID);
@@ -107,7 +120,7 @@ export const MobileWorkspaceDrawer: React.FC<{
         pointerEvents: open ? 'auto' : 'none',
       }}
     >
-      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/30 px-3">
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border px-3">
         <div className="flex h-9 min-w-0 flex-1 items-center">
           {/* Mounted only while shown; nonCompositedIndicator keeps the active
               pill off its own compositing layer — creating one inside the
@@ -135,21 +148,37 @@ export const MobileWorkspaceDrawer: React.FC<{
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {/* Mounted only while shown (incl. the exit slide) so each surface
-            computes its safe-area / fixed-position layout fresh on open. */}
-        {visible ? (
-          <ErrorBoundary>
-            {tab === 'changes' ? (
+        {/* Panes stay MOUNTED once visited (hidden when inactive/closed), so
+            reopening the drawer lands exactly where the user left off — an
+            open diff, an edited file, an attached terminal. */}
+        {visitedTabs.has('changes') ? (
+          <div
+            // A newly requested per-file diff remounts the pane so
+            // initialDiffPath applies; plain reopens keep the state.
+            key={pendingChangesDiff ? `changes:${pendingChangesDiff.path}:${pendingChangesDiff.staged}` : 'changes'}
+            className={cn('h-full', tab !== 'changes' && 'hidden')}
+          >
+            <ErrorBoundary>
               <MobileChangesSurface
                 initialDiffPath={pendingChangesDiff?.path ?? null}
                 initialDiffStaged={pendingChangesDiff?.staged === true}
               />
-            ) : tab === 'files' ? (
+            </ErrorBoundary>
+          </div>
+        ) : null}
+        {visitedTabs.has('files') ? (
+          <div className={cn('h-full', tab !== 'files' && 'hidden')}>
+            <ErrorBoundary>
               <MobileFilesSurface />
-            ) : (
-              <TerminalView visible={open} />
-            )}
-          </ErrorBoundary>
+            </ErrorBoundary>
+          </div>
+        ) : null}
+        {visitedTabs.has('terminal') ? (
+          <div className={cn('h-full', tab !== 'terminal' && 'hidden')}>
+            <ErrorBoundary>
+              <TerminalView visible={open && tab === 'terminal'} />
+            </ErrorBoundary>
+          </div>
         ) : null}
       </div>
     </section>,

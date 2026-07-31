@@ -131,9 +131,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const gitStatus = useGitStatus(normalizePath(currentDirectory) || null);
   const dirtyChangeCount = gitStatus?.files?.length ?? 0;
 
+  // NOTE: pendingChangesDiff is intentionally NOT cleared on close — it keys
+  // the persistent Changes pane in the workspace drawer, and clearing it would
+  // remount the pane (losing its navigation) on every close.
   const closeSurface = React.useCallback(() => {
     setActiveSurface(null);
-    setPendingChangesDiff(null);
     setOpenPlan(null);
   }, []);
 
@@ -143,7 +145,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
 
   const closeWorkspace = React.useCallback(() => {
     setWorkspaceOpen(false);
-    setPendingChangesDiff(null);
   }, []);
 
   const openSettingsSurface = React.useCallback((stage: 'nav' | 'page-content') => {
@@ -414,7 +415,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <aside
             ref={leftResize.asideRef}
             className={cn(
-              'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-border/50 bg-sidebar will-change-[width] motion-reduce:transition-none',
+              'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar will-change-[width] motion-reduce:transition-none',
               !ipadSidebarOpen && 'border-r-0',
             )}
             style={{
@@ -468,7 +469,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             onOpenSessions={() => (isIPad ? toggleIpadSidebar() : setSessionsSheetOpen(true))}
             onOpenMenu={() => setOverflowOpen(true)}
             onOpenWorkspace={isIPad ? undefined : () => setWorkspaceOpen(true)}
-            workspaceDirty={!isIPad && dirtyChangeCount > 0}
             surfaceShortcuts={isIPad ? {
               activePanel: ipadRightPanel,
               changesDirty: dirtyChangeCount > 0,
@@ -492,7 +492,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <aside
             ref={rightResize.asideRef}
             className={cn(
-              'relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border/50 bg-background will-change-[width] motion-reduce:transition-none',
+              'relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border bg-background will-change-[width] motion-reduce:transition-none',
               !ipadRightPanel && 'border-l-0',
             )}
             style={{

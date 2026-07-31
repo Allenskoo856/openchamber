@@ -232,7 +232,7 @@ const SessionMetadataOverlay: React.FC<{
         role="dialog"
         aria-label={t('mobile.header.openMetadataAria')}
         className={cn(
-          'overflow-y-auto overscroll-contain rounded-[20px] border border-border/40 bg-[var(--surface-elevated)] p-2 shadow-[0_12px_32px_rgb(0_0_0_/_0.2)] will-change-transform',
+          'overflow-y-auto overscroll-contain rounded-[20px] border border-border bg-[var(--surface-elevated)] p-2 shadow-[0_12px_32px_rgb(0_0_0_/_0.2)] will-change-transform',
           ipadPopover ? 'absolute origin-top-left' : 'mx-3 mt-2',
           isExiting ? 'pointer-events-none' : 'pointer-events-auto',
         )}
@@ -366,16 +366,12 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
   currentSessionId,
   effectiveDirectory,
   isNewSessionDraftOpen,
-  primaryLabel,
-  secondaryLabel,
 }: {
   open: boolean;
   onOpenChange: (open: boolean | ((open: boolean) => boolean)) => void;
   currentSessionId: string | null;
   effectiveDirectory: string | null;
   isNewSessionDraftOpen: boolean;
-  primaryLabel: string;
-  secondaryLabel: string;
 }) {
   const { t } = useI18n();
   const metadataTriggerRef = React.useRef<HTMLButtonElement>(null);
@@ -541,14 +537,6 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
 
   return (
     <>
-      <div className="flex min-w-0 flex-1 items-center px-2 py-1.5 text-left">
-        <span className="flex min-w-0 flex-1 flex-col leading-tight">
-          <span className="block truncate typography-ui-label text-foreground">{primaryLabel}</span>
-          {secondaryLabel ? (
-            <span className="block truncate typography-micro text-muted-foreground">{secondaryLabel}</span>
-          ) : null}
-        </span>
-      </div>
       <button
         ref={metadataTriggerRef}
         type="button"

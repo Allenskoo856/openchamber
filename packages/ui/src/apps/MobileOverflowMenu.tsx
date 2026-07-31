@@ -3,7 +3,6 @@ import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
 import { useI18n } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 
 export type OverflowItem = {
   key: 'files' | 'changes' | 'terminal' | 'mcp' | 'notes' | 'instances' | 'update' | 'settings';
@@ -43,22 +42,19 @@ export const MobileOverflowMenu: React.FC<{
         onClick={onClose}
       />
       <div
-        className="absolute top-[calc(var(--oc-safe-area-top,0px)+56px+4px)] w-[min(220px,calc(100vw-1rem))] origin-top-right overflow-hidden rounded-2xl border border-border/40 bg-background shadow-[0_18px_60px_rgb(0_0_0_/_0.35)]"
+        className="absolute top-[calc(var(--oc-safe-area-top,0px)+56px+4px)] w-[min(220px,calc(100vw-1rem))] origin-top-right overflow-hidden rounded-2xl border border-border bg-background shadow-[0_18px_60px_rgb(0_0_0_/_0.35)]"
         role="menu"
         style={{
           right: `${8 + rightOffset}px`,
           animation: 'mobile-menu-in 160ms cubic-bezier(0.32, 0.72, 0, 1)',
         }}
       >
-        {items.map((item, index) => (
+        {items.map((item) => (
           <button
             key={item.key}
             type="button"
             role="menuitem"
-            className={cn(
-              'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset',
-              index > 0 && 'border-t border-border/30',
-            )}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
             style={{ touchAction: 'manipulation' }}
             onClick={() => {
               item.onSelect();

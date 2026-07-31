@@ -59,7 +59,8 @@ import {
   useSessionOrderingStore,
 } from '@/sync/session-ordering';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useAllLiveSessions } from '@/sync/sync-context';
+import { useAllLiveSessions, useGlobalSessionStatus } from '@/sync/sync-context';
+import { useSessionUnseenCount } from '@/sync/notification-store';
 import type { WorktreeMetadata } from '@/types/worktree';
 
 import { MobileProjectEditSurface } from './MobileProjectEditSurface';
@@ -73,6 +74,9 @@ type MobileSessionsSheetProps = {
 };
 
 const EMPTY_PINNED_SESSION_IDS = new Set<string>();
+
+// Pseudo-project key for the collapsible "recent" group's persisted expansion.
+const RECENT_GROUP_KEY = '__recent__';
 
 type ProjectMeta = {
   id: string;
@@ -112,7 +116,6 @@ const SESSIONS_PER_BUCKET = 7;
 // parent label. Root/project-level sessions align with the project label;
 // worktree sessions sit one level deeper. SessionRow adds 16px (dot + gap) on top.
 const PROJECT_SESSION_INDENT = 40;
-const WORKTREE_SESSION_INDENT = 56;
 // Extra left padding applied to each nested subsession level.
 const CHILD_INDENT_STEP = 16;
 
@@ -215,18 +218,6 @@ const MobileProjectIcon: React.FC<{
     </span>
   );
 };
-
-const ChevronToggle: React.FC<{ expanded: boolean }> = ({ expanded }) => (
-  <span
-    aria-hidden
-    className={cn(
-      'flex size-5 shrink-0 items-center justify-center text-muted-foreground/70 transition-transform duration-150',
-      expanded ? 'rotate-0' : '-rotate-90',
-    )}
-  >
-    <RiArrowDownSLine className="size-4" />
-  </span>
-);
 
 const ActiveDot: React.FC<{ ariaLabel?: string }> = ({ ariaLabel }) => (
   <span
@@ -388,6 +379,13 @@ const SessionRow: React.FC<{
   const time = formatRelativeShort(getSessionTimestamp(session));
   const title = session.title?.trim() || t('mobile.sessions.untitled');
   const swipeEnabled = Boolean(onRevealedChange && onArchive);
+  // Live indicators, same conventions as the desktop sidebar: busy/retry →
+  // spinner; unseen activity on a non-active row → attention dot.
+  const liveStatus = useGlobalSessionStatus(session.id);
+  const unseenCount = useSessionUnseenCount(session.id);
+  const statusType = liveStatus?.type ?? 'idle';
+  const isStreaming = statusType === 'busy' || statusType === 'retry';
+  const showUnreadDot = !isStreaming && unseenCount > 0 && !active;
 
   const contentRef = React.useRef<HTMLDivElement>(null);
   const startRef = React.useRef<{ x: number; y: number } | null>(null);
@@ -511,7 +509,10 @@ const SessionRow: React.FC<{
             : 'bg-[color-mix(in_srgb,var(--primary)_10%,transparent)]'),
         )}
       >
-        {hasChildren && onToggleChildren ? (
+        {/* Left gutter slot: live activity indicator takes priority over the
+            subsession chevron — same position, so rows never shift. When the
+            row has children the slot still toggles them either way. */}
+        {isStreaming || showUnreadDot || (hasChildren && onToggleChildren) ? (
           <button
             type="button"
             className="absolute z-10 flex w-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -519,12 +520,19 @@ const SessionRow: React.FC<{
             aria-label={expanded
               ? t('sessions.sidebar.session.subsessions.collapse')
               : t('sessions.sidebar.session.subsessions.expand')}
+            disabled={!hasChildren || !onToggleChildren}
             onClick={(event) => {
               event.stopPropagation();
-              onToggleChildren();
+              onToggleChildren?.();
             }}
           >
-            <RiArrowDownSLine className={cn('size-[18px] transition-transform duration-150', expanded ? 'rotate-0' : '-rotate-90')} />
+            {isStreaming ? (
+              <Icon name="loader-4" className="size-3.5 animate-spin text-primary" />
+            ) : showUnreadDot ? (
+              <span className="size-1.5 rounded-full bg-[var(--status-info)]" aria-hidden />
+            ) : (
+              <RiArrowDownSLine className={cn('size-[18px] transition-transform duration-150', expanded ? 'rotate-0' : '-rotate-90')} />
+            )}
           </button>
         ) : null}
         {renaming && onSubmitRename && onCancelRename ? (
@@ -644,7 +652,7 @@ const SortableProjectRow: React.FC<{
       ref={setNodeRef}
       style={style}
       className={cn(
-        'flex items-center gap-1 rounded-2xl border border-border/40 bg-[var(--surface-elevated)] px-1.5 py-1.5 transition-colors',
+        'flex items-center gap-1 rounded-2xl border border-border bg-[var(--surface-elevated)] px-1.5 py-1.5 transition-colors',
         isDragging && 'shadow-lg shadow-black/20',
         confirmingDelete && 'border-destructive/50 bg-[color-mix(in_srgb,var(--destructive)_8%,var(--surface-elevated))]',
       )}
@@ -955,8 +963,10 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   const isProjectExpanded = (node: ProjectNode): boolean =>
     projectExpandedMap[node.project.id] ?? true;
 
+  // Worktrees default to EXPANDED (desktop parity): their sessions ARE the
+  // content; the header still toggles for users who want them tucked away.
   const isWorktreeExpanded = (node: ProjectNode, bucket: WorktreeBucket): boolean =>
-    worktreeExpandedMap[`${node.project.id}::${bucket.key}`] ?? false;
+    worktreeExpandedMap[`${node.project.id}::${bucket.key}`] ?? true;
 
   const resetBucketVisibleCount = (bucketKey: string) => {
     setVisibleCountByBucket((previous) => {
@@ -1169,6 +1179,18 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   };
 
   /** Short "Project · branch" string shown under the session title in search results. */
+  const recentExpanded = projectExpandedMap[RECENT_GROUP_KEY] ?? true;
+
+  // Recent top-level sessions across all projects (same lifecycle ordering as
+  // the switcher and desktop sidebar).
+  const recentSessions = React.useMemo(() => {
+    return orderSessionsByLifecycleScopes(
+      sessions.filter((session) => !getParentId(session)),
+      pinnedSessionIds,
+      sessionOrderRanks,
+    ).slice(0, 5);
+  }, [pinnedSessionIds, sessionOrderRanks, sessions]);
+
   const buildSessionContextLabel = React.useCallback(
     (session: Session): string => {
       const directory = getSessionDirectory(session);
@@ -1347,9 +1369,9 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                       {searchSessionMatches.length}
                     </span>
                   </div>
-                  <div className="overflow-hidden rounded-2xl border border-border/40 bg-[var(--surface-elevated)]">
+                  <div className="overflow-hidden rounded-2xl border border-border bg-[var(--surface-elevated)]">
                     {searchSessionMatches.map((session, index) => (
-                      <div key={session.id} className={cn(index > 0 && 'border-t border-border/30')}>
+                      <div key={session.id} className={cn(index > 0 && 'border-t border-border')}>
                         <SessionRow
                           session={session}
                           active={currentSessionId === session.id}
@@ -1373,11 +1395,11 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                       {searchProjectMatches.length}
                     </span>
                   </div>
-                  <div className="overflow-hidden rounded-2xl border border-border/40 bg-[var(--surface-elevated)]">
+                  <div className="overflow-hidden rounded-2xl border border-border bg-[var(--surface-elevated)]">
                     {searchProjectMatches.map((project, index) => (
                       <div
                         key={project.id}
-                        className={cn('flex items-center', index > 0 && 'border-t border-border/30')}
+                        className={cn('flex items-center', index > 0 && 'border-t border-border')}
                       >
                         <button
                           type="button"
@@ -1436,6 +1458,44 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
             </div>
           ) : (
             <div className="flex flex-col">
+              {/* Recent across all projects — styled as a pseudo-project group
+                  (icon + collapsible header + project-level session indent),
+                  mirroring the desktop sidebar's recent section. */}
+              {!normalizedQuery && recentSessions.length > 0 ? (
+                <section className="border-b border-border">
+                  <button
+                    type="button"
+                    className="flex min-h-12 w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                    onClick={() => setProjectExpanded(RECENT_GROUP_KEY, !recentExpanded)}
+                    aria-expanded={recentExpanded}
+                    aria-label={recentExpanded
+                      ? t('sessions.sidebar.group.collapseAria', { label: t('sessions.sidebar.activity.recentTitle') })
+                      : t('sessions.sidebar.group.expandAria', { label: t('sessions.sidebar.activity.recentTitle') })}
+                    style={{ touchAction: 'manipulation' }}
+                  >
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-muted)] text-muted-foreground">
+                      <Icon name="history" className="size-4" />
+                    </span>
+                    <span className="block min-w-0 flex-1 truncate typography-ui-label font-semibold text-foreground">
+                      {t('sessions.sidebar.activity.recentTitle')}
+                    </span>
+                  </button>
+                  {recentExpanded ? (
+                    <div className="pb-2">
+                      {recentSessions.map((session) => (
+                        <SessionRow
+                          key={`recent-${session.id}`}
+                          session={session}
+                          active={currentSessionId === session.id}
+                          indent={PROJECT_SESSION_INDENT}
+                          contextLabel={buildSessionContextLabel(session)}
+                          onSelect={() => handleSelectSession(session)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
               {orderedNodes.map((node, nodeIndex) => {
                 const projectExpanded = isProjectExpanded(node);
                 const buckets = normalizedQuery
@@ -1449,7 +1509,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                 return (
                   <section
                     key={node.project.id}
-                    className={cn(nodeIndex > 0 && 'border-t border-border/30')}
+                    className={cn(nodeIndex > 0 && 'border-t border-border')}
                   >
                     <div data-active-project={node.isActive || undefined} className="flex min-h-12 w-full items-center">
                       <button
@@ -1501,7 +1561,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                                   <div key={bucket.key}>
                                     <button
                                       type="button"
-                                      className="flex min-h-10 w-full items-center gap-2 py-1 pl-4 pr-3 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                                      className="flex min-h-10 w-full items-center gap-2 px-3 py-1 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
                                       onClick={() => toggleWorktree(node.project.id, bucket.key, worktreeExpanded)}
                                       aria-expanded={worktreeExpanded}
                                       aria-label={
@@ -1511,9 +1571,12 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                                       }
                                       style={{ touchAction: 'manipulation' }}
                                     >
-                                      <ChevronToggle expanded={worktreeExpanded} />
+                                      {/* Desktop visual language: muted semibold
+                                          branch label + git-branch icon, so
+                                          worktree headers recede while plain-
+                                          foreground session titles stand out. */}
                                       <Icon
-                                        name="node-tree"
+                                        name="git-branch"
                                         className={cn(
                                           'size-4 shrink-0',
                                           isActiveWt ? 'text-primary' : 'text-muted-foreground',
@@ -1521,8 +1584,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                                       />
                                       <span
                                         className={cn(
-                                          'block min-w-0 flex-1 truncate typography-ui-label font-semibold',
-                                          isActiveWt ? 'text-foreground' : 'text-foreground/90',
+                                          'block min-w-0 flex-1 truncate typography-ui-label font-bold',
+                                          isActiveWt ? 'text-foreground' : 'text-muted-foreground',
                                         )}
                                       >
                                         {bucket.label}
@@ -1535,7 +1598,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                                       </span>
                                     </button>
                                     {worktreeExpanded
-                                      ? renderBucketSessions(node, bucket, WORKTREE_SESSION_INDENT)
+                                      ? renderBucketSessions(node, bucket, PROJECT_SESSION_INDENT)
                                       : null}
                                   </div>
                                 );
@@ -1583,7 +1646,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     if (!open) return null;
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center justify-between gap-2 border-b border-border/30 px-4">
+        <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
           <h2 className="truncate typography-ui-label font-semibold text-foreground">
             {t('mobile.sessions.sheet.title')}
           </h2>
@@ -1602,7 +1665,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       onClose={() => onOpenChange(false)}
       ariaLabel={t('mobile.sessions.sheet.title')}
     >
-      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/30 px-3">
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border px-3">
         <button
           type="button"
           className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
