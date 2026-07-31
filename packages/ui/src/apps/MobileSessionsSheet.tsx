@@ -262,128 +262,293 @@ const NewWorktreeIconButton: React.FC<{
   );
 };
 
+// Width of the swipe-revealed action area (rename + archive + delete buttons).
+const ROW_ACTIONS_WIDTH = 216;
+const ROW_SWIPE_SNAP_MS = 180;
+
+/** Inline title editor shown in place of the row content while renaming. */
+const SessionRenameForm: React.FC<{
+  initialTitle: string;
+  indent: number;
+  onSubmit: (title: string) => void;
+  onCancel: () => void;
+}> = ({ initialTitle, indent, onSubmit, onCancel }) => {
+  const { t } = useI18n();
+  const [value, setValue] = React.useState(initialTitle);
+  const submittedRef = React.useRef(false);
+
+  const commit = () => {
+    if (submittedRef.current) return;
+    submittedRef.current = true;
+    const next = value.trim();
+    if (!next || next === initialTitle.trim()) {
+      onCancel();
+      return;
+    }
+    onSubmit(next);
+  };
+
+  return (
+    <form
+      className="flex min-h-10 min-w-0 flex-1 items-center gap-2 py-1 pr-2"
+      style={{ paddingLeft: Math.max(indent - 4, 8) }}
+      onSubmit={(event) => {
+        event.preventDefault();
+        commit();
+      }}
+    >
+      <Input
+        autoFocus
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            submittedRef.current = true;
+            onCancel();
+          }
+        }}
+        aria-label={t('sessions.sidebar.session.rename.save')}
+        className="h-9 flex-1 text-[16px]"
+        enterKeyHint="done"
+      />
+    </form>
+  );
+};
+
 const SessionRow: React.FC<{
   session: Session;
   active: boolean;
   indent: number;
   /** When provided, shown as a small second-line subtitle below the title (e.g. "Project · branch"). */
   contextLabel?: string;
-  /** When true, the row shows the two-step archive confirmation. */
-  confirmingArchive?: boolean;
   /** When true, a chevron is shown in the left gutter to toggle nested subsessions. */
   hasChildren?: boolean;
   expanded?: boolean;
   onToggleChildren?: () => void;
   onSelect: () => void;
-  /** When provided, an archive affordance is shown; first tap arms confirm, X cancels. */
-  onRequestArchive?: () => void;
-  onConfirmArchive?: () => void;
+  /** Swipe-left actions. When omitted, the row is a plain non-swipeable row. */
+  revealed?: boolean;
+  onRevealedChange?: (revealed: boolean) => void;
+  confirmingDelete?: boolean;
+  onArchive?: () => void;
+  onRequestDelete?: () => void;
+  onConfirmDelete?: () => void;
+  renaming?: boolean;
+  onRequestRename?: () => void;
+  onSubmitRename?: (title: string) => void;
+  onCancelRename?: () => void;
 }> = ({
   session,
   active,
   indent,
   contextLabel,
-  confirmingArchive = false,
   hasChildren = false,
   expanded = false,
   onToggleChildren,
   onSelect,
-  onRequestArchive,
-  onConfirmArchive,
+  revealed = false,
+  onRevealedChange,
+  confirmingDelete = false,
+  onArchive,
+  onRequestDelete,
+  onConfirmDelete,
+  renaming = false,
+  onRequestRename,
+  onSubmitRename,
+  onCancelRename,
 }) => {
   const { t } = useI18n();
   const time = formatRelativeShort(getSessionTimestamp(session));
   const title = session.title?.trim() || t('mobile.sessions.untitled');
+  const swipeEnabled = Boolean(onRevealedChange && onArchive);
+
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  const startRef = React.useRef<{ x: number; y: number } | null>(null);
+  const draggingRef = React.useRef(false);
+  const offsetRef = React.useRef(0);
+  const revealedRef = React.useRef(revealed);
+
+  // Imperative transform during the drag (no per-frame re-render); React state
+  // only flips at the snap points via onRevealedChange.
+  const applyOffset = React.useCallback((px: number, animate: boolean) => {
+    const el = contentRef.current;
+    if (!el) return;
+    el.style.transition = animate ? `transform ${ROW_SWIPE_SNAP_MS}ms ease-out` : 'none';
+    el.style.transform = px === 0 ? 'none' : `translateX(${px}px)`;
+    offsetRef.current = px;
+  }, []);
+
+  React.useEffect(() => {
+    revealedRef.current = revealed;
+    applyOffset(revealed ? -ROW_ACTIONS_WIDTH : 0, true);
+  }, [applyOffset, revealed]);
+
+  const handleTouchStart = (event: React.TouchEvent) => {
+    if (!swipeEnabled || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    startRef.current = { x: touch.clientX, y: touch.clientY };
+    draggingRef.current = false;
+  };
+
+  const handleTouchMove = (event: React.TouchEvent) => {
+    if (!swipeEnabled || !startRef.current) return;
+    const touch = event.touches[0];
+    const dx = touch.clientX - startRef.current.x;
+    const dy = touch.clientY - startRef.current.y;
+    if (!draggingRef.current) {
+      if (Math.abs(dx) < 8 || Math.abs(dx) <= Math.abs(dy)) return;
+      draggingRef.current = true;
+    }
+    const base = revealedRef.current ? -ROW_ACTIONS_WIDTH : 0;
+    const next = Math.min(0, Math.max(-ROW_ACTIONS_WIDTH, base + dx));
+    applyOffset(next, false);
+  };
+
+  const handleTouchEnd = () => {
+    startRef.current = null;
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    const shouldReveal = offsetRef.current < -ROW_ACTIONS_WIDTH / 2;
+    applyOffset(shouldReveal ? -ROW_ACTIONS_WIDTH : 0, true);
+    if (shouldReveal !== revealedRef.current) onRevealedChange?.(shouldReveal);
+  };
+
   return (
     <div
       data-active-session={active || undefined}
-      className={cn(
-        'relative flex items-center gap-1 transition-colors',
-        active && !confirmingArchive && 'bg-[color-mix(in_srgb,var(--primary)_10%,transparent)]',
-        confirmingArchive && 'bg-[color-mix(in_srgb,var(--destructive)_8%,transparent)]',
-      )}
+      className="relative overflow-hidden"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
+      // Vertical panning stays native; horizontal moves reach the swipe handler.
+      style={swipeEnabled ? { touchAction: 'pan-y' } : undefined}
     >
-      {hasChildren && onToggleChildren ? (
-        <button
-          type="button"
-          className="absolute z-10 flex w-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          style={{ left: Math.max(indent - 32, 2), top: 0, bottom: 0, touchAction: 'manipulation' }}
-          aria-label={expanded
-            ? t('sessions.sidebar.session.subsessions.collapse')
-            : t('sessions.sidebar.session.subsessions.expand')}
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleChildren();
-          }}
+      {swipeEnabled ? (
+        <div
+          className="absolute inset-y-0 right-0 flex items-stretch"
+          style={{ width: ROW_ACTIONS_WIDTH }}
+          aria-hidden={!revealed}
         >
-          <RiArrowDownSLine className={cn('size-[18px] transition-transform duration-150', expanded ? 'rotate-0' : '-rotate-90')} />
-        </button>
-      ) : null}
-      <button
-        type="button"
-        className={cn(
-          'flex min-h-10 min-w-0 flex-1 items-center gap-2.5 py-1 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset',
-          confirmingArchive && 'opacity-50',
-        )}
-        style={{ paddingLeft: indent, touchAction: 'manipulation' }}
-        onClick={onSelect}
-        disabled={confirmingArchive}
-      >
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex items-center gap-2.5">
-            <span
-              className={cn(
-                'size-1.5 shrink-0 rounded-full',
-                active ? 'bg-primary' : 'bg-muted-foreground/30',
-              )}
-              aria-hidden
-            />
-            <span
-              className={cn(
-                'block min-w-0 flex-1 truncate typography-ui-label',
-                active ? 'text-primary' : 'text-foreground',
-              )}
-            >
-              {title}
-            </span>
-            {time ? (
-              <span className="shrink-0 typography-micro text-muted-foreground tabular-nums">{time}</span>
-            ) : null}
-          </span>
-          {contextLabel ? (
-            <span className="block truncate typography-micro text-muted-foreground pl-4">{contextLabel}</span>
-          ) : null}
-        </span>
-      </button>
-      {onRequestArchive ? (
-        <>
-          {confirmingArchive ? (
-            <button
-              type="button"
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-destructive px-3 text-destructive-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
-              aria-label={t('mobile.sessions.archiveSessionAria', { title })}
-              onClick={onConfirmArchive}
-              style={{ touchAction: 'manipulation' }}
-            >
-              <RiArchiveLine className="size-4" />
-              <span className="typography-ui-label">{t('sessions.sidebar.bulkActions.archive')}</span>
-            </button>
-          ) : null}
           <button
             type="button"
-            className="mr-1.5 flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground/70 transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={
-              confirmingArchive
-                ? t('mobile.sessions.cancelArchiveAria', { title })
-                : t('mobile.sessions.archiveSessionAria', { title })
-            }
-            onClick={onRequestArchive}
+            tabIndex={revealed ? 0 : -1}
+            className="flex flex-1 flex-col items-center justify-center gap-0.5 bg-[var(--interactive-hover)] text-foreground transition-colors active:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+            aria-label={t('mobile.sessions.renameSessionAria', { title })}
+            onClick={onRequestRename}
             style={{ touchAction: 'manipulation' }}
           >
-            {confirmingArchive ? <RiCloseLine className="size-4" /> : <RiArchiveLine className="size-4" />}
+            <RiEdit2Line className="size-4" />
+            <span className="typography-micro">{t('sessions.sidebar.session.menu.rename')}</span>
           </button>
-        </>
+          <button
+            type="button"
+            tabIndex={revealed ? 0 : -1}
+            className="flex flex-1 flex-col items-center justify-center gap-0.5 bg-[var(--surface-muted)] text-foreground transition-colors active:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+            aria-label={t('mobile.sessions.archiveSessionAria', { title })}
+            onClick={onArchive}
+            style={{ touchAction: 'manipulation' }}
+          >
+            <RiArchiveLine className="size-4" />
+            <span className="typography-micro">{t('sessions.sidebar.bulkActions.archive')}</span>
+          </button>
+          <button
+            type="button"
+            tabIndex={revealed ? 0 : -1}
+            className={cn(
+              'flex flex-1 flex-col items-center justify-center gap-0.5 text-destructive-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-destructive',
+              confirmingDelete ? 'bg-destructive' : 'bg-destructive/70 active:bg-destructive',
+            )}
+            aria-label={confirmingDelete
+              ? t('mobile.sessions.confirmDeleteSessionAria', { title })
+              : t('mobile.sessions.deleteSessionAria', { title })}
+            onClick={confirmingDelete ? onConfirmDelete : onRequestDelete}
+            style={{ touchAction: 'manipulation' }}
+          >
+            <RiDeleteBinLine className="size-4" />
+            <span className="typography-micro">{t('mobile.sessions.deleteSession')}</span>
+          </button>
+        </div>
       ) : null}
+      <div
+        ref={contentRef}
+        className={cn(
+          'relative flex items-center gap-1 transition-colors',
+          // Swipeable rows need an OPAQUE background so the action buttons stay
+          // hidden behind the content until it slides; plain rows (search
+          // results on an elevated card) keep the translucent treatment.
+          swipeEnabled && 'bg-background',
+          active && (swipeEnabled
+            ? 'bg-[color-mix(in_srgb,var(--primary)_10%,var(--background))]'
+            : 'bg-[color-mix(in_srgb,var(--primary)_10%,transparent)]'),
+        )}
+      >
+        {hasChildren && onToggleChildren ? (
+          <button
+            type="button"
+            className="absolute z-10 flex w-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            style={{ left: Math.max(indent - 32, 2), top: 0, bottom: 0, touchAction: 'manipulation' }}
+            aria-label={expanded
+              ? t('sessions.sidebar.session.subsessions.collapse')
+              : t('sessions.sidebar.session.subsessions.expand')}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleChildren();
+            }}
+          >
+            <RiArrowDownSLine className={cn('size-[18px] transition-transform duration-150', expanded ? 'rotate-0' : '-rotate-90')} />
+          </button>
+        ) : null}
+        {renaming && onSubmitRename && onCancelRename ? (
+          <SessionRenameForm
+            initialTitle={title}
+            indent={indent}
+            onSubmit={onSubmitRename}
+            onCancel={onCancelRename}
+          />
+        ) : (
+        <button
+          type="button"
+          className="flex min-h-10 min-w-0 flex-1 items-center gap-2.5 py-1 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+          style={{ paddingLeft: indent, touchAction: 'manipulation' }}
+          onClick={() => {
+            // A tap while the actions are out just closes them.
+            if (revealedRef.current) {
+              onRevealedChange?.(false);
+              return;
+            }
+            onSelect();
+          }}
+        >
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="flex items-center gap-2.5">
+              <span
+                className={cn(
+                  'size-1.5 shrink-0 rounded-full',
+                  active ? 'bg-primary' : 'bg-muted-foreground/30',
+                )}
+                aria-hidden
+              />
+              <span
+                className={cn(
+                  'block min-w-0 flex-1 truncate typography-ui-label',
+                  active ? 'text-primary' : 'text-foreground',
+                )}
+              >
+                {title}
+              </span>
+              {time ? (
+                <span className="shrink-0 typography-micro text-muted-foreground tabular-nums">{time}</span>
+              ) : null}
+            </span>
+            {contextLabel ? (
+              <span className="block truncate typography-micro text-muted-foreground pl-4">{contextLabel}</span>
+            ) : null}
+          </span>
+        </button>
+        )}
+      </div>
     </div>
   );
 };
@@ -533,6 +698,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const archiveSession = useSessionUIStore((state) => state.archiveSession);
+  const deleteSession = useSessionUIStore((state) => state.deleteSession);
+  const updateSessionTitle = useSessionUIStore((state) => state.updateSessionTitle);
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   const setActiveProject = useProjectsStore((state) => state.setActiveProject);
   const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
@@ -547,7 +714,11 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   const toggleParent = useMobileSessionExpansionStore((state) => state.toggleParent);
   const [query, setQuery] = React.useState('');
   const [editingProjectId, setEditingProjectId] = React.useState<string | null>(null);
-  const [confirmingArchiveSessionId, setConfirmingArchiveSessionId] = React.useState<string | null>(null);
+  // Swipe-left actions: which row has its actions revealed, and whether its
+  // delete button is armed (two-step). One row at a time.
+  const [revealedSessionId, setRevealedSessionId] = React.useState<string | null>(null);
+  const [confirmingDeleteSessionId, setConfirmingDeleteSessionId] = React.useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = React.useState<string | null>(null);
   // Bumped to force a re-list of worktrees (e.g. after one is deleted in the editor).
   const [worktreeRefreshKey, setWorktreeRefreshKey] = React.useState(0);
   const [directoryDialogOpen, setDirectoryDialogOpen] = React.useState(false);
@@ -582,7 +753,9 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       setConfirmingDeleteId(null);
       setVisibleCountByBucket(new Map());
       setEditingProjectId(null);
-      setConfirmingArchiveSessionId(null);
+      setRevealedSessionId(null);
+      setConfirmingDeleteSessionId(null);
+      setRenamingSessionId(null);
       return;
     }
     void refreshGlobalSessions(liveSessions);
@@ -830,10 +1003,17 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
             hasChildren={hasChildren}
             expanded={expanded}
             onToggleChildren={hasChildren ? () => toggleParent(session.id) : undefined}
-            confirmingArchive={confirmingArchiveSessionId === session.id}
             onSelect={() => handleSelectSession(session)}
-            onRequestArchive={() => handleRequestArchive(session.id)}
-            onConfirmArchive={() => void handleConfirmArchive(session)}
+            revealed={revealedSessionId === session.id}
+            onRevealedChange={(nextRevealed) => handleRowRevealedChange(session.id, nextRevealed)}
+            confirmingDelete={confirmingDeleteSessionId === session.id}
+            onArchive={() => void handleArchive(session)}
+            onRequestDelete={() => setConfirmingDeleteSessionId(session.id)}
+            onConfirmDelete={() => void handleConfirmDelete(session)}
+            renaming={renamingSessionId === session.id}
+            onRequestRename={() => handleRequestRename(session.id)}
+            onSubmitRename={(nextTitle) => void handleSubmitRename(session.id, nextTitle)}
+            onCancelRename={() => setRenamingSessionId(null)}
           />
           {hasChildren && expanded
             ? children.map((child) => renderNode(child, rowIndent + CHILD_INDENT_STEP))
@@ -878,17 +1058,42 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     onOpenChange(false);
   };
 
-  // Two-step archive: first tap arms the confirm on that row, second confirms.
-  // Only one row can be in the confirming state at a time.
-  const handleRequestArchive = (sessionId: string) => {
-    setConfirmingArchiveSessionId((current) => (current === sessionId ? null : sessionId));
+  // Swipe actions. Revealing a row disarms any pending delete confirm; archive
+  // fires immediately (the swipe itself is the intent), delete stays two-step.
+  const handleRowRevealedChange = (sessionId: string, nextRevealed: boolean) => {
+    setRevealedSessionId(nextRevealed ? sessionId : null);
+    setConfirmingDeleteSessionId(null);
   };
 
-  const handleConfirmArchive = async (session: Session) => {
-    setConfirmingArchiveSessionId(null);
+  const handleArchive = async (session: Session) => {
+    setRevealedSessionId(null);
+    setConfirmingDeleteSessionId(null);
     const ok = await archiveSession(session.id);
     if (ok) toast.success(t('sessions.sidebar.session.archive.success'));
     else toast.error(t('sessions.sidebar.session.archive.error'));
+  };
+
+  const handleConfirmDelete = async (session: Session) => {
+    setRevealedSessionId(null);
+    setConfirmingDeleteSessionId(null);
+    const ok = await deleteSession(session.id);
+    if (ok) toast.success(t('sessions.sidebar.session.delete.success'));
+    else toast.error(t('sessions.sidebar.session.delete.error'));
+  };
+
+  const handleRequestRename = (sessionId: string) => {
+    setRevealedSessionId(null);
+    setConfirmingDeleteSessionId(null);
+    setRenamingSessionId(sessionId);
+  };
+
+  const handleSubmitRename = async (sessionId: string, title: string) => {
+    setRenamingSessionId(null);
+    try {
+      await updateSessionTitle(sessionId, title);
+    } catch {
+      toast.error(t('mobile.sessions.renameError'));
+    }
   };
 
   const handleStartNewChat = () => {
