@@ -16,6 +16,10 @@ const HEALTH_CHECK_MAX_CONSECUTIVE_FAILURES = parsePositiveInt(
 const HEALTH_CHECK_INTERVAL_OVERRIDE_MS = parsePositiveInt(process.env.OPENCHAMBER_OPENCODE_HEALTH_INTERVAL_MS, 0);
 const HEALTH_CHECK_RESULT_CACHE_MS = parsePositiveInt(process.env.OPENCHAMBER_OPENCODE_HEALTH_CACHE_MS, 750);
 const OPENCODE_HEALTH_PATH = '/global/health';
+// Last-used directory plus the three most recently opened projects — deeper
+// tails are unlikely to be the user's first click and just add background work.
+const WARMUP_DIRECTORY_LIMIT = 4;
+const WARMUP_REQUEST_TIMEOUT_MS = 30000;
 
 export const createOpenCodeLifecycleRuntime = (deps) => {
   const {
@@ -42,6 +46,7 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
     getManagedOpenCodeEnv = async () => ({}),
     getActiveSessionCount = () => 0,
     reapManagedOrphanedProcesses = reapOrphanedProcesses,
+    getWarmupDirectories = async () => [],
     now = Date.now,
   } = deps;
 
@@ -910,6 +915,48 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
         outcome: bootstrapError ? 'error' : 'ready',
       },
     );
+    if (!bootstrapError) {
+      void warmOpenCodeDirectories();
+    }
+  };
+
+  // OpenCode initializes each project directory lazily on its first
+  // directory-scoped request, and that initialization takes seconds on large
+  // session stores. Without warming, the user's first session open pays it
+  // interactively (the chat waits on the message fetch until the directory
+  // finishes initializing). Warm the most recently used directories right
+  // after readiness so the work overlaps UI startup instead. Sequential and
+  // best-effort: a failed or slow directory never blocks the others for long,
+  // and a restart invalidates the pass via the port/readiness guard.
+  const warmOpenCodeDirectories = async () => {
+    let directories = [];
+    try {
+      directories = await getWarmupDirectories();
+    } catch {
+      return;
+    }
+    if (!Array.isArray(directories) || directories.length === 0) return;
+
+    const warmedPort = state.openCodePort;
+    for (const directory of directories.slice(0, WARMUP_DIRECTORY_LIMIT)) {
+      if (typeof directory !== 'string' || !directory) continue;
+      if (!state.isOpenCodeReady || state.openCodePort !== warmedPort) return;
+      let timeout = null;
+      try {
+        const controller = new AbortController();
+        timeout = setTimeout(() => controller.abort(), WARMUP_REQUEST_TIMEOUT_MS);
+        const url = `${buildOpenCodeUrl('/session/status', '')}?directory=${encodeURIComponent(directory)}`;
+        await fetch(url, {
+          method: 'GET',
+          headers: { Accept: 'application/json', ...getOpenCodeAuthHeaders() },
+          signal: controller.signal,
+        });
+      } catch {
+        // Best-effort — the directory stays lazy and the UI's own request warms it.
+      } finally {
+        if (timeout) clearTimeout(timeout);
+      }
+    }
   };
 
   /**

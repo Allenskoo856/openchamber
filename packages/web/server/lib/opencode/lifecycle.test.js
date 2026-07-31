@@ -145,6 +145,36 @@ describe('OpenCode lifecycle', () => {
     expect(terminalEvents).toHaveLength(1);
   });
 
+  it('warms recently used directories after a successful bootstrap', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ healthy: true }),
+    }));
+    globalThis.fetch = fetchMock;
+    const runtime = createRuntime({
+      env: {
+        ENV_CONFIGURED_OPENCODE_PORT: 45678,
+        ENV_CONFIGURED_OPENCODE_HOST: null,
+        ENV_EFFECTIVE_PORT: 45678,
+        ENV_CONFIGURED_OPENCODE_HOSTNAME: '127.0.0.1',
+        ENV_SKIP_OPENCODE_START: true,
+      },
+      reapManagedOrphanedProcesses: vi.fn(async () => ({ reaped: 0 })),
+      getWarmupDirectories: vi.fn(async () => ['/tmp/worktree-a', '/tmp/project-b']),
+    });
+
+    await runtime.bootstrapOpenCodeAtStartup();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const warmupUrls = fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/session/status'));
+    expect(warmupUrls).toEqual([
+      'http://127.0.0.1:45678/session/status?directory=%2Ftmp%2Fworktree-a',
+      'http://127.0.0.1:45678/session/status?directory=%2Ftmp%2Fproject-b',
+    ]);
+  });
+
   it('records an authoritative error terminal event when bootstrap fails', async () => {
     const runtime = createRuntime({
       syncFromHmrState: vi.fn(() => {

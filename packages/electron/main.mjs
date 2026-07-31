@@ -89,6 +89,13 @@ if (isDev) {
 }
 app.setAppUserModelId(APP_USER_MODEL_ID);
 app.commandLine.appendSwitch('proxy-bypass-list', '<-loopback>');
+// Lift Chromium's ~6-connections-per-host cap for the loopback backend. The
+// packaged renderer is cross-origin (openchamber-ui:// → http://127.0.0.1), so
+// every API call also needs a CORS preflight; during startup a few slow
+// OpenCode-proxied requests otherwise hold the whole pool and every other
+// request — including opening the first session — queues for seconds behind
+// them. Loopback has no per-host connection cost that the cap protects.
+app.commandLine.appendSwitch('ignore-connections-limit', '127.0.0.1,localhost');
 
 protocol.registerSchemesAsPrivileged([
   {
