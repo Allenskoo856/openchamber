@@ -34,22 +34,10 @@ import type {
   ResetToCommitResponse,
 } from './api/types';
 import { runtimeFetch } from './runtime-fetch';
-import { runBackgroundNetworkTask } from './background-network';
 import { getRuntimeUrlResolver } from './runtime-url';
 import { getRuntimeKey } from './runtime-switch';
 
 const API_BASE = '/api/git';
-// Poll/status-shaped git reads fan out per project and worktree during startup.
-// A low fetch priority lets Chromium dispatch queued interactive requests
-// (opening a session) ahead of them on the ~6 HTTP/1.1 sockets per origin.
-const BACKGROUND_READ: RequestInit = { priority: 'low' };
-
-// Those reads also run under the shared background-network gate: priority
-// alone is not enough because Chromium dispatches low-priority requests
-// immediately when sockets are free, and each git read can hold its socket
-// for seconds while the server is busy during startup.
-const backgroundReadFetch = (url: string): Promise<Response> =>
-  runBackgroundNetworkTask(() => runtimeFetch(url, BACKGROUND_READ));
 const GIT_STATUS_CACHE_TTL_MS = 1200;
 const GIT_REPO_CHECK_CACHE_TTL_MS = 5000;
 const gitStatusCache = new Map<string, { value: GitStatus; expiresAt: number }>();
@@ -103,7 +91,7 @@ export async function checkIsGitRepository(directory: string): Promise<boolean> 
   }
 
   const task = (async () => {
-    const response = await backgroundReadFetch(buildUrl(`${API_BASE}/check`, directory));
+    const response = await runtimeFetch(buildUrl(`${API_BASE}/check`, directory));
     if (!response.ok) {
       throw new Error(`Failed to check git repository: ${response.statusText}`);
     }
@@ -143,7 +131,7 @@ export async function getGitStatus(directory: string, options?: { mode?: 'light'
 
   const task = (async () => {
     const cacheVersion = getStatusCacheVersion(runtimeKey, directory);
-    const response = await backgroundReadFetch(buildUrl(`${API_BASE}/status`, directory, mode ? { mode } : undefined));
+    const response = await runtimeFetch(buildUrl(`${API_BASE}/status`, directory, mode ? { mode } : undefined));
     if (!response.ok) {
       throw new Error(`Failed to get git status: ${response.statusText}`);
     }
@@ -168,7 +156,7 @@ export async function getGitStatus(directory: string, options?: { mode?: 'light'
 }
 
 export async function resolveGitPrimaryRoot(directory: string): Promise<{ root: string }> {
-  const response = await backgroundReadFetch(buildUrl(`${API_BASE}/primary-root`, directory));
+  const response = await runtimeFetch(buildUrl(`${API_BASE}/primary-root`, directory));
   if (!response.ok) {
     throw new Error(`Failed to resolve git primary root: ${response.statusText}`);
   }
@@ -177,7 +165,7 @@ export async function resolveGitPrimaryRoot(directory: string): Promise<{ root: 
 }
 
 export async function resolveGitTopLevel(directory: string): Promise<{ root: string }> {
-  const response = await backgroundReadFetch(buildUrl(`${API_BASE}/toplevel`, directory));
+  const response = await runtimeFetch(buildUrl(`${API_BASE}/toplevel`, directory));
   if (!response.ok) {
     throw new Error(`Failed to resolve git toplevel: ${response.statusText}`);
   }
@@ -372,7 +360,7 @@ export async function isLinkedWorktree(directory: string): Promise<boolean> {
   if (!directory) {
     return false;
   }
-  const response = await backgroundReadFetch(buildUrl(`${API_BASE}/worktree-type`, directory));
+  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktree-type`, directory));
   if (!response.ok) {
     throw new Error(`Failed to detect worktree type: ${response.statusText}`);
   }
@@ -381,7 +369,7 @@ export async function isLinkedWorktree(directory: string): Promise<boolean> {
 }
 
 export async function getGitBranches(directory: string): Promise<GitBranch> {
-  const response = await backgroundReadFetch(buildUrl(`${API_BASE}/branches`, directory));
+  const response = await runtimeFetch(buildUrl(`${API_BASE}/branches`, directory));
   if (!response.ok) {
     throw new Error(`Failed to get branches: ${response.statusText}`);
   }
@@ -554,7 +542,7 @@ export async function generatePullRequestDescription(
 }
 
 export async function listGitWorktrees(directory: string): Promise<GitWorktreeInfo[]> {
-  const response = await backgroundReadFetch(buildUrl(`${API_BASE}/worktrees`, directory));
+  const response = await runtimeFetch(buildUrl(`${API_BASE}/worktrees`, directory));
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: response.statusText }));
     throw new Error(error.error || 'Failed to list worktrees');
