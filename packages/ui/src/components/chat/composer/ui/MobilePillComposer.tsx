@@ -11,9 +11,8 @@
  * the pill grow into its place.
  */
 
-import React from 'react';
-
 import { Icon } from '@/components/icon/Icon';
+import { StopIcon } from '@/components/icons/StopIcon';
 import { SessionGoalRow } from '@/components/chat/SessionGoalRow';
 import { SessionSuggestionChip } from '@/components/chat/SessionSuggestionChip';
 import { useI18n } from '@/lib/i18n';
@@ -28,8 +27,10 @@ export interface MobilePillComposerProps {
     newSessionDraftOpen: boolean;
     hasContent: boolean;
     isVSCode: boolean;
+    canAbort: boolean;
     footerIconButtonClass: string;
     iconSizeClass: string;
+    stopIconSizeClass: string;
     theme: Theme;
     onExpand: () => void;
     onApplySuggestion: (text: string) => void;
@@ -39,6 +40,7 @@ export interface MobilePillComposerProps {
     onOpenPrPicker: () => void;
     onOpenAttachSheet: () => void;
     onStartDictation: () => void;
+    onAbort: () => void;
 }
 
 export function MobilePillComposer(props: MobilePillComposerProps) {
@@ -50,8 +52,10 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         newSessionDraftOpen,
         hasContent,
         isVSCode,
+        canAbort,
         footerIconButtonClass,
         iconSizeClass,
+        stopIconSizeClass,
         theme: currentTheme,
         onExpand,
         onApplySuggestion,
@@ -61,6 +65,7 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
         onOpenPrPicker,
         onOpenAttachSheet,
         onStartDictation,
+        onAbort,
     } = props;
 
     return (
@@ -120,6 +125,33 @@ export function MobilePillComposer(props: MobilePillComposerProps) {
                 >
                     <Icon name="mic" className={cn(iconSizeClass, 'text-current')} />
                 </button>
+                {/* Same visibility rule as the full composer's stop control:
+                    while a turn is running the stop button takes the mic's
+                    end slot and the mic shifts one slot left. Instant swap —
+                    no shape animation (WKWebView). */}
+                {canAbort ? (
+                    <button
+                        type="button"
+                        className={cn(footerIconButtonClass, 'text-[var(--status-error)] hover:text-[var(--status-error)]')}
+                        // The pill shows only while the keyboard is down — the
+                        // tap must abort in place, never focus/expand the
+                        // composer or raise the keyboard.
+                        onMouseDown={(event) => event.preventDefault()}
+                        onPointerDownCapture={(event) => {
+                            if (event.pointerType === 'touch') {
+                                event.preventDefault();
+                            }
+                        }}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            onAbort();
+                        }}
+                        title={t('chat.chatInput.actions.stopGeneratingAria')}
+                        aria-label={t('chat.chatInput.actions.stopGeneratingAria')}
+                    >
+                        <StopIcon className={cn(stopIconSizeClass)} />
+                    </button>
+                ) : null}
             </div>
             {/* New-session button: fades/shrinks away when the draft is
                 already open, letting the pill expand into its place. */}

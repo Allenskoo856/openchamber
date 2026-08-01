@@ -2481,8 +2481,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         newSessionDraftOpen={newSessionDraftOpen}
                         hasContent={Boolean(hasContent)}
                         isVSCode={isVSCode}
+                        canAbort={canAbort}
                         footerIconButtonClass={footerIconButtonClass}
                         iconSizeClass={iconSizeClass}
+                        stopIconSizeClass={stopIconSizeClass}
                         theme={currentTheme}
                         onExpand={mobileShell.expand}
                         onApplySuggestion={applyAssistSuggestion}
@@ -2492,6 +2494,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                         onOpenPrPicker={openPrPicker}
                         onOpenAttachSheet={openMobileAttachSheet}
                         onStartDictation={toggleDictation}
+                        onAbort={handleAbort}
                     />
                 ) : (
                 <>
