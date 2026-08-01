@@ -1,18 +1,14 @@
 import React from 'react';
 
-import { McpIcon } from '@/components/icons/McpIcon';
-import { McpDropdownContent } from '@/components/mcp/McpDropdown';
 import { AboutSettings } from '@/components/sections/openchamber/AboutSettings';
 import { OpenCodeUpdateToast } from '@/components/update/OpenCodeUpdateToast';
 import { MobileAppUpdateToast } from '@/components/update/MobileAppUpdateToast';
 import { ConfigUpdateOverlay } from '@/components/ui/ConfigUpdateOverlay';
 import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/icon/Icon';
 import { OpenChamberLogo } from '@/components/ui/OpenChamberLogo';
 import { ChatView } from '@/components/views/ChatView';
 import { PlanView } from '@/components/views/PlanView';
 import { SettingsView } from '@/components/views/SettingsView';
-import { TerminalView } from '@/components/views/TerminalView';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
 import { registerRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -25,6 +21,7 @@ import { useWindowTitle } from '@/hooks/useWindowTitle';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { useOrientation } from '@/lib/device';
+import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
 import { useI18n } from '@/lib/i18n';
 import { isIPadApp } from '@/lib/platform';
 import { runtimeFetch } from '@/lib/runtime-fetch';
@@ -36,9 +33,8 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useFeatureFlagsStore } from '@/stores/useFeatureFlagsStore';
 import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
-import { useGitStatus, useGitStore } from '@/stores/useGitStore';
+import { useGitStore } from '@/stores/useGitStore';
 import { useMcpConfigStore, type McpDraft } from '@/stores/useMcpConfigStore';
-import { useMcpStore } from '@/stores/useMcpStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { listProjectWorktrees, worktreeMapsEqual } from '@/lib/worktrees/worktreeManager';
 import { useUIStore } from '@/stores/useUIStore';
@@ -47,21 +43,16 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { SyncProvider } from '@/sync/sync-context';
 
 import { SyncAppEffects } from './AppEffects';
-import { ProjectContextPanel } from '@/components/layout/RightSidebarTabs';
-import { MobileChangesSurface } from './MobileChangesSurface';
-import { MobileFilesSurface } from './MobileFilesSurface';
 import { BusyDots } from '@/components/chat/message/parts/BusyDots';
 import { MobileConnectionWelcome, type MobileConnectionNotice } from './MobileConnectionWelcome';
 import { MobileHeader } from './MobileHeader';
 import { MobileInstancesSurface } from './MobileInstancesSurface';
-import { MobileOverflowMenu, type OverflowItem } from './MobileOverflowMenu';
 import { MobileSessionsSheet } from './MobileSessionsSheet';
 import { MobileFullscreenSurface } from './MobileFullscreenSurface';
 import { MobileWorkspaceDrawer, type MobileWorkspaceTab } from './MobileWorkspaceDrawer';
 import { DedicatedMobileAppProvider, type MobileAppActions } from './mobileAppContext';
 import { autoConnectLastInstance, getAutoConnectTargetLabel, reprobeActiveConnection, type AutoConnectOutcome } from './mobileConnections';
 import { isCapacitorMobileApp, useNativeAndroidBackButton, useNativeMobileChrome, useNativeMobileLifecycle } from './mobileNativeChrome';
-import { normalizePath } from './mobilePaths';
 import { reconnectAppForTransportSwitch, resetAppForRuntimeEndpointChange } from './runtimeEndpointReset';
 import { useAppFontEffects } from './useAppFontEffects';
 import { useFontsReady } from './useFontsReady';
@@ -72,6 +63,7 @@ import { IpadSidebarResizeHandle } from './IpadSidebarResizeHandle';
 import {
   IPAD_LEFT_SIDEBAR_WIDTH,
   IPAD_RIGHT_SIDEBAR_WIDTH,
+  IPAD_WORKSPACE_SIDEBAR_MAX_WIDTH,
   useIpadSidebarResize,
 } from './ipadSidebarResize';
 
@@ -97,12 +89,11 @@ type MobileAppProps = {
 
 const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
 
-/** The fullscreen overlay surfaces reachable from the overflow menu. Exactly
-    one can be open at a time — opening another replaces it, closing returns
-    to the chat. The sessions drawer, the workspace drawer (Changes / Files /
-    Terminal tabs on phones), and the overflow menu are separate layers.
-    'terminal' is iPad-only here — phones get it as a workspace tab. */
-type MobileSurface = 'terminal' | 'mcp' | 'notes' | 'instances' | 'settings' | 'update';
+/** The fullscreen app-level surfaces, reachable from the sessions drawer
+    footer. Exactly one can be open at a time — opening another replaces it,
+    closing returns to the chat. The sessions drawer and the workspace drawer
+    (Changes / Files / Terminal / Notes / MCP) are separate layers. */
+type MobileSurface = 'instances' | 'settings' | 'update';
 
 const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onActiveConnectionDeleted }) => {
   const { t } = useI18n();
@@ -112,26 +103,20 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // open/close so the right-edge swipe reopens where the user left off.
   const [workspaceOpen, setWorkspaceOpen] = React.useState(false);
   const [workspaceTab, setWorkspaceTab] = React.useState<MobileWorkspaceTab>('changes');
-  const [isMcpRefreshing, setIsMcpRefreshing] = React.useState(false);
-  // A plan opened from the Project notes surface, shown as a second fullscreen
+  // A plan opened from the workspace drawer's Notes tab, shown as a fullscreen
   // layer on top of it (back returns to the notes).
   const [openPlan, setOpenPlan] = React.useState<{ path: string; title: string } | null>(null);
   const [settingsInitialMobileStage, setSettingsInitialMobileStage] = React.useState<'nav' | 'page-content'>('nav');
-  const [overflowOpen, setOverflowOpen] = React.useState(false);
   // When set, the Changes surface opens directly into the per-file diff for this path.
   const [pendingChangesDiff, setPendingChangesDiff] = React.useState<{ path: string; staged: boolean } | null>(null);
-  const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
+  const wideChatLayoutEnabled = useUIStore((state) => state.wideChatLayoutEnabled);
   const updateAvailable = useUpdateStore((state) => state.available);
   const updateRuntimeType = useUpdateStore((state) => state.runtimeType);
   const showCapacitorOnlyFeatures = React.useMemo(() => isCapacitorMobileApp(), []);
   const mcpServers = useMcpConfigStore((state) => state.mcpServers);
   const setMcpDraft = useMcpConfigStore((state) => state.setMcpDraft);
   const setSelectedMcp = useMcpConfigStore((state) => state.setSelectedMcp);
-  const refreshMcpStatus = useMcpStore((state) => state.refresh);
-  const loadMcpConfigs = useMcpConfigStore((state) => state.loadMcpConfigs);
-  const gitStatus = useGitStatus(normalizePath(currentDirectory) || null);
-  const dirtyChangeCount = gitStatus?.files?.length ?? 0;
 
   // NOTE: pendingChangesDiff is intentionally NOT cleared on close — it keys
   // the persistent Changes pane in the workspace drawer, and clearing it would
@@ -154,76 +139,82 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     openSurface('settings');
   }, [openSurface]);
 
-  // iPad (Capacitor): sessions live in a persistent full-height left sidebar
-  // and Changes/Files in a right sidebar, instead of phone sheets/surfaces.
+  // Tablet (iPad, Capacitor): sessions live in a persistent full-height left
+  // sidebar instead of the phone's drawer. Everything else — the workspace
+  // drawer, the header, the app-level surfaces — is shared with phones.
   const isIPad = React.useMemo(() => isIPadApp(), []);
   const orientation = useOrientation();
   const isPortrait = orientation === 'portrait';
+  const hasHardwareKeyboard = useHardwareKeyboard();
   const [ipadSidebarOpen, setIpadSidebarOpen] = React.useState(isIPad && !isPortrait);
-  const [ipadRightPanel, setIpadRightPanel] = React.useState<'files' | 'changes' | null>(null);
 
   const toggleIpadSidebar = React.useCallback(() => {
-    const willOpen = !ipadSidebarOpen;
-    // Portrait doesn't fit both side panels next to a usable chat column:
-    // opening one closes the other (iPadOS behaves the same way).
-    if (willOpen && isPortrait) setIpadRightPanel(null);
-    setIpadSidebarOpen(willOpen);
-  }, [ipadSidebarOpen, isPortrait]);
+    setIpadSidebarOpen((current) => !current);
+  }, []);
 
   const openFilesSurface = React.useCallback(() => {
-    if (isIPad) {
-      setPendingChangesDiff(null);
-      setIpadRightPanel('files');
-      if (isPortrait) setIpadSidebarOpen(false);
-      return;
-    }
+    setPendingChangesDiff(null);
     setWorkspaceTab('files');
     setWorkspaceOpen(true);
-  }, [isIPad, isPortrait]);
+  }, []);
 
   const openChangesSurface = React.useCallback((diff: { path: string; staged: boolean } | null = null) => {
     setPendingChangesDiff(diff);
-    if (isIPad) {
-      setIpadRightPanel('changes');
-      if (isPortrait) setIpadSidebarOpen(false);
-      return;
-    }
     setWorkspaceTab('changes');
     setWorkspaceOpen(true);
-  }, [isIPad, isPortrait]);
-
-  const closeIpadRightPanel = React.useCallback(() => {
-    setIpadRightPanel(null);
-    setPendingChangesDiff(null);
   }, []);
 
-  const toggleIpadRightPanel = React.useCallback((panel: 'files' | 'changes') => {
-    if (ipadRightPanel === panel) {
-      closeIpadRightPanel();
-      return;
-    }
-    if (panel === 'files') openFilesSurface();
-    else openChangesSurface();
-  }, [closeIpadRightPanel, ipadRightPanel, openChangesSurface, openFilesSurface]);
-
-  // Keep the right panel's content mounted through the width-collapse
-  // animation; drop it once the panel is fully closed.
-  const lastIpadRightPanelRef = React.useRef<'files' | 'changes'>('changes');
-  if (ipadRightPanel) lastIpadRightPanelRef.current = ipadRightPanel;
-  const [ipadRightContentMounted, setIpadRightContentMounted] = React.useState(false);
-  React.useEffect(() => {
-    if (!isIPad) return;
-    if (ipadRightPanel) {
-      setIpadRightContentMounted(true);
-      return;
-    }
-    const id = window.setTimeout(() => setIpadRightContentMounted(false), 240);
-    return () => window.clearTimeout(id);
-  }, [ipadRightPanel, isIPad]);
-  const renderedIpadRightPanel = ipadRightPanel ?? lastIpadRightPanelRef.current;
-
   const leftResize = useIpadSidebarResize('left', 'openchamber.ipad.leftSidebarWidth', IPAD_LEFT_SIDEBAR_WIDTH);
-  const rightResize = useIpadSidebarResize('right', 'openchamber.ipad.rightSidebarWidth', IPAD_RIGHT_SIDEBAR_WIDTH);
+  const rightResize = useIpadSidebarResize(
+    'right',
+    'openchamber.ipad.rightSidebarWidth',
+    IPAD_RIGHT_SIDEBAR_WIDTH,
+    IPAD_WORKSPACE_SIDEBAR_MAX_WIDTH,
+  );
+  // Landscape has room for the workspace beside the chat, so it becomes a real
+  // sidebar there; portrait keeps the phone's full-cover drawer, which would
+  // otherwise leave no usable chat column.
+  const workspaceAsPanel = isIPad && !isPortrait;
+  const workspacePanelWidth = workspaceAsPanel && workspaceOpen ? rightResize.width : 0;
+  const sidebarWidth = isIPad && ipadSidebarOpen ? leftResize.width : 0;
+
+  // Publish the chat column's insets so overlays portaled to <body> (model
+  // picker, directory picker, every MobileOverlayPanel) can center on the CHAT
+  // rather than on the window. Zero on phones, where the two are the same.
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.style.setProperty('--oc-chat-inset-left', `${sidebarWidth}px`);
+    root.style.setProperty('--oc-chat-inset-right', `${workspacePanelWidth}px`);
+    return () => {
+      root.style.removeProperty('--oc-chat-inset-left');
+      root.style.removeProperty('--oc-chat-inset-right');
+    };
+  }, [sidebarWidth, workspacePanelWidth]);
+
+  // Wide chat layout: the shared chat columns key off this root class, but only
+  // the desktop App set it — so on a tablet, where the chat column is finally
+  // wide enough for the setting to mean something, it did nothing. Applied for
+  // every mobile surface; on a phone the viewport is narrower than even the
+  // normal clamp, so it is a no-op there.
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.classList.toggle('wide-chat-layout', wideChatLayoutEnabled);
+    return () => root.classList.remove('wide-chat-layout');
+  }, [wideChatLayoutEnabled]);
+
+  // The draft screen keeps its starter chips while the keyboard is up when
+  // there is room for both: a tablet in portrait, or any tablet orientation
+  // with a hardware keyboard (then no software keyboard eats the screen at
+  // all). Landscape on the software keyboard still hides them — see mobile.css.
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const keep = isIPad && (isPortrait || hasHardwareKeyboard);
+    const root = document.documentElement;
+    root.classList.toggle('oc-keep-draft-starters', keep);
+    return () => root.classList.remove('oc-keep-draft-starters');
+  }, [hasHardwareKeyboard, isIPad, isPortrait]);
 
   const mobileActions = React.useMemo<MobileAppActions>(
     () => ({
@@ -250,8 +241,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           openFilesSurface();
           return;
         }
-        // Phones host MCP as a workspace tab now; iPad still uses the surface.
-        if (target === 'mcp' && !isIPad) {
+        if (target === 'mcp') {
           setWorkspaceTab('mcp');
           setWorkspaceOpen(true);
           return;
@@ -270,33 +260,21 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   );
   useDeepLinkHandlers(deepLinkHandlers);
 
-  // Edge swipes on the chat: left edge opens the sessions drawer (the iPad
-  // sidebar on iPad), right edge reopens the most recent overflow surface
-  // (the last right panel on iPad).
+  // Edge swipes on the chat: left edge opens the sessions drawer (the
+  // persistent sidebar on a tablet), right edge the workspace drawer.
   const chatMainRef = React.useRef<HTMLElement>(null);
   useEdgeSwipe(chatMainRef, {
     onLeftEdgeSwipe: () => {
       if (isIPad) setIpadSidebarOpen(true);
       else setSessionsSheetOpen(true);
     },
-    onRightEdgeSwipe: () => {
-      if (isIPad) {
-        if (lastIpadRightPanelRef.current === 'files') openFilesSurface();
-        else openChangesSurface();
-        return;
-      }
-      setWorkspaceOpen(true);
-    },
+    onRightEdgeSwipe: () => setWorkspaceOpen(true),
   });
 
-  // Top-most layer first: a plan or fullscreen surface can now sit ABOVE a
-  // drawer (opened from the drawer footer / workspace tabs), so they close
-  // before the drawers underneath.
+  // Top-most layer first: a plan or fullscreen surface can sit ABOVE a drawer
+  // (opened from the drawer footer / workspace tabs), so they close before the
+  // drawers underneath.
   const handleNativeBack = React.useCallback(() => {
-    if (overflowOpen) {
-      setOverflowOpen(false);
-      return true;
-    }
     if (openPlan) {
       setOpenPlan(null);
       return true;
@@ -314,7 +292,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       return true;
     }
     return false;
-  }, [activeSurface, closeSurface, closeWorkspace, openPlan, overflowOpen, sessionsSheetOpen, workspaceOpen]);
+  }, [activeSurface, closeSurface, closeWorkspace, openPlan, sessionsSheetOpen, workspaceOpen]);
 
   useNativeAndroidBackButton(handleNativeBack);
 
@@ -324,6 +302,22 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const showUpdateItem = !showCapacitorOnlyFeatures
     && updateAvailable
     && (updateRuntimeType === 'desktop' || updateRuntimeType === 'web');
+
+  // Tablets pack the app-level pages (settings, instances, a plan) into a
+  // centered dialog instead of covering the whole screen.
+  const surfaceVariant = isIPad ? 'dialog' as const : 'fullscreen' as const;
+
+  // App-level footer of the sessions list — the same on a phone drawer and a
+  // tablet sidebar: connected instance, pending web update, settings.
+  const sessionsFooter = React.useMemo(
+    () => ({
+      instanceLabel: showCapacitorOnlyFeatures ? getAutoConnectTargetLabel() : null,
+      onOpenInstances: showCapacitorOnlyFeatures ? () => openSurface('instances') : undefined,
+      onOpenSettings: () => openSettingsSurface('nav'),
+      onOpenUpdate: showUpdateItem ? () => openSurface('update') : undefined,
+    }),
+    [openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
+  );
 
   const openMcpCreateSettings = React.useCallback(() => {
     const baseName = 'new-mcp-server';
@@ -357,70 +351,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     openSettingsSurface('page-content');
   }, [mcpServers, openSettingsSurface, setMcpDraft, setSelectedMcp, setSettingsPage]);
 
-  const refreshMcpOverlay = React.useCallback(() => {
-    if (isMcpRefreshing) return;
-    setIsMcpRefreshing(true);
-    const directory = currentDirectory || null;
-    const minSpinPromise = new Promise((resolve) => window.setTimeout(resolve, 500));
-    void Promise.all([
-      refreshMcpStatus({ directory, silent: true }),
-      loadMcpConfigs({ force: true }),
-      minSpinPromise,
-    ]).finally(() => setIsMcpRefreshing(false));
-  }, [currentDirectory, isMcpRefreshing, loadMcpConfigs, refreshMcpStatus]);
-
-  const overflowItems: OverflowItem[] = React.useMemo(
-    () => {
-      const items: OverflowItem[] = [];
-      // Phones get Files/Changes/Terminal as workspace-drawer tabs; the iPad
-      // exposes Files/Changes as header shortcuts and keeps Terminal here.
-      if (isIPad) {
-        items.push({
-          key: 'terminal',
-          icon: 'terminal',
-          label: t('mobile.menu.terminal'),
-          onSelect: () => openSurface('terminal'),
-        });
-      }
-      items.push({
-        key: 'mcp',
-        iconNode: <McpIcon className="size-5 shrink-0 text-muted-foreground" />,
-        label: t('mobile.menu.mcp'),
-        onSelect: () => openSurface('mcp'),
-      });
-      items.push({
-        key: 'notes',
-        icon: 'sticky-note',
-        label: t('contextRail.surface.notes'),
-        onSelect: () => openSurface('notes'),
-      });
-      if (showCapacitorOnlyFeatures) {
-        items.push({
-          key: 'instances',
-          icon: 'server',
-          label: t('mobile.menu.instances'),
-          onSelect: () => openSurface('instances'),
-        });
-      }
-      if (showUpdateItem) {
-        items.push({
-          key: 'update',
-          icon: 'download',
-          label: t('mobile.menu.update'),
-          onSelect: () => openSurface('update'),
-        });
-      }
-      items.push({
-        key: 'settings',
-        icon: 'settings-3',
-        label: t('mobile.menu.settings'),
-        onSelect: () => openSettingsSurface('nav'),
-      });
-      return items;
-    },
-    [isIPad, openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem, t],
-  );
-
   return (
     <DedicatedMobileAppProvider actions={mobileActions}>
       <div
@@ -434,7 +364,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <aside
             ref={leftResize.asideRef}
             className={cn(
-              'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-border/70 bg-sidebar will-change-[width] motion-reduce:transition-none',
+              // bg-background, not bg-sidebar: the session/worktree/project
+              // rows are opaque bg-background (the swipe actions live under
+              // them), so a tinted sidebar would show through as row-shaped
+              // bands. Same surface as the phone drawer.
+              'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-border/70 bg-background will-change-[width] motion-reduce:transition-none',
               !ipadSidebarOpen && 'border-r-0',
             )}
             style={{
@@ -451,14 +385,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             aria-hidden={!ipadSidebarOpen}
             data-page-scroll-lock="true"
           >
-            {ipadSidebarOpen ? (
-              <IpadSidebarResizeHandle
-                side="left"
-                isResizing={leftResize.isResizing}
-                ariaLabel={t('sidebar.resize.leftPanelAria')}
-                handleProps={leftResize.handleProps}
-              />
-            ) : null}
             <div
               className={cn(
                 'flex h-full shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
@@ -477,26 +403,28 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                   onOpenChange={(value) => {
                     if (!value && isPortrait) setIpadSidebarOpen(false);
                   }}
+                  footer={sessionsFooter}
                 />
               </ErrorBoundary>
             </div>
+            {/* After the content, not before it: panes stack their own overlays
+                and the handle has to sit above every one of them. */}
+            {ipadSidebarOpen ? (
+              <IpadSidebarResizeHandle
+                side="left"
+                isResizing={leftResize.isResizing}
+                ariaLabel={t('sidebar.resize.leftPanelAria')}
+                handleProps={leftResize.handleProps}
+              />
+            ) : null}
           </aside>
         ) : null}
 
         <div className="flex h-full min-w-0 flex-1 flex-col" data-page-scroll-lock="true">
           <MobileHeader
             onOpenSessions={() => (isIPad ? toggleIpadSidebar() : setSessionsSheetOpen(true))}
-            // Phones dropped the overflow menu: its items live in the sessions
-            // drawer footer and the workspace tabs now. iPad keeps it until
-            // the dedicated iPad layout pass.
-            onOpenMenu={isIPad ? () => setOverflowOpen(true) : undefined}
-            onOpenWorkspace={isIPad ? undefined : () => setWorkspaceOpen(true)}
-            surfaceShortcuts={isIPad ? {
-              activePanel: ipadRightPanel,
-              changesDirty: dirtyChangeCount > 0,
-              onToggleFiles: () => toggleIpadRightPanel('files'),
-              onToggleChanges: () => toggleIpadRightPanel('changes'),
-            } : undefined}
+            onOpenWorkspace={() => setWorkspaceOpen(true)}
+            compactTitle={isIPad}
           />
           <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
             <div className="h-full w-full">
@@ -507,72 +435,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           </main>
         </div>
 
-        {/* iPad: Changes/Files live in a full-height right sidebar instead of
-            the phone's fullscreen surfaces. Width animates like the desktop
-            RightSidebar; content stays mounted through the collapse. */}
-        {isIPad ? (
-          <aside
-            ref={rightResize.asideRef}
-            className={cn(
-              'relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border/70 bg-background will-change-[width] motion-reduce:transition-none',
-              !ipadRightPanel && 'border-l-0',
-            )}
-            style={{
-              width: ipadRightPanel ? rightResize.width : 0,
-              minWidth: ipadRightPanel ? rightResize.width : 0,
-              maxWidth: ipadRightPanel ? rightResize.width : 0,
-              ['--oc-ipad-sidebar-width' as string]: `${rightResize.width}px`,
-              overflowX: 'clip',
-              paddingTop: 'var(--oc-safe-area-top, 0px)',
-              transitionProperty: rightResize.isResizing ? 'none' : 'width, min-width, max-width',
-              transitionDuration: '200ms',
-              transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
-            }}
-            aria-hidden={!ipadRightPanel}
-            data-page-scroll-lock="true"
-          >
-            {ipadRightPanel ? (
-              <IpadSidebarResizeHandle
-                side="right"
-                isResizing={rightResize.isResizing}
-                ariaLabel={t('sidebar.resize.rightPanelAria')}
-                handleProps={rightResize.handleProps}
-              />
-            ) : null}
-            <div
-              className={cn(
-                'flex h-full shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-                rightResize.isResizing && 'pointer-events-none',
-                !ipadRightPanel && 'pointer-events-none select-none opacity-0',
-              )}
-              style={{ width: 'var(--oc-ipad-sidebar-width)', overflowX: 'hidden' }}
-            >
-              {ipadRightContentMounted ? (
-                <ErrorBoundary>
-                  {renderedIpadRightPanel === 'files' ? (
-                    <MobileFilesSurface onClose={closeIpadRightPanel} />
-                  ) : (
-                    <MobileChangesSurface
-                      onClose={closeIpadRightPanel}
-                      initialDiffPath={pendingChangesDiff?.path ?? null}
-                      initialDiffStaged={pendingChangesDiff?.staged === true}
-                    />
-                  )}
-                </ErrorBoundary>
-              ) : null}
-            </div>
-          </aside>
-        ) : null}
-
-        {isIPad ? (
-          <MobileOverflowMenu
-            open={overflowOpen}
-            onClose={() => setOverflowOpen(false)}
-            items={overflowItems}
-            rightOffset={ipadRightPanel ? rightResize.width : 0}
-          />
-        ) : null}
-
         {/* Mounted permanently on phones (parked off-screen while closed) so
             the sessions/worktree state stays warm and the drawer opens with
             data already on screen — see MobileSessionsDrawerContainer. */}
@@ -580,20 +442,67 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <MobileSessionsSheet
             open={sessionsSheetOpen}
             onOpenChange={setSessionsSheetOpen}
-            footer={{
-              instanceLabel: showCapacitorOnlyFeatures ? getAutoConnectTargetLabel() : null,
-              onOpenInstances: showCapacitorOnlyFeatures ? () => openSurface('instances') : undefined,
-              onOpenSettings: () => openSettingsSurface('nav'),
-              onOpenUpdate: showUpdateItem ? () => openSurface('update') : undefined,
-            }}
+            footer={sessionsFooter}
           />
         ) : null}
 
-        {/* Mounted only while open (like the sessions sheet) so each surface
-            computes its safe-area / fixed-position layout fresh on open. Keeping
-            them always-mounted left a stale startup layout, which made the
-            top-inset dimming appear only intermittently on iOS. */}
-        {!isIPad ? (
+        {/* Tablet: the workspace lives inside an animated aside so landscape
+            gets a real sidebar. The drawer element keeps its position in the
+            tree across rotation — only its `variant` changes — so the mounted
+            panes (open diff, edited file, attached terminal) survive it. In
+            portrait the drawer portals itself out and this aside stays at 0. */}
+        {isIPad ? (
+          <aside
+            ref={rightResize.asideRef}
+            className={cn(
+              'relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border/70 bg-background will-change-[width] motion-reduce:transition-none',
+              !workspacePanelWidth && 'border-l-0',
+            )}
+            style={{
+              width: workspacePanelWidth,
+              minWidth: workspacePanelWidth,
+              maxWidth: workspacePanelWidth,
+              ['--oc-ipad-sidebar-width' as string]: `${rightResize.width}px`,
+              overflowX: 'clip',
+              paddingTop: 'var(--oc-safe-area-top, 0px)',
+              transitionProperty: rightResize.isResizing ? 'none' : 'width, min-width, max-width',
+              transitionDuration: '200ms',
+              transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            }}
+            aria-hidden={!workspacePanelWidth}
+            data-page-scroll-lock="true"
+          >
+            <div
+              className={cn(
+                'flex h-full min-h-0 shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                rightResize.isResizing && 'pointer-events-none',
+                !workspacePanelWidth && 'pointer-events-none select-none opacity-0',
+              )}
+              style={{ width: 'var(--oc-ipad-sidebar-width)', overflowX: 'hidden' }}
+            >
+              <ErrorBoundary>
+                <MobileWorkspaceDrawer
+                  open={workspaceOpen}
+                  onClose={closeWorkspace}
+                  tab={workspaceTab}
+                  onTabChange={setWorkspaceTab}
+                  pendingChangesDiff={pendingChangesDiff}
+                  onOpenPlan={setOpenPlan}
+                  onOpenMcpSettings={openMcpCreateSettings}
+                  variant={workspaceAsPanel ? 'panel' : 'drawer'}
+                />
+              </ErrorBoundary>
+            </div>
+            {workspacePanelWidth ? (
+              <IpadSidebarResizeHandle
+                side="right"
+                isResizing={rightResize.isResizing}
+                ariaLabel={t('sidebar.resize.rightPanelAria')}
+                handleProps={rightResize.handleProps}
+              />
+            ) : null}
+          </aside>
+        ) : (
           <MobileWorkspaceDrawer
             open={workspaceOpen}
             onClose={closeWorkspace}
@@ -603,87 +512,13 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             onOpenPlan={setOpenPlan}
             onOpenMcpSettings={openMcpCreateSettings}
           />
-        ) : null}
+        )}
 
-        {activeSurface === 'terminal' ? (
-          <MobileFullscreenSurface
-            open
-            onClose={closeSurface}
-            ariaLabel={t('mobile.menu.terminal')}
-            title={t('mobile.menu.terminal')}
-            disableEscapeDismiss
-          >
-            <ErrorBoundary>
-              <TerminalView visible />
-            </ErrorBoundary>
-          </MobileFullscreenSurface>
-        ) : null}
-
-        {activeSurface === 'mcp' ? (
-          <MobileFullscreenSurface
-            open
-            onClose={closeSurface}
-            ariaLabel={t('mcpDropdown.title')}
-            title={t('mcpDropdown.title')}
-            trailing={(
-              <>
-                <button
-                  type="button"
-                  className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  onClick={openMcpCreateSettings}
-                  aria-label={t('settings.mcp.sidebar.actions.addServerTitle')}
-                  title={t('settings.mcp.sidebar.actions.addServerTitle')}
-                  style={{ touchAction: 'manipulation' }}
-                >
-                  <Icon name="add" className="size-5" />
-                </button>
-                <button
-                  type="button"
-                  className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  onClick={refreshMcpOverlay}
-                  disabled={isMcpRefreshing}
-                  aria-label={t('mcpDropdown.actions.refreshAria')}
-                  title={t('mcpDropdown.actions.refreshAria')}
-                  style={{ touchAction: 'manipulation' }}
-                >
-                  <Icon name="refresh" className={cn('size-5', isMcpRefreshing && 'animate-spin')} />
-                </button>
-              </>
-            )}
-          >
-            <ErrorBoundary>
-              <McpDropdownContent
-                active
-                className="h-full"
-                listClassName="max-h-none"
-                hideHeader
-                mobileListDensity
-              />
-            </ErrorBoundary>
-          </MobileFullscreenSurface>
-        ) : null}
-
-        {activeSurface === 'notes' ? (
-          <MobileFullscreenSurface
-            open
-            onClose={closeSurface}
-            ariaLabel={t('contextRail.surface.notes')}
-            title={t('contextRail.surface.notes')}
-          >
-            <ErrorBoundary>
-              <ProjectContextPanel
-                onActionComplete={closeSurface}
-                onOpenPlan={setOpenPlan}
-              />
-            </ErrorBoundary>
-          </MobileFullscreenSurface>
-        ) : null}
-
-        {/* Layered above whichever surface opened it — the notes fullscreen
-            surface (iPad) or the workspace drawer's Notes tab (phones). */}
+        {/* Layered above the workspace drawer's Notes tab, which opened it. */}
         {openPlan ? (
           <MobileFullscreenSurface
             open
+            variant={surfaceVariant}
             onClose={() => setOpenPlan(null)}
             ariaLabel={openPlan.title}
             title={openPlan.title}
@@ -703,6 +538,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         {activeSurface === 'instances' && showCapacitorOnlyFeatures ? (
           <MobileFullscreenSurface
             open
+            variant={surfaceVariant}
+            dialogAlign="app"
             onClose={closeSurface}
             ariaLabel={t('mobile.menu.instances')}
             title={t('mobile.menu.instances')}
@@ -717,6 +554,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         {activeSurface === 'settings' ? (
           <MobileFullscreenSurface
             open
+            variant={surfaceVariant}
+            dialogAlign="app"
             onClose={closeSurface}
             ariaLabel={t('mobile.menu.settings')}
             headerless
@@ -740,6 +579,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         {activeSurface === 'update' ? (
           <MobileFullscreenSurface
             open
+            variant={surfaceVariant}
+            dialogAlign="app"
             onClose={closeSurface}
             ariaLabel={t('mobile.menu.update')}
             title={t('mobile.menu.update')}
