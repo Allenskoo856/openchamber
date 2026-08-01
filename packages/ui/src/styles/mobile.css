@@ -44,7 +44,10 @@
   /* Improve touch targets for mobile */
   :root.mobile-pointer:not(.desktop-runtime) button:not([role="radio"]):not([role="checkbox"]):not([role="switch"]),
   :root.mobile-pointer:not(.desktop-runtime) .btn,
-  :root.mobile-pointer:not(.desktop-runtime) [role="button"] {
+  :root.mobile-pointer:not(.desktop-runtime) [role="button"],
+  /* Static chat tool rows: not interactive as a whole, but they must share
+     the 36px rhythm of the [role="button"] expandable/reasoning rows. */
+  :root.mobile-pointer:not(.desktop-runtime) .oc-static-tool-row {
     min-height: 36px;
     min-width: 36px;
   }

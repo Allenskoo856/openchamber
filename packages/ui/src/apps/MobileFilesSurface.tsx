@@ -19,6 +19,7 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useI18n } from '@/lib/i18n';
 import type { FileListEntry, FileSearchResult } from '@/lib/api/types';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
+import { useUIStore } from '@/stores/useUIStore';
 import { cn } from '@/lib/utils';
 
 // The full desktop file editor, loaded on demand — it's a heavy chunk and only
@@ -165,6 +166,21 @@ export const MobileFilesSurface: React.FC<MobileFilesSurfaceProps> = ({ onClose 
     setSelectedPath(root, path);
     setRoute({ type: 'file', path, returnDirectory: currentDirectory || root });
   };
+
+  // Chat tool rows (read/skill/edit) stage a pending file focus/navigation in
+  // the UI store — the same channel desktop's context panel consumes. Route
+  // straight to the editor for targets inside this workspace; the editor
+  // itself consumes pendingFileNavigation to jump to the requested line.
+  const pendingFileFocusPath = useUIStore((state) => state.pendingFileFocusPath);
+  const pendingFileNavigation = useUIStore((state) => state.pendingFileNavigation);
+  React.useEffect(() => {
+    const target = normalizePath(pendingFileNavigation?.path ?? pendingFileFocusPath ?? '');
+    if (!target || !root) return;
+    if (target !== root && !target.startsWith(`${root}/`)) return;
+    setSelectedPath(root, target);
+    setRoute({ type: 'file', path: target, returnDirectory: root });
+    if (pendingFileFocusPath) useUIStore.getState().setPendingFileFocusPath(null);
+  }, [pendingFileFocusPath, pendingFileNavigation, root, setSelectedPath]);
 
   if (!root) {
     return <MobileFilesState message={t('mobile.files.empty.noDirectory')} />;
