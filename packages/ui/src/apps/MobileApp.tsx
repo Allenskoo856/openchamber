@@ -28,7 +28,9 @@ import { useOrientation } from '@/lib/device';
 import { useI18n } from '@/lib/i18n';
 import { isIPadApp } from '@/lib/platform';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { getRuntimeApiBaseUrl, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
+import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
+import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -989,6 +991,69 @@ export function MobileApp({ apis }: MobileAppProps) {
     if (agentsCount === 0) void loadAgents({ source: 'mobileApp:recovery' });
   }, [agentsCount, isConnected, loadAgents, loadProviders, providersCount]);
 
+  // Cold-launch continuity: after the launch instance connects, reopen the
+  // session that was open on this instance last time — but only after an
+  // authoritative sessions snapshot confirms it still exists, and only if the
+  // user hasn't opened a session in the meantime. An open new-session draft
+  // does NOT block the restore: ChatContainer auto-opens the draft whenever no
+  // session is active, so at this point it reflects the boot default, not a
+  // user choice. Runs once per successful launch connect; in-app instance
+  // switches keep using the in-memory per-runtime session memory instead.
+  const lastSessionRestoreDoneRef = React.useRef(false);
+  // While true, a logo overlay covers the shell so the user never sees the
+  // intermediate auto-opened draft before the restore decision lands.
+  const [lastSessionRestorePending, setLastSessionRestorePending] = React.useState(isNativeMobileApp);
+  React.useEffect(() => {
+    if (!isNativeMobileApp || !isConnected || lastSessionRestoreDoneRef.current) return;
+    if (useSessionUIStore.getState().currentSessionId) {
+      lastSessionRestoreDoneRef.current = true;
+      setLastSessionRestorePending(false);
+      return;
+    }
+    const runtimeKey = getRuntimeKey();
+    const persisted = readLastActiveSession(runtimeKey);
+    if (!persisted) {
+      lastSessionRestoreDoneRef.current = true;
+      setLastSessionRestorePending(false);
+      return;
+    }
+    let cancelled = false;
+    // Safety valve: the overlay must never strand the user on the splash if
+    // the snapshot hangs — fall through to the draft after a bounded wait.
+    const overlayTimeoutId = window.setTimeout(() => setLastSessionRestorePending(false), 6000);
+    void (async () => {
+      // `null` = fetch failure — keep the ref unset so the next connect (a
+      // stale persisted isConnected can fire this early) retries the restore.
+      const snapshot = await refreshGlobalSessions().catch(() => null);
+      if (cancelled) return;
+      if (!snapshot) {
+        setLastSessionRestorePending(false);
+        return;
+      }
+      lastSessionRestoreDoneRef.current = true;
+      const session = snapshot.activeSessions.find((entry) => entry.id === persisted.sessionId);
+      if (!session) {
+        // Authoritative snapshot says the session is gone (deleted/archived) —
+        // drop the stale pointer instead of retrying it on every launch.
+        clearLastActiveSession(runtimeKey);
+        setLastSessionRestorePending(false);
+        return;
+      }
+      const latest = useSessionUIStore.getState();
+      if (!latest.currentSessionId) {
+        void latest.setCurrentSession(
+          session.id,
+          resolveGlobalSessionDirectory(session) ?? persisted.directory ?? undefined,
+        );
+      }
+      setLastSessionRestorePending(false);
+    })();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(overlayTimeoutId);
+    };
+  }, [connectionEpoch, isConnected, isNativeMobileApp]);
+
   React.useEffect(() => {
     if (!isConnected) return;
     opencodeClient.setDirectory(currentDirectory);
@@ -1231,6 +1296,15 @@ export function MobileApp({ apis }: MobileAppProps) {
         <RuntimeAPIProvider apis={apis}>
           <TooltipProvider delayDuration={300} skipDelayDuration={150}>
             <div className="h-full bg-background text-foreground">
+              {/* Cold-launch continuity: keep the boot logo up over the shell
+                  until the last-session restore decides between session and
+                  draft — otherwise the auto-opened draft flashes first. The
+                  shell (and sync) still mounts and warms up underneath. */}
+              {isNativeMobileApp && lastSessionRestorePending ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
+                  <OpenChamberLogo width={120} height={120} isAnimated />
+                </div>
+              ) : null}
               <SyncAppEffects embeddedBackgroundWorkEnabled={isInitialized} />
               <OpenCodeUpdateToast />
               <MobileAppUpdateToast />
