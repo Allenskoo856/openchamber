@@ -77,7 +77,6 @@ type MobileSessionsSheetProps = {
 const EMPTY_PINNED_SESSION_IDS = new Set<string>();
 
 // Pseudo-project key for the collapsible "recent" group's persisted expansion.
-const RECENT_GROUP_KEY = '__recent__';
 
 type ProjectMeta = {
   id: string;
@@ -1307,18 +1306,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   };
 
   /** Short "Project · branch" string shown under the session title in search results. */
-  const recentExpanded = projectExpandedMap[RECENT_GROUP_KEY] ?? true;
-
-  // Recent top-level sessions across all projects (same lifecycle ordering as
-  // the switcher and desktop sidebar).
-  const recentSessions = React.useMemo(() => {
-    return orderSessionsByLifecycleScopes(
-      sessions.filter((session) => !getParentId(session)),
-      pinnedSessionIds,
-      sessionOrderRanks,
-    ).slice(0, 5);
-  }, [pinnedSessionIds, sessionOrderRanks, sessions]);
-
   const buildSessionContextLabel = React.useCallback(
     (session: Session): string => {
       const directory = getSessionDirectory(session);
@@ -1585,44 +1572,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
             </div>
           ) : (
             <div className="flex flex-col">
-              {/* Recent across all projects — styled as a pseudo-project group
-                  (icon + collapsible header + project-level session indent),
-                  mirroring the desktop sidebar's recent section. */}
-              {!normalizedQuery && recentSessions.length > 0 ? (
-                <section className="border-b border-border">
-                  <button
-                    type="button"
-                    className="flex min-h-12 w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
-                    onClick={() => setProjectExpanded(RECENT_GROUP_KEY, !recentExpanded)}
-                    aria-expanded={recentExpanded}
-                    aria-label={recentExpanded
-                      ? t('sessions.sidebar.group.collapseAria', { label: t('sessions.sidebar.activity.recentTitle') })
-                      : t('sessions.sidebar.group.expandAria', { label: t('sessions.sidebar.activity.recentTitle') })}
-                    style={{ touchAction: 'manipulation' }}
-                  >
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-muted)] text-muted-foreground">
-                      <Icon name="history" className="size-4" />
-                    </span>
-                    <span className="block min-w-0 flex-1 truncate typography-ui-label font-semibold text-foreground">
-                      {t('sessions.sidebar.activity.recentTitle')}
-                    </span>
-                  </button>
-                  {recentExpanded ? (
-                    <div className="pb-2">
-                      {recentSessions.map((session) => (
-                        <SessionRow
-                          key={`recent-${session.id}`}
-                          session={session}
-                          active={currentSessionId === session.id}
-                          indent={PROJECT_SESSION_INDENT}
-                          contextLabel={buildSessionContextLabel(session)}
-                          onSelect={() => handleSelectSession(session)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </section>
-              ) : null}
               {orderedNodes.map((node, nodeIndex) => {
                 const projectExpanded = isProjectExpanded(node);
                 const buckets = normalizedQuery

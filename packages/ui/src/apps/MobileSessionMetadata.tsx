@@ -291,7 +291,17 @@ const MobileUsageLimits: React.FC<{
   const { t } = useI18n();
   const modeLabel = displayMode === 'remaining' ? t('header.services.remaining') : t('header.services.used');
 
-  if (groups.length === 0) return null;
+  // First open often races the quota fetch (~2s) — show an explicit loading
+  // row instead of collapsing to an empty overlay.
+  if (groups.length === 0) {
+    if (!isLoading) return null;
+    return (
+      <div className="flex items-center justify-center gap-2 px-2.5 py-6 text-muted-foreground">
+        <Icon name="loader-4" className="size-4 animate-spin" aria-hidden />
+        <span className="typography-ui-label">{t('common.loading')}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="pt-2.5">
