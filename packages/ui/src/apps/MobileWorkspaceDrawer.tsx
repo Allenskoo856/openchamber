@@ -190,7 +190,7 @@ export const MobileWorkspaceDrawer: React.FC<{
         pointerEvents: open ? 'auto' : 'none',
       }}
     >
-      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/70 px-3">
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-3">
         <div className="flex h-9 min-w-0 flex-1 items-center">
           {/* Mounted only while shown; nonCompositedIndicator keeps the active
               pill off its own compositing layer — creating one inside the

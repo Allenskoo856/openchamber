@@ -223,6 +223,7 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
         onClose={onClose}
         title={t('projectEditDialog.title')}
         ariaLabel={t('projectEditDialog.title')}
+        noHeaderBorder
         trailing={
           <Button
             type="button"

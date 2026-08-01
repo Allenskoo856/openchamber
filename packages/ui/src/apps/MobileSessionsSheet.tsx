@@ -1896,7 +1896,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       onClose={() => onOpenChange(false)}
       ariaLabel={t('mobile.sessions.sheet.title')}
     >
-      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/70 px-3">
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-3">
         <button
           type="button"
           className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"

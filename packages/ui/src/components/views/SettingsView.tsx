@@ -1076,15 +1076,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       {isMobile ? (
         <div
           className={cn(
-            'flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b px-3',
+            'flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-3',
+            // The root nav list reads as a single quiet page — no divider and
+            // no back arrow (the X on the right is the only way out); subpages
+            // keep both.
+            mobileStage !== 'nav' && 'border-b',
             'bg-background'
           )}
-          style={{ borderColor: 'var(--interactive-border)' }}
+          style={mobileStage !== 'nav' ? { borderColor: 'var(--interactive-border)' } : undefined}
         >
-          {(showBackButton || onClose) ? (
+          {showBackButton ? (
             <button
               type="button"
-              onClick={showBackButton ? handleBack : onClose}
+              onClick={handleBack}
               aria-label={mobileBackButtonLabel}
               className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >

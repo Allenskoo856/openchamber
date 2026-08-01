@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 
 import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 const SURFACE_ROOT_ID = 'mobile-surface-root';
 const ENTER_DELAY_MS = 16;
@@ -31,6 +32,8 @@ export type MobileFullscreenSurfaceProps = {
   disableEscapeDismiss?: boolean;
   /** If true, render no header and let the child render its own (with its own back button). */
   headerless?: boolean;
+  /** Drop the header's bottom divider (quiet single-page surfaces). */
+  noHeaderBorder?: boolean;
   ariaLabel?: string;
   children: React.ReactNode;
 };
@@ -46,6 +49,7 @@ export const MobileFullscreenSurface: React.FC<MobileFullscreenSurfaceProps> = (
   trailing,
   disableEscapeDismiss = false,
   headerless = false,
+  noHeaderBorder = false,
   ariaLabel,
   children,
 }) => {
@@ -168,7 +172,12 @@ export const MobileFullscreenSurface: React.FC<MobileFullscreenSurfaceProps> = (
       }}
     >
       {!headerless ? (
-        <header className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/70 px-3">
+        <header
+          className={cn(
+            'flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 px-3',
+            !noHeaderBorder && 'border-b border-border/70',
+          )}
+        >
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
