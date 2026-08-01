@@ -19,7 +19,9 @@ export type MobileHeaderSurfaceShortcuts = {
 
 export const MobileHeader: React.FC<{
   onOpenSessions: () => void;
-  onOpenMenu: () => void;
+  /** iPad only for now: the legacy overflow menu. Phones distribute its items
+      across the sessions drawer footer and the workspace drawer tabs. */
+  onOpenMenu?: () => void;
   /** Phone only: opens the right workspace drawer (Changes / Files / Terminal). */
   onOpenWorkspace?: () => void;
   /** iPad only: Files/Changes header shortcuts that toggle the right sidebar. */
@@ -58,7 +60,7 @@ export const MobileHeader: React.FC<{
   const handleOpenMenu = React.useCallback(() => {
     setMetadataOpen(false);
     setSwitcherOpen(false);
-    onOpenMenu();
+    onOpenMenu?.();
   }, [onOpenMenu]);
 
   // The two header popovers are mutually exclusive.
@@ -81,7 +83,7 @@ export const MobileHeader: React.FC<{
   return (
     <>
       <header
-        className="oc-mobile-header relative z-30 flex shrink-0 items-center gap-1 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+        className="oc-mobile-header relative z-30 flex shrink-0 items-center gap-1 border-b border-border/70 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80"
         style={{ paddingTop: 'var(--oc-safe-area-top, 0px)' }}
       >
         <div className="flex h-[var(--oc-header-height,56px)] w-full items-center gap-1 px-2">
@@ -166,15 +168,17 @@ export const MobileHeader: React.FC<{
             </>
           ) : null}
 
-          <button
-            type="button"
-            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={t('mobile.header.openMenuAria')}
-            onClick={handleOpenMenu}
-            style={{ touchAction: 'manipulation' }}
-          >
-            <Icon name="more-2" className="size-5" />
-          </button>
+          {onOpenMenu ? (
+            <button
+              type="button"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-label={t('mobile.header.openMenuAria')}
+              onClick={handleOpenMenu}
+              style={{ touchAction: 'manipulation' }}
+            >
+              <Icon name="more-2" className="size-5" />
+            </button>
+          ) : null}
 
           {onOpenWorkspace ? (
             <button
@@ -188,7 +192,7 @@ export const MobileHeader: React.FC<{
               }}
               style={{ touchAction: 'manipulation' }}
             >
-              <Icon name="tools" className="size-5" />
+              <Icon name="pencil-ruler-2" className="size-5" />
             </button>
           ) : null}
         </div>

@@ -72,7 +72,7 @@ const SortableWorktreeRow: React.FC<{
       ref={setNodeRef}
       style={style}
       className={cn(
-        'flex items-center gap-1 rounded-2xl border border-border bg-[var(--surface-elevated)] px-1.5 py-1.5 transition-colors',
+        'flex items-center gap-1 rounded-2xl border border-border/70 bg-[var(--surface-elevated)] px-1.5 py-1.5 transition-colors',
         isDragging && 'shadow-lg shadow-black/20',
       )}
     >
@@ -292,7 +292,7 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
                   aria-label={t('projectEditDialog.option.none')}
                   className={cn(
                     'flex size-9 items-center justify-center rounded-xl border-2 transition-all',
-                    color === null ? 'border-foreground' : 'border-border hover:border-border',
+                    color === null ? 'border-foreground' : 'border-border/70 hover:border-border/70',
                   )}
                   style={{ touchAction: 'manipulation' }}
                 >
@@ -307,7 +307,7 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
                     title={c.label}
                     className={cn(
                       'size-9 rounded-xl border-2 transition-all',
-                      color === c.key ? 'border-foreground' : 'border-transparent hover:border-border',
+                      color === c.key ? 'border-foreground' : 'border-transparent hover:border-border/70',
                     )}
                     style={{ backgroundColor: c.cssVar, touchAction: 'manipulation' }}
                   />
@@ -327,7 +327,7 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
                   aria-label={t('projectEditDialog.option.none')}
                   className={cn(
                     'flex size-9 items-center justify-center rounded-xl border-2 transition-all',
-                    icon === null ? 'border-foreground bg-[var(--surface-elevated)]' : 'border-border hover:border-border',
+                    icon === null ? 'border-foreground bg-[var(--surface-elevated)]' : 'border-border/70 hover:border-border/70',
                   )}
                   style={{ touchAction: 'manipulation' }}
                 >
@@ -342,7 +342,7 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
                     title={i.label}
                     className={cn(
                       'flex size-9 items-center justify-center rounded-xl border-2 transition-all',
-                      icon === i.key ? 'border-foreground bg-[var(--surface-elevated)]' : 'border-border hover:border-border',
+                      icon === i.key ? 'border-foreground bg-[var(--surface-elevated)]' : 'border-border/70 hover:border-border/70',
                     )}
                     style={{ touchAction: 'manipulation' }}
                   >

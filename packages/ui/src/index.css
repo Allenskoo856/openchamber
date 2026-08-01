@@ -580,6 +580,19 @@ svg.animate-spin {
   background: transparent;
 }
 
+/* Fully hidden scrollbar for small mobile overlays (session switcher etc.)
+   where a visible bar reads as chrome noise. Scrolling stays intact. */
+.oc-hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.oc-hide-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 [data-scrollbar="chat"].chat-scroll,
 .chat-scroll {
   scrollbar-gutter: stable both-edges;

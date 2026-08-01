@@ -2,11 +2,17 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '@/components/icon/Icon';
+import { McpIcon } from '@/components/icons/McpIcon';
+import { McpDropdownContent } from '@/components/mcp/McpDropdown';
+import { ProjectContextPanel } from '@/components/layout/RightSidebarTabs';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/sortable-tabs-strip';
 import { TerminalView } from '@/components/views/TerminalView';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { useMcpConfigStore } from '@/stores/useMcpConfigStore';
+import { useMcpStore } from '@/stores/useMcpStore';
 
 import { MobileChangesSurface } from './MobileChangesSurface';
 import { MobileFilesSurface } from './MobileFilesSurface';
@@ -18,13 +24,71 @@ const ENTER_DELAY_MS = 16;
 const ENTER_DURATION_MS = 320;
 const DRAWER_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
-export type MobileWorkspaceTab = 'changes' | 'files' | 'terminal';
+export type MobileWorkspaceTab = 'changes' | 'files' | 'terminal' | 'notes' | 'mcp';
 
+/** Quick MCP enable/disable toggles as a workspace pane, with its own slim
+    action row (add server → settings, refresh) replacing the old fullscreen
+    surface's header actions. */
+const McpWorkspacePane: React.FC<{ onOpenMcpSettings: () => void }> = ({ onOpenMcpSettings }) => {
+  const { t } = useI18n();
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
+  const refreshMcpStatus = useMcpStore((state) => state.refresh);
+  const loadMcpConfigs = useMcpConfigStore((state) => state.loadMcpConfigs);
+
+  const refresh = () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    const minSpinPromise = new Promise((resolve) => window.setTimeout(resolve, 500));
+    void Promise.all([
+      refreshMcpStatus({ directory: currentDirectory || null, silent: true }),
+      loadMcpConfigs({ force: true }),
+      minSpinPromise,
+    ]).finally(() => setIsRefreshing(false));
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center justify-end gap-1 px-2 pt-1">
+        <button
+          type="button"
+          className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          onClick={onOpenMcpSettings}
+          aria-label={t('settings.mcp.sidebar.actions.addServerTitle')}
+          title={t('settings.mcp.sidebar.actions.addServerTitle')}
+          style={{ touchAction: 'manipulation' }}
+        >
+          <Icon name="add" className="size-5" />
+        </button>
+        <button
+          type="button"
+          className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          onClick={refresh}
+          disabled={isRefreshing}
+          aria-label={t('mcpDropdown.actions.refreshAria')}
+          title={t('mcpDropdown.actions.refreshAria')}
+          style={{ touchAction: 'manipulation' }}
+        >
+          <Icon name="refresh" className={cn('size-5', isRefreshing && 'animate-spin')} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">
+        <McpDropdownContent
+          active
+          className="h-full"
+          listClassName="max-h-none"
+          hideHeader
+          mobileListDensity
+        />
+      </div>
+    </div>
+  );
+};
 
 /** Full-width right drawer with the phone workspace surfaces as tabs
-    (Changes / Files / Terminal). Slides in from the right edge; closes via
-    the header X, Escape (unless the terminal tab owns the keys), or the
-    Android back button (handled by MobileShell). */
+    (Changes / Files / Terminal / Notes / MCP). Slides in from the right edge;
+    closes via the header X, Escape (unless the terminal tab owns the keys),
+    or the Android back button (handled by MobileShell). */
 export const MobileWorkspaceDrawer: React.FC<{
   open: boolean;
   onClose: () => void;
@@ -32,7 +96,11 @@ export const MobileWorkspaceDrawer: React.FC<{
   onTabChange: (tab: MobileWorkspaceTab) => void;
   /** When set, the Changes tab opens directly into the per-file diff. */
   pendingChangesDiff: { path: string; staged: boolean } | null;
-}> = ({ open, onClose, tab, onTabChange, pendingChangesDiff }) => {
+  /** Notes tab: opens a plan fullscreen (layered above the drawer). */
+  onOpenPlan: (plan: { path: string; title: string }) => void;
+  /** MCP tab: jump to the MCP settings page pre-seeded with a new server draft. */
+  onOpenMcpSettings: () => void;
+}> = ({ open, onClose, tab, onTabChange, pendingChangesDiff, onOpenPlan, onOpenMcpSettings }) => {
   const { t } = useI18n();
   const rootRef = React.useRef<HTMLElement | null>(null);
   const [entered, setEntered] = React.useState(false);
@@ -101,6 +169,8 @@ export const MobileWorkspaceDrawer: React.FC<{
     { id: 'changes', label: t('mobile.menu.changes'), icon: <Icon name="git-branch" className="h-3.5 w-3.5" /> },
     { id: 'files', label: t('mobile.menu.files'), icon: <Icon name="file-text" className="h-3.5 w-3.5" /> },
     { id: 'terminal', label: t('mobile.menu.terminal'), icon: <Icon name="terminal" className="h-3.5 w-3.5" /> },
+    { id: 'notes', label: t('contextRail.surface.notes'), icon: <Icon name="sticky-note" className="h-3.5 w-3.5" /> },
+    { id: 'mcp', label: t('mobile.menu.mcp'), icon: <McpIcon className="h-3.5 w-3.5" /> },
   ];
 
   return createPortal(
@@ -120,7 +190,7 @@ export const MobileWorkspaceDrawer: React.FC<{
         pointerEvents: open ? 'auto' : 'none',
       }}
     >
-      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border px-3">
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/70 px-3">
         <div className="flex h-9 min-w-0 flex-1 items-center">
           {/* Mounted only while shown; nonCompositedIndicator keeps the active
               pill off its own compositing layer — creating one inside the
@@ -133,6 +203,9 @@ export const MobileWorkspaceDrawer: React.FC<{
               layoutMode="fit"
               variant="active-pill"
               nonCompositedIndicator
+              // Five tabs don't fit with labels — the active tab keeps
+              // icon + label, the rest collapse to icons.
+              inactiveTabsIconOnly
               className="h-full"
             />
           ) : null}
@@ -177,6 +250,20 @@ export const MobileWorkspaceDrawer: React.FC<{
           <div className={cn('h-full', tab !== 'terminal' && 'hidden')}>
             <ErrorBoundary>
               <TerminalView visible={open && tab === 'terminal'} />
+            </ErrorBoundary>
+          </div>
+        ) : null}
+        {visitedTabs.has('notes') ? (
+          <div className={cn('h-full', tab !== 'notes' && 'hidden')}>
+            <ErrorBoundary>
+              <ProjectContextPanel onActionComplete={onClose} onOpenPlan={onOpenPlan} />
+            </ErrorBoundary>
+          </div>
+        ) : null}
+        {visitedTabs.has('mcp') ? (
+          <div className={cn('h-full', tab !== 'mcp' && 'hidden')}>
+            <ErrorBoundary>
+              <McpWorkspacePane onOpenMcpSettings={onOpenMcpSettings} />
             </ErrorBoundary>
           </div>
         ) : null}

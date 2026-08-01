@@ -246,8 +246,17 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         else setSessionsSheetOpen(true);
       },
       openView: (target: 'files' | 'mcp' | 'instances' | 'update') => {
-        if (target === 'files') openFilesSurface();
-        else openSurface(target);
+        if (target === 'files') {
+          openFilesSurface();
+          return;
+        }
+        // Phones host MCP as a workspace tab now; iPad still uses the surface.
+        if (target === 'mcp' && !isIPad) {
+          setWorkspaceTab('mcp');
+          setWorkspaceOpen(true);
+          return;
+        }
+        openSurface(target);
       },
       openChanges: ({ path, staged }: { path?: string; staged?: boolean } = {}) => {
         openChangesSurface(path ? { path, staged: staged === true } : null);
@@ -280,17 +289,12 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     },
   });
 
+  // Top-most layer first: a plan or fullscreen surface can now sit ABOVE a
+  // drawer (opened from the drawer footer / workspace tabs), so they close
+  // before the drawers underneath.
   const handleNativeBack = React.useCallback(() => {
     if (overflowOpen) {
       setOverflowOpen(false);
-      return true;
-    }
-    if (sessionsSheetOpen) {
-      setSessionsSheetOpen(false);
-      return true;
-    }
-    if (workspaceOpen) {
-      closeWorkspace();
       return true;
     }
     if (openPlan) {
@@ -301,12 +305,25 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       closeSurface();
       return true;
     }
+    if (workspaceOpen) {
+      closeWorkspace();
+      return true;
+    }
+    if (sessionsSheetOpen) {
+      setSessionsSheetOpen(false);
+      return true;
+    }
     return false;
   }, [activeSurface, closeSurface, closeWorkspace, openPlan, overflowOpen, sessionsSheetOpen, workspaceOpen]);
 
   useNativeAndroidBackButton(handleNativeBack);
 
-  const showUpdateItem = updateAvailable && (updateRuntimeType === 'desktop' || updateRuntimeType === 'web');
+  // Server updates are actionable from a browser (hosted mobile) but not from
+  // the Capacitor shell — the native app updates through the store, and the
+  // server it CONNECTS to is updated elsewhere.
+  const showUpdateItem = !showCapacitorOnlyFeatures
+    && updateAvailable
+    && (updateRuntimeType === 'desktop' || updateRuntimeType === 'web');
 
   const openMcpCreateSettings = React.useCallback(() => {
     const baseName = 'new-mcp-server';
@@ -417,7 +434,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <aside
             ref={leftResize.asideRef}
             className={cn(
-              'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar will-change-[width] motion-reduce:transition-none',
+              'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-border/70 bg-sidebar will-change-[width] motion-reduce:transition-none',
               !ipadSidebarOpen && 'border-r-0',
             )}
             style={{
@@ -469,7 +486,10 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         <div className="flex h-full min-w-0 flex-1 flex-col" data-page-scroll-lock="true">
           <MobileHeader
             onOpenSessions={() => (isIPad ? toggleIpadSidebar() : setSessionsSheetOpen(true))}
-            onOpenMenu={() => setOverflowOpen(true)}
+            // Phones dropped the overflow menu: its items live in the sessions
+            // drawer footer and the workspace tabs now. iPad keeps it until
+            // the dedicated iPad layout pass.
+            onOpenMenu={isIPad ? () => setOverflowOpen(true) : undefined}
             onOpenWorkspace={isIPad ? undefined : () => setWorkspaceOpen(true)}
             surfaceShortcuts={isIPad ? {
               activePanel: ipadRightPanel,
@@ -494,7 +514,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           <aside
             ref={rightResize.asideRef}
             className={cn(
-              'relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border bg-background will-change-[width] motion-reduce:transition-none',
+              'relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border/70 bg-background will-change-[width] motion-reduce:transition-none',
               !ipadRightPanel && 'border-l-0',
             )}
             style={{
@@ -544,18 +564,29 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           </aside>
         ) : null}
 
-        <MobileOverflowMenu
-          open={overflowOpen}
-          onClose={() => setOverflowOpen(false)}
-          items={overflowItems}
-          rightOffset={isIPad && ipadRightPanel ? rightResize.width : 0}
-        />
+        {isIPad ? (
+          <MobileOverflowMenu
+            open={overflowOpen}
+            onClose={() => setOverflowOpen(false)}
+            items={overflowItems}
+            rightOffset={ipadRightPanel ? rightResize.width : 0}
+          />
+        ) : null}
 
         {/* Mounted permanently on phones (parked off-screen while closed) so
             the sessions/worktree state stays warm and the drawer opens with
             data already on screen — see MobileSessionsDrawerContainer. */}
         {!isIPad ? (
-          <MobileSessionsSheet open={sessionsSheetOpen} onOpenChange={setSessionsSheetOpen} />
+          <MobileSessionsSheet
+            open={sessionsSheetOpen}
+            onOpenChange={setSessionsSheetOpen}
+            footer={{
+              instanceLabel: showCapacitorOnlyFeatures ? getAutoConnectTargetLabel() : null,
+              onOpenInstances: showCapacitorOnlyFeatures ? () => openSurface('instances') : undefined,
+              onOpenSettings: () => openSettingsSurface('nav'),
+              onOpenUpdate: showUpdateItem ? () => openSurface('update') : undefined,
+            }}
+          />
         ) : null}
 
         {/* Mounted only while open (like the sessions sheet) so each surface
@@ -569,6 +600,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             tab={workspaceTab}
             onTabChange={setWorkspaceTab}
             pendingChangesDiff={pendingChangesDiff}
+            onOpenPlan={setOpenPlan}
+            onOpenMcpSettings={openMcpCreateSettings}
           />
         ) : null}
 
@@ -646,7 +679,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
           </MobileFullscreenSurface>
         ) : null}
 
-        {activeSurface === 'notes' && openPlan ? (
+        {/* Layered above whichever surface opened it — the notes fullscreen
+            surface (iPad) or the workspace drawer's Notes tab (phones). */}
+        {openPlan ? (
           <MobileFullscreenSurface
             open
             onClose={() => setOpenPlan(null)}
@@ -654,7 +689,13 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             title={openPlan.title}
           >
             <ErrorBoundary>
-              <PlanView targetPath={openPlan.path} onNavigatedToChat={closeSurface} />
+              <PlanView
+                targetPath={openPlan.path}
+                onNavigatedToChat={() => {
+                  closeSurface();
+                  closeWorkspace();
+                }}
+              />
             </ErrorBoundary>
           </MobileFullscreenSurface>
         ) : null}
@@ -685,7 +726,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                 forceMobile
                 isWindowed
                 initialMobileStage={settingsInitialMobileStage}
-                visiblePageSlugs={[...MOBILE_SETTINGS_PAGES]}
+                // About exists for server updates — meaningful in a browser
+                // (hosted mobile), not in the Capacitor shell (store updates).
+                visiblePageSlugs={MOBILE_SETTINGS_PAGES.filter(
+                  (page) => !(showCapacitorOnlyFeatures && page === 'about'),
+                )}
                 onClose={closeSurface}
               />
             </ErrorBoundary>

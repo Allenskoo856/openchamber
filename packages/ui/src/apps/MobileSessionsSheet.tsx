@@ -72,6 +72,16 @@ type MobileSessionsSheetProps = {
   /** 'drawer' (default) renders a full-width left drawer over the app;
       'sidebar' renders the same content inline for the iPad persistent sidebar. */
   variant?: 'drawer' | 'sidebar';
+  /** App-level footer bar (desktop-sidebar-style): current instance on the
+      left, settings (and, on hosted web, a pending update) on the right. */
+  footer?: {
+    /** Connected instance label — Capacitor only; null hides the left slot. */
+    instanceLabel: string | null;
+    onOpenInstances?: () => void;
+    onOpenSettings: () => void;
+    /** Present only while a server update is available (hosted web). */
+    onOpenUpdate?: () => void;
+  };
 };
 
 const EMPTY_PINNED_SESSION_IDS = new Set<string>();
@@ -628,7 +638,7 @@ const SessionRow: React.FC<{
           // height explicit. Two-line rows (search results with a context
           // subtitle) keep flexible height.
           className={cn(
-            'flex min-w-0 flex-1 items-center gap-2.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset',
+            'flex min-w-0 flex-1 items-center gap-2.5 pr-3.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset',
             contextLabel ? 'min-h-10 py-1' : 'h-9',
           )}
           style={{ paddingLeft: indent, touchAction: 'manipulation' }}
@@ -768,7 +778,7 @@ const SortableProjectRow: React.FC<{
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 10 : 1 }}
       className={cn(
-        'rounded-2xl border border-border bg-[var(--surface-elevated)] px-1.5 py-1.5 transition-colors',
+        'rounded-2xl border border-border/70 bg-[var(--surface-elevated)] px-1.5 py-1.5 transition-colors',
         isDragging && 'shadow-lg shadow-black/20',
       )}
     >
@@ -821,7 +831,7 @@ const SortableProjectRow: React.FC<{
   );
 };
 
-export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, onOpenChange, variant = 'drawer' }) => {
+export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, onOpenChange, variant = 'drawer', footer }) => {
   const { t } = useI18n();
   const { git } = useRuntimeAPIs();
   const liveSessions = useAllLiveSessions();
@@ -1484,9 +1494,9 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                       {searchSessionMatches.length}
                     </span>
                   </div>
-                  <div className="overflow-hidden rounded-2xl border border-border bg-[var(--surface-elevated)]">
+                  <div className="overflow-hidden rounded-2xl border border-border/70 bg-[var(--surface-elevated)]">
                     {searchSessionMatches.map((session, index) => (
-                      <div key={session.id} className={cn(index > 0 && 'border-t border-border')}>
+                      <div key={session.id} className={cn(index > 0 && 'border-t border-border/70')}>
                         <SessionRow
                           session={session}
                           active={currentSessionId === session.id}
@@ -1510,11 +1520,11 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                       {searchProjectMatches.length}
                     </span>
                   </div>
-                  <div className="overflow-hidden rounded-2xl border border-border bg-[var(--surface-elevated)]">
+                  <div className="overflow-hidden rounded-2xl border border-border/70 bg-[var(--surface-elevated)]">
                     {searchProjectMatches.map((project, index) => (
                       <div
                         key={project.id}
-                        className={cn('flex items-center', index > 0 && 'border-t border-border')}
+                        className={cn('flex items-center', index > 0 && 'border-t border-border/70')}
                       >
                         <button
                           type="button"
@@ -1585,7 +1595,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                 return (
                   <section
                     key={node.project.id}
-                    className={cn(nodeIndex > 0 && 'border-t border-border')}
+                    className={cn(nodeIndex > 0 && 'border-t border-border/70')}
                   >
                     <MobileSwipeActionsRow
                       actionsWidth={96}
@@ -1775,6 +1785,58 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
           )}
         </ScrollShadow>
 
+        {/* App-level footer: instance on the left (Capacitor), settings —
+            plus a pending web update — on the right. Bottom placement keeps
+            the header for list actions and stays thumb-reachable. */}
+        {footer ? (
+          <div
+            className="flex shrink-0 items-center justify-between gap-2 border-t border-border/70 px-2 pt-1.5"
+            style={{ paddingBottom: 'calc(0.375rem + var(--oc-safe-area-bottom, 0px))' }}
+          >
+            {footer.instanceLabel && footer.onOpenInstances ? (
+              <button
+                type="button"
+                className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl px-2 text-left transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+                onClick={footer.onOpenInstances}
+                aria-label={t('mobile.menu.instances')}
+                style={{ touchAction: 'manipulation' }}
+              >
+                <Icon name="server" className="size-[18px] shrink-0 text-muted-foreground" />
+                <span className="block min-w-0 truncate typography-ui-label text-foreground">
+                  {footer.instanceLabel}
+                </span>
+              </button>
+            ) : (
+              <div className="min-w-0 flex-1" />
+            )}
+            <div className="flex shrink-0 items-center gap-1">
+              {footer.onOpenUpdate ? (
+                <button
+                  type="button"
+                  className="relative flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  onClick={footer.onOpenUpdate}
+                  aria-label={t('mobile.menu.update')}
+                  title={t('mobile.menu.update')}
+                  style={{ touchAction: 'manipulation' }}
+                >
+                  <Icon name="download" className="size-5" />
+                  <span className="absolute right-2 top-2 inline-flex size-2 rounded-full bg-primary" aria-hidden />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                onClick={footer.onOpenSettings}
+                aria-label={t('mobile.menu.settings')}
+                title={t('mobile.menu.settings')}
+                style={{ touchAction: 'manipulation' }}
+              >
+                <Icon name="settings-3" className="size-5" />
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <DirectoryExplorerDialog open={directoryDialogOpen} onOpenChange={setDirectoryDialogOpen} />
         <NewWorktreeDialog
           open={newWorktreeDialogOpen}
@@ -1815,7 +1877,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     if (!open) return null;
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center justify-between gap-2 border-b border-border px-4">
+        <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center justify-between gap-2 border-b border-border/70 px-4">
           <h2 className="truncate typography-ui-label font-semibold text-foreground">
             {t('mobile.sessions.sheet.title')}
           </h2>
@@ -1834,7 +1896,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       onClose={() => onOpenChange(false)}
       ariaLabel={t('mobile.sessions.sheet.title')}
     >
-      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border px-3">
+      <div className="flex h-[var(--oc-header-height,56px)] shrink-0 items-center gap-2 border-b border-border/70 px-3">
         <button
           type="button"
           className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"

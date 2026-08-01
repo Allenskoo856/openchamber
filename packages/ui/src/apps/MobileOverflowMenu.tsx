@@ -42,7 +42,7 @@ export const MobileOverflowMenu: React.FC<{
         onClick={onClose}
       />
       <div
-        className="absolute top-[calc(var(--oc-safe-area-top,0px)+56px+4px)] w-[min(220px,calc(100vw-1rem))] origin-top-right overflow-hidden rounded-2xl border border-border bg-background shadow-[0_18px_60px_rgb(0_0_0_/_0.35)]"
+        className="absolute top-[calc(var(--oc-safe-area-top,0px)+56px+4px)] w-[min(220px,calc(100vw-1rem))] origin-top-right overflow-hidden rounded-2xl border border-border/70 bg-background shadow-[0_18px_60px_rgb(0_0_0_/_0.35)]"
         role="menu"
         style={{
           right: `${8 + rightOffset}px`,

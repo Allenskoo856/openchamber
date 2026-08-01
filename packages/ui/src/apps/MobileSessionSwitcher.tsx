@@ -138,7 +138,7 @@ export const MobileSessionSwitcher: React.FC<{
         role="dialog"
         aria-label={t('sessions.switcher.openAria')}
         className={cn(
-          'mx-3 mt-2 flex flex-col overflow-hidden rounded-[20px] border border-border bg-[var(--surface-elevated)] p-2 shadow-[0_12px_32px_rgb(0_0_0_/_0.2)] will-change-transform',
+          'mx-3 mt-2 flex flex-col overflow-hidden rounded-[20px] border border-border/70 bg-[var(--surface-elevated)] p-2 shadow-[0_12px_32px_rgb(0_0_0_/_0.2)] will-change-transform',
           isExiting ? 'pointer-events-none' : 'pointer-events-auto',
         )}
         style={{
@@ -146,7 +146,7 @@ export const MobileSessionSwitcher: React.FC<{
           maxHeight: 'min(72dvh, calc(100dvh - var(--oc-safe-area-top, 0px) - var(--oc-header-height, 56px) - 1rem))',
         }}
       >
-        <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain">
+        <div className="oc-hide-scrollbar min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain">
           {items.length === 0 ? (
             <p className="px-3 py-6 text-center typography-small text-muted-foreground">
               {t('sessions.switcher.empty')}
