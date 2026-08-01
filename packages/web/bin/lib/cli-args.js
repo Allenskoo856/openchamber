@@ -677,7 +677,6 @@ EXAMPLES:
 `);
 }
 
-<<<<<<< HEAD
 function showMessengerHelp() {
   console.log(`
  OpenChamber Messenger Commands
