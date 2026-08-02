@@ -200,6 +200,52 @@ const registerMkdir = (fsPromises) => {
   return getRoute('POST', '/api/fs/mkdir');
 };
 
+const registerReveal = ({ spawn, fsPromises }) => {
+  const { app, getRoute } = createRouteRegistry();
+  registerFsRoutes(app, {
+    os: { homedir: () => '/home/user' },
+    path: path.posix,
+    fsPromises: {
+      realpath: async (targetPath) => targetPath,
+      access: async () => undefined,
+      stat: async () => ({ isDirectory: () => false }),
+      ...fsPromises,
+    },
+    spawn,
+    crypto: { randomUUID: () => 'job-0' },
+    normalizeDirectoryPath: (p) => p,
+    resolveProjectDirectory: async () => ({ directory: '/repo' }),
+    buildAugmentedPath: () => '/usr/bin',
+    resolveGitBinaryForSpawn: () => 'git',
+    openchamberUserConfigRoot: '/home/user/.config',
+  });
+  return getRoute('POST', '/api/fs/reveal');
+};
+
+const createDetachedRevealSpawn = ({ mode = 'spawn' } = {}) => {
+  const calls = [];
+  const spawn = vi.fn((command, args) => {
+    calls.push({ command, args });
+    const child = new EventEmitter();
+    child.unref = vi.fn();
+    queueMicrotask(() => {
+      if (mode === 'error') {
+        const error = Object.assign(new Error('Executable not found in $PATH: "xdg-open"'), {
+          code: 'ENOENT',
+          errno: -2,
+          path: command,
+          syscall: `spawn ${command}`,
+        });
+        child.emit('error', error);
+        return;
+      }
+      child.emit('spawn');
+    });
+    return child;
+  });
+  return { spawn, calls };
+};
+
 const callExec = async (handler, body) => {
   const res = createMockResponse();
   await handler({ body }, res);
@@ -225,6 +271,12 @@ const callRaw = async (handler, query) => {
 };
 
 const callMkdir = async (handler, body) => {
+  const res = createMockResponse();
+  await handler({ body }, res);
+  return res;
+};
+
+const callReveal = async (handler, body) => {
   const res = createMockResponse();
   await handler({ body }, res);
   return res;
@@ -594,6 +646,67 @@ describe('fs exec git-read cache', () => {
     await callExec(handler, { commands: [command], cwd: '/repo/worktree-499' }); // cached  -> no spawn
 
     expect(calls.length).toBe(afterFill + 2);
+  });
+});
+
+describe('fs reveal', () => {
+  let platformSpy;
+
+  afterEach(() => {
+    platformSpy?.mockRestore();
+    platformSpy = undefined;
+  });
+
+  it('returns 500 when linux opener is missing instead of crashing', async () => {
+    platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    const { spawn, calls } = createDetachedRevealSpawn({ mode: 'error' });
+    const handler = registerReveal({ spawn });
+
+    const res = await callReveal(handler, { path: '/repo/design' });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({
+      error: 'Executable not found in $PATH: "xdg-open"',
+    });
+    expect(calls).toEqual([{ command: 'xdg-open', args: ['/repo'] }]);
+  });
+
+  it('reveals a linux directory with xdg-open after spawn succeeds', async () => {
+    platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    const { spawn, calls } = createDetachedRevealSpawn({ mode: 'spawn' });
+    const handler = registerReveal({
+      spawn,
+      fsPromises: {
+        access: vi.fn(async () => undefined),
+        stat: vi.fn(async () => ({ isDirectory: () => true })),
+      },
+    });
+
+    const res = await callReveal(handler, { path: '/repo/design' });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ success: true, path: '/repo/design' });
+    expect(calls).toEqual([{ command: 'xdg-open', args: ['/repo/design'] }]);
+  });
+
+  it('returns 404 when the target path does not exist', async () => {
+    platformSpy = vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    const { spawn } = createDetachedRevealSpawn({ mode: 'spawn' });
+    const missing = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    const handler = registerReveal({
+      spawn,
+      fsPromises: {
+        access: vi.fn(async () => {
+          throw missing;
+        }),
+      },
+    });
+
+    const res = await callReveal(handler, { path: '/repo/missing' });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toEqual({ error: 'Path not found' });
+    expect(spawn).not.toHaveBeenCalled();
   });
 });
 

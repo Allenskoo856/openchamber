@@ -1124,6 +1124,37 @@ export const registerFsRoutes = (app, dependencies) => {
     }
   });
 
+  const awaitDetachedRevealSpawn = (command, args) => new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (callback) => (value) => {
+      if (settled) return;
+      settled = true;
+      callback(value);
+    };
+
+    let child;
+    try {
+      child = spawn(command, args, {
+        windowsHide: true,
+        stdio: 'ignore',
+        detached: true,
+      });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+
+    child.once('error', settle(reject));
+    child.once('spawn', settle(() => {
+      try {
+        child.unref();
+      } catch {
+        // Best-effort: reveal already launched.
+      }
+      resolve();
+    }));
+  });
+
   app.post('/api/fs/reveal', async (req, res) => {
     const { path: targetPath } = req.body || {};
     if (!targetPath || typeof targetPath !== 'string') {
@@ -1138,9 +1169,9 @@ export const registerFsRoutes = (app, dependencies) => {
       if (platform === 'darwin') {
         const stat = await fsPromises.stat(resolved);
         if (stat.isDirectory()) {
-          spawn('open', [resolved], { windowsHide: true, stdio: 'ignore', detached: true }).unref();
+          await awaitDetachedRevealSpawn('open', [resolved]);
         } else {
-          spawn('open', ['-R', resolved], { windowsHide: true, stdio: 'ignore', detached: true }).unref();
+          await awaitDetachedRevealSpawn('open', ['-R', resolved]);
         }
       } else if (platform === 'win32') {
         const stat = await fsPromises.stat(resolved);
@@ -1164,13 +1195,19 @@ export const registerFsRoutes = (app, dependencies) => {
       } else {
         const stat = await fsPromises.stat(resolved);
         const dir = stat.isDirectory() ? resolved : path.dirname(resolved);
-        spawn('xdg-open', [dir], { windowsHide: true, stdio: 'ignore', detached: true }).unref();
+        await awaitDetachedRevealSpawn('xdg-open', [dir]);
       }
 
       return res.json({ success: true, path: resolved });
     } catch (error) {
       const err = error;
-      if (err && typeof err === 'object' && err.code === 'ENOENT') {
+      const isSpawnFailure = Boolean(
+        err
+        && typeof err === 'object'
+        && typeof err.syscall === 'string'
+        && err.syscall.startsWith('spawn')
+      );
+      if (err && typeof err === 'object' && err.code === 'ENOENT' && !isSpawnFailure) {
         return res.status(404).json({ error: 'Path not found' });
       }
       console.error('Failed to reveal path:', error);

@@ -35,3 +35,4 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
 ## Notes for contributors
 - Keep filesystem policy (workspace root checks, error mapping, exec timeout behavior) inside this module, not in the composition root.
 - If adding new `/api/fs/*` endpoints, add them in `routes.js` and extend this document.
+- `POST /api/fs/reveal` must await opener launch (or attach spawn error handlers) before responding. Missing openers such as `xdg-open` on headless hosts return HTTP 500 JSON errors; spawn failures must never become uncaught exceptions that tear down the server.
