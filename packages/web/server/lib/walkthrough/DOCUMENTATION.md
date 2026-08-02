@@ -174,6 +174,26 @@ against the current digest. Splicing partially-regenerated chapters into an old
 narrative was considered and rejected — the seams produce stops that contradict
 each other, and the failure is invisible.
 
+## Hygiene
+
+- Entries are bounded by count and total size (200 / 50 MB) and evicted
+  least-recently-used after a write that crosses a limit. Nothing is dropped for
+  being merely old: an entry costs kilobytes and stays reachable if the working
+  tree ever returns to that state.
+- Writes are tmp+rename; reads enforce a size limit and validate the version, so
+  a corrupt file is a miss rather than a crash.
+- Pointers are never evicted by size. They are pruned only when their repository
+  is **provably gone**, deferred off the request path, fully asynchronous, and
+  capped.
+
+That last point is deliberate rather than incidental. The desktop app hosts this
+server inside the Electron main process, so a synchronous loop here would stall
+IPC and the window rather than a single request — and the paths being checked
+are user repositories, where a worktree on an unplugged drive or an unreachable
+share can make one existence check hang for seconds. Only `ENOENT` deletes a
+pointer: unreachable is not the same as gone, and a dead share must not cost the
+user their walkthroughs.
+
 ## Coverage
 
 The model is told it may leave mechanical changes out. Whatever it does not

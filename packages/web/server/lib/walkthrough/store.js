@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { PROMPT_VERSION, WALKTHROUGH_VERSION } from './schema.js';
@@ -168,30 +169,55 @@ function evictEntries() {
   }
 }
 
+// Housekeeping runs off the request path and never synchronously.
+//
+// The Electron desktop app hosts this server inside the main process, so a
+// blocking loop here stalls IPC and the window, not just one request. Worse,
+// the paths being checked are user repositories: a worktree on an unplugged
+// drive or an unreachable network share can make a single existence check hang
+// for seconds. Async calls wait without holding the loop, and the cap keeps a
+// pathological directory from turning into a long tail of work.
+const PRUNE_LIMIT = 500;
+
 /**
- * Drop pointers for repositories that no longer exist. Cheap, bounded, and
- * only ever removes entries whose subject is provably gone.
+ * Drop pointers for repositories that no longer exist. Only ever removes
+ * entries whose subject is provably gone.
  */
-export function pruneMissingRepositories() {
+export async function pruneMissingRepositories() {
   let names;
   try {
-    names = fs.readdirSync(POINTERS_DIR).filter((name) => name.endsWith('.json'));
+    names = (await fsp.readdir(POINTERS_DIR)).filter((name) => name.endsWith('.json'));
   } catch {
     return 0;
   }
 
   let removed = 0;
-  for (const name of names) {
+  for (const name of names.slice(0, PRUNE_LIMIT)) {
     const full = path.join(POINTERS_DIR, name);
-    const value = readJson(full);
-    const repoRoot = value && typeof value.repoRoot === 'string' ? value.repoRoot : null;
-    if (!repoRoot) continue;
-    if (fs.existsSync(repoRoot)) continue;
+    let repoRoot = null;
     try {
-      fs.unlinkSync(full);
+      const value = JSON.parse(await fsp.readFile(full, 'utf8'));
+      repoRoot = value && typeof value.repoRoot === 'string' ? value.repoRoot : null;
+    } catch {
+      continue;
+    }
+    if (!repoRoot) continue;
+
+    try {
+      await fsp.stat(repoRoot);
+      continue;
+    } catch (error) {
+      // Unreachable is not the same as gone. Only a definite "no such file"
+      // justifies deleting: a disconnected share or a permissions error must
+      // not cost the user their walkthroughs.
+      if (error?.code !== 'ENOENT') continue;
+    }
+
+    try {
+      await fsp.unlink(full);
       removed += 1;
     } catch {
-      // Leave it; it will be retried on the next prune.
+      // Leave it; the next prune retries.
     }
   }
   return removed;

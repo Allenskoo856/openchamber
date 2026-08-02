@@ -19,9 +19,15 @@ import { loadSourceSections, parseSource, sourceKey, WalkthroughSourceError } fr
 // tokens, and a background regeneration on every keystroke would be a way to
 // spend a budget without anyone deciding to.
 
-// This module is imported lazily on the first walkthrough request, which is a
-// natural moment to drop pointers for repositories that no longer exist.
-pruneMissingRepositories();
+// This module is imported lazily, which means module-level work lands on the
+// first walkthrough request. Housekeeping has no business being there, so it is
+// deferred and never awaited: the request proceeds immediately and the prune
+// interleaves behind it.
+setTimeout(() => {
+  void pruneMissingRepositories().catch(() => {
+    // Housekeeping failing is not worth surfacing or retrying.
+  });
+}, 0).unref?.();
 
 // A hang guard, not a pace-setter. Losing a nearly-finished generation wastes
 // real money and minutes, while an over-long deadline only holds a job slot, so

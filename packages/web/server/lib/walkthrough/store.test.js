@@ -161,7 +161,7 @@ describe('pointers', () => {
     expect(readPointer('/repo-b', 'working-tree:all').cacheKey).toBe('b');
   });
 
-  it('prunes only pointers whose repository is gone', () => {
+  it('prunes only pointers whose repository is gone', async () => {
     const liveRepo = fs.mkdtempSync(path.join(TEMP_ROOT, 'live-repo-'));
     writePointer(liveRepo, 'working-tree:all', { repoRoot: liveRepo, cacheKey: 'live' });
     writePointer('/definitely/not/here', 'working-tree:all', {
@@ -169,9 +169,35 @@ describe('pointers', () => {
       cacheKey: 'dead',
     });
 
-    expect(pruneMissingRepositories()).toBe(1);
+    expect(await pruneMissingRepositories()).toBe(1);
     expect(readPointer(liveRepo, 'working-tree:all')).toMatchObject({ cacheKey: 'live' });
     expect(readPointer('/definitely/not/here', 'working-tree:all')).toBeNull();
+  });
+
+  it('keeps a pointer whose repository is merely unreachable', async () => {
+    // A path we cannot stat for a reason other than absence — an unplugged
+    // drive or a dead share behaves this way. Deleting then would cost the user
+    // walkthroughs for a repository that still exists.
+    const blocked = fs.mkdtempSync(path.join(TEMP_ROOT, 'blocked-'));
+    const inaccessible = path.join(blocked, 'inner', 'repo');
+    fs.mkdirSync(path.join(blocked, 'inner'), { recursive: true });
+    fs.mkdirSync(inaccessible);
+    writePointer(inaccessible, 'working-tree:all', { repoRoot: inaccessible, cacheKey: 'blocked' });
+    fs.chmodSync(path.join(blocked, 'inner'), 0o000);
+
+    try {
+      expect(await pruneMissingRepositories()).toBe(0);
+      expect(readPointer(inaccessible, 'working-tree:all')).toMatchObject({ cacheKey: 'blocked' });
+    } finally {
+      fs.chmodSync(path.join(blocked, 'inner'), 0o755);
+    }
+  });
+
+  it('survives a pointer file it cannot parse', async () => {
+    fs.mkdirSync(__testing.POINTERS_DIR, { recursive: true });
+    fs.writeFileSync(path.join(__testing.POINTERS_DIR, 'broken.json'), '{ not json', 'utf8');
+
+    await expect(pruneMissingRepositories()).resolves.toBeGreaterThanOrEqual(0);
   });
 });
 
