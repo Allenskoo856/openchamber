@@ -1111,7 +1111,7 @@ export const dict: Record<I18nKey, string> = {
   'walkthrough.action.open': 'AI ウォークスルー',
   'walkthrough.stage.collecting': '変更を集めています',
   'walkthrough.stage.asking': 'モデルの応答を待っています',
-  'walkthrough.stage.retrying': 'より簡単な形式で問い合わせ直しています',
+  'walkthrough.stage.retrying': 'モデルが構造化リクエストを拒否したため、平文で問い合わせています',
   'walkthrough.stage.assembling': 'ウォークスルーを組み立てています',
   'walkthrough.empty.title': 'ウォークスルーはまだありません',
   'walkthrough.empty.description': 'この変更を読み進めるためのガイドを作成します。スモールモデルを呼び出してトークンを消費するため、実行は明示的な操作時のみです。',

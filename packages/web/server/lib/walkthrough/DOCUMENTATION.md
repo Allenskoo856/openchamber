@@ -132,6 +132,12 @@ tolerant parser handling the result. Only if *that* fails to yield usable JSON i
 `structured-output-unsupported` reported — at which point it is a real capability
 problem the user can fix by switching model.
 
+The refusal is then remembered per `provider/model` and the fallback goes first
+from then on. Without that, every generation on such a provider pays for a call
+whose failure is already known. The memory is process-lifetime only on purpose:
+a provider that gains structured-output support should not need a settings
+change to be tried again, and one wasted first attempt after a restart is cheap.
+
 The system prompt states "respond with a single JSON object" explicitly, which
 also satisfies the providers that scan the request for the word `json` before
 honouring `response_format`. That keeps them on the fast path instead of paying

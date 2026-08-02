@@ -217,3 +217,40 @@ describe('generation stages', () => {
     expect(seen).toEqual(['asking', 'retrying']);
   });
 });
+
+// Retrying the schema on every generation means paying for a call already known
+// to fail; the refusal has to be remembered.
+describe('schema refusal memory', () => {
+  beforeEach(() => {
+    fs.rmSync(path.join(TEMP_DATA_DIR, 'walkthroughs'), { recursive: true, force: true });
+    describeSmallModel.mockResolvedValue({
+      providerID: 'opencode-go',
+      modelID: 'deepseek-v4-flash',
+      source: 'config',
+      inputCharBudget: 1_000_000,
+      structuredOutput: null,
+    });
+    getDiff.mockImplementation(async (_dir, options) => (options?.staged ? '' : PATCH));
+    generateSmallModelText.mockReset();
+  });
+
+  it('stops sending a schema to a model that already rejected one', async () => {
+    const sentSchema = [];
+    generateSmallModelText.mockImplementation(async ({ responseSchema }) => {
+      sentSchema.push(Boolean(responseSchema));
+      if (responseSchema) throw Object.assign(new Error('bad request'), { status: 400 });
+      return { text: RESPONSE };
+    });
+
+    await generateWalkthrough({ directory: '/repo', source: SOURCE });
+    expect(sentSchema).toEqual([true, false]);
+
+    // A different diff, so the cache cannot answer instead.
+    getDiff.mockImplementation(async (_dir, options) => (
+      options?.staged ? '' : PATCH.replace('const added = true;', 'const added = false;')
+    ));
+    await generateWalkthrough({ directory: '/repo', source: SOURCE });
+
+    expect(sentSchema).toEqual([true, false, false]);
+  });
+});

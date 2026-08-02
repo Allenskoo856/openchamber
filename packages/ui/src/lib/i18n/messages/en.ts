@@ -1114,7 +1114,7 @@ export const dict = {
   'walkthrough.action.open': 'AI walkthrough',
   'walkthrough.stage.collecting': 'Collecting the changes',
   'walkthrough.stage.asking': 'Waiting on the model',
-  'walkthrough.stage.retrying': 'Asking again in a simpler format',
+  'walkthrough.stage.retrying': 'Model declined the structured request — asking plainly',
   'walkthrough.stage.assembling': 'Assembling the walkthrough',
   'walkthrough.empty.title': 'No walkthrough yet',
   'walkthrough.empty.description': 'Build a guided reading path through these changes. This calls the small model and costs tokens, so it only ever runs when you ask.',

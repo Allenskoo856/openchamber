@@ -1115,7 +1115,7 @@ export const dict: Record<I18nKey, string> = {
   'walkthrough.action.open': 'AI 워크스루',
   'walkthrough.stage.collecting': '변경 사항을 모으는 중',
   'walkthrough.stage.asking': '모델을 기다리는 중',
-  'walkthrough.stage.retrying': '더 단순한 형식으로 다시 요청하는 중',
+  'walkthrough.stage.retrying': '모델이 구조화 요청을 거부해 평문으로 다시 요청하는 중',
   'walkthrough.stage.assembling': '워크스루를 조립하는 중',
   'walkthrough.empty.title': '아직 워크스루가 없습니다',
   'walkthrough.empty.description': '이 변경 사항을 따라 읽을 수 있는 경로를 만듭니다. 스몰 모델을 호출해 토큰을 사용하므로 요청할 때만 실행됩니다.',

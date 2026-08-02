@@ -53,6 +53,17 @@ const fail = (message, statusCode, extra = {}) =>
 // and cancelling is an explicit request rather than a side effect of leaving.
 const jobs = new Map();
 
+// Providers that answered a schema request with a 4xx. Retrying the schema on
+// every generation means paying for a call we already know will fail, so the
+// refusal is remembered and the fallback goes first next time.
+//
+// Process-lifetime only, on purpose: a provider that gains structured-output
+// support should not need a settings change to be tried again — a restart is
+// enough, and the cost of one wasted first attempt after that is small.
+const schemaRefusedBy = new Set();
+
+const modelKey = (model) => `${model.providerID}/${model.modelID}`;
+
 const jobKey = (repoRoot, sourceKeyValue) => `${repoRoot}\0${sourceKeyValue}`;
 
 /**
@@ -379,50 +390,63 @@ async function runGeneration({ directory, source, repoRoot, key, force, explicit
     signal,
   });
 
-  let raw;
-  let usedSchema = true;
-  try {
-    raw = await run({ prompt, system, responseSchema });
-  } catch (error) {
+  // Roughly half the catalog does not declare `structured_output`, and some of
+  // those providers reject the schema outright. A rejected request shape is not
+  // a dead end: the shape can travel in the prompt instead, and the response
+  // parser is already tolerant of imperfect JSON.
+  const withSchema = () => run({ prompt, system, responseSchema });
+  const withoutSchema = () => run({
+    prompt,
+    system: `${system}\n${JSON_SHAPE_INSTRUCTION}`,
+    responseSchema: undefined,
+  });
+
+  const asRequestFailure = (error) => {
     if (error?.code === 'context-too-small') {
-      throw fail(error.message, 409, {
+      return fail(error.message, 409, {
         code: 'context-too-small',
         model,
         requiredChars: error.requiredChars,
         availableChars: error.availableChars,
       });
     }
-
-    // Roughly half the catalog does not declare `structured_output`, and some
-    // of those providers reject the schema outright. A rejected request shape
-    // is not a dead end: the shape can travel in the prompt instead, and the
-    // response parser is already tolerant of imperfect JSON. Only a second
-    // failure means the model genuinely cannot do this.
     if (error?.code === 'output-exhausted') {
-      throw fail(error.message, 409, { code: 'output-exhausted', model });
+      return fail(error.message, 409, { code: 'output-exhausted', model });
     }
+    return null;
+  };
 
-    const rejectedSchema = error?.code === 'structured-output-unsupported'
-      || (Number(error?.status) >= 400 && Number(error?.status) < 500);
-    if (!rejectedSchema) throw error;
+  const refusesSchema = (error) => error?.code === 'structured-output-unsupported'
+    || (Number(error?.status) >= 400 && Number(error?.status) < 500);
 
-    usedSchema = false;
+  let raw;
+  let usedSchema = false;
+
+  if (schemaRefusedBy.has(modelKey(model))) {
+    // Already known to refuse: skip straight to the fallback rather than pay
+    // for a call whose failure is a foregone conclusion.
     setStage(repoRoot, key, 'retrying');
     try {
-      raw = await run({ prompt, system: `${system}\n${JSON_SHAPE_INSTRUCTION}`, responseSchema: undefined });
-    } catch (fallbackError) {
-      if (fallbackError?.code === 'context-too-small') {
-        throw fail(fallbackError.message, 409, {
-          code: 'context-too-small',
-          model,
-          requiredChars: fallbackError.requiredChars,
-          availableChars: fallbackError.availableChars,
-        });
+      raw = await withoutSchema();
+    } catch (error) {
+      throw asRequestFailure(error) ?? error;
+    }
+  } else {
+    try {
+      raw = await withSchema();
+      usedSchema = true;
+    } catch (error) {
+      const failure = asRequestFailure(error);
+      if (failure) throw failure;
+      if (!refusesSchema(error)) throw error;
+
+      schemaRefusedBy.add(modelKey(model));
+      setStage(repoRoot, key, 'retrying');
+      try {
+        raw = await withoutSchema();
+      } catch (fallbackError) {
+        throw asRequestFailure(fallbackError) ?? fallbackError;
       }
-      if (fallbackError?.code === 'output-exhausted') {
-        throw fail(fallbackError.message, 409, { code: 'output-exhausted', model });
-      }
-      throw fallbackError;
     }
   }
 

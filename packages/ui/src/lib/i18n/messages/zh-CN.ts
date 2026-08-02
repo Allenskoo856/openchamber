@@ -1115,7 +1115,7 @@ export const dict: Record<I18nKey, string> = {
   'walkthrough.action.open': 'AI 导读',
   'walkthrough.stage.collecting': '正在收集改动',
   'walkthrough.stage.asking': '正在等待模型',
-  'walkthrough.stage.retrying': '正在用更简单的格式重新请求',
+  'walkthrough.stage.retrying': '模型拒绝了结构化请求，改用纯文本询问',
   'walkthrough.stage.assembling': '正在组装导读',
   'walkthrough.empty.title': '还没有导读',
   'walkthrough.empty.description': '为这些改动生成一条引导式阅读路线。该操作会调用小模型并消耗 token，因此只在你主动请求时运行。',
