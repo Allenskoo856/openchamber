@@ -30,6 +30,7 @@ import { useWalkthroughStore } from '@/stores/useWalkthroughStore';
 import { cn } from '@/lib/utils';
 import { WalkthroughBlocker } from './WalkthroughBlocker';
 import { WALKTHROUGH_ACTION_CLASS } from './walkthroughAction';
+import { WalkthroughStages } from './WalkthroughStages';
 import { WalkthroughStream } from './WalkthroughStream';
 import { WalkthroughToc } from './WalkthroughToc';
 
@@ -484,7 +485,15 @@ export const WalkthroughView = ({ directory }: WalkthroughViewProps) => {
       {entry.status === 'generating' && view && (
         <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-[var(--status-info-background)] px-3 py-2">
           <Icon name="loader-4" className="size-4 shrink-0 animate-spin text-[var(--status-info)]" />
-          <span className="typography-meta text-foreground">{t('walkthrough.generating')}</span>
+          <span className="typography-meta text-foreground">
+            {entry.stage === 'collecting'
+              ? t('walkthrough.stage.collecting')
+              : entry.stage === 'retrying'
+                ? t('walkthrough.stage.retrying')
+                : entry.stage === 'assembling'
+                  ? t('walkthrough.stage.assembling')
+                  : t('walkthrough.stage.asking')}
+          </span>
         </div>
       )}
 
@@ -569,10 +578,7 @@ export const WalkthroughView = ({ directory }: WalkthroughViewProps) => {
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
             {entry.status === 'generating' ? (
-              <>
-                <Icon name="loader-4" className="size-6 animate-spin text-muted-foreground" />
-                <p className="typography-meta text-muted-foreground">{t('walkthrough.generating')}</p>
-              </>
+              <WalkthroughStages stage={entry.stage} />
             ) : entry.status === 'loading' ? (
               <Icon name="loader-4" className="size-6 animate-spin text-muted-foreground" />
             ) : (

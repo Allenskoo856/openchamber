@@ -78,6 +78,12 @@ export interface WalkthroughResult {
   generating?: boolean;
 }
 
+/**
+ * Only phases a person can wait on. Building the digest and reading the cache
+ * take milliseconds; naming them would imply progress that is not happening.
+ */
+export type WalkthroughStage = 'collecting' | 'asking' | 'retrying' | 'assembling';
+
 export type WalkthroughBlockedReason =
   | 'no-model'
   | 'empty-diff'

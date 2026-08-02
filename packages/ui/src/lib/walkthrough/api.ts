@@ -3,6 +3,7 @@ import {
   WalkthroughError,
   type WalkthroughResult,
   type WalkthroughSource,
+  type WalkthroughStage,
 } from './types';
 
 const BASE = '/api/walkthrough';
@@ -84,4 +85,22 @@ export async function cancelWalkthroughGeneration(
   if (!response.ok) {
     await throwFromResponse(response, 'Failed to cancel walkthrough generation');
   }
+}
+
+/**
+ * Current stage of a running generation. Reads server memory only, so this is
+ * safe to poll — unlike the full read, which re-runs the whole git pipeline.
+ */
+export async function fetchWalkthroughStage(
+  directory: string,
+  source: WalkthroughSource,
+  signal?: AbortSignal
+): Promise<WalkthroughStage | null> {
+  const response = await runtimeFetch(`${BASE}/progress`, {
+    query: { directory, source: JSON.stringify(source) },
+    signal,
+  });
+  if (!response.ok) return null;
+  const payload = (await response.json().catch(() => null)) as { stage?: unknown } | null;
+  return typeof payload?.stage === 'string' ? (payload.stage as WalkthroughStage) : null;
 }

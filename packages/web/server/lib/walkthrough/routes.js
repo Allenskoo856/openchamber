@@ -74,6 +74,23 @@ export function registerWalkthroughRoutes(app, { getWalkthroughService }) {
     }
   });
 
+  // Memory-only, so it is safe to poll while a generation runs. The full read
+  // re-runs the whole git pipeline and must not be used for this.
+  app.get('/api/walkthrough/progress', async (req, res) => {
+    try {
+      const { getGenerationStage, getRepositoryRootFor } = await getWalkthroughService();
+      const directory = typeof req.query.directory === 'string' ? req.query.directory : '';
+      if (!directory) {
+        return res.status(400).json({ error: 'directory parameter is required' });
+      }
+
+      const { repoRoot, sourceKey } = await getRepositoryRootFor(directory, readSource(req.query.source));
+      res.json({ stage: getGenerationStage(repoRoot, sourceKey) });
+    } catch (error) {
+      respondWithError(res, error, 'Failed to read walkthrough progress');
+    }
+  });
+
   app.post('/api/walkthrough/cancel', async (req, res) => {
     try {
       const { cancelWalkthroughGeneration } = await getWalkthroughService();

@@ -23,6 +23,7 @@ const {
   generateWalkthrough,
   cancelWalkthroughGeneration,
   isGenerating,
+  getGenerationStage,
   __testing: walkthroughTesting,
 } = await import('./index.js');
 const { describeSmallModel, generateSmallModelText } = await import('../small-model/index.js');
@@ -167,5 +168,52 @@ describe('generation timeout', () => {
 
   it('stays bounded so a hung connection cannot hold a job forever', () => {
     expect(generationTimeoutMs(100_000)).toBe(900_000);
+  });
+});
+
+describe('generation stages', () => {
+  beforeEach(() => {
+    // Without this the previous suite's cache entry is a hit for the same
+    // content and the model is never called.
+    fs.rmSync(path.join(TEMP_DATA_DIR, 'walkthroughs'), { recursive: true, force: true });
+    describeSmallModel.mockResolvedValue({
+      providerID: 'anthropic',
+      modelID: 'claude-haiku-4-5',
+      source: 'config',
+      inputCharBudget: 1_000_000,
+      structuredOutput: true,
+    });
+    getDiff.mockImplementation(async (_dir, options) => (options?.staged ? '' : PATCH));
+    generateSmallModelText.mockReset();
+  });
+
+  it('reports asking while the model runs and clears when the job ends', async () => {
+    let release;
+    generateSmallModelText.mockImplementation(() => new Promise((resolve) => {
+      release = () => resolve({ text: RESPONSE });
+    }));
+
+    const running = generateWalkthrough({ directory: '/repo', source: SOURCE });
+    await waitFor(() => getGenerationStage('/repo', 'working-tree:all') === 'asking');
+
+    release();
+    await running;
+
+    expect(getGenerationStage('/repo', 'working-tree:all')).toBeNull();
+  });
+
+  it('reports retrying only when a provider rejects the schema', async () => {
+    let seen = [];
+    let attempt = 0;
+    generateSmallModelText.mockImplementation(async () => {
+      attempt += 1;
+      seen.push(getGenerationStage('/repo', 'working-tree:all'));
+      if (attempt === 1) throw Object.assign(new Error('bad request'), { status: 400 });
+      return { text: RESPONSE };
+    });
+
+    await generateWalkthrough({ directory: '/repo', source: SOURCE });
+
+    expect(seen).toEqual(['asking', 'retrying']);
   });
 });

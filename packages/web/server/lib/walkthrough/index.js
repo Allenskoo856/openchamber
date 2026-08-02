@@ -56,11 +56,43 @@ const jobs = new Map();
 const jobKey = (repoRoot, sourceKeyValue) => `${repoRoot}\0${sourceKeyValue}`;
 
 /**
+ * Coarse stages, reported so a long wait is legible.
+ *
+ * Only phases a person can actually wait on are named. Building the digest and
+ * reading the cache take single-digit milliseconds; giving them their own rows
+ * would imply progress where there is none. `retrying` appears only when a
+ * provider rejects the schema and the prompt-side fallback runs.
+ */
+export const GENERATION_STAGES = ['collecting', 'asking', 'retrying', 'assembling'];
+
+const setStage = (repoRoot, sourceKeyValue, stage) => {
+  const job = jobs.get(jobKey(repoRoot, sourceKeyValue));
+  if (job) job.stage = stage;
+};
+
+/**
+ * Current stage of a running generation, or `null` when nothing is running.
+ * Reads memory only — no git, no network — so it is cheap to poll.
+ */
+export function getGenerationStage(repoRoot, sourceKeyValue) {
+  return jobs.get(jobKey(repoRoot, sourceKeyValue))?.stage ?? null;
+}
+
+/**
  * Whether a generation is currently running for a source. Lets a reconnecting
  * client show progress instead of an empty panel.
  */
 export function isGenerating(repoRoot, sourceKeyValue) {
   return jobs.has(jobKey(repoRoot, sourceKeyValue));
+}
+
+/**
+ * Resolve the pair the job registry is keyed by, for callers that need to look
+ * a job up without doing any diff work.
+ */
+export async function getRepositoryRootFor(directory, rawSource) {
+  const source = parseSource(rawSource);
+  return { repoRoot: await getRepositoryRoot(directory), sourceKey: sourceKey(source) };
 }
 
 /**
@@ -261,7 +293,7 @@ export async function generateWalkthrough({ directory, source: rawSource, force 
       }
     });
 
-  jobs.set(jobKey(repoRoot, key), { controller, promise });
+  jobs.set(jobKey(repoRoot, key), { controller, promise, stage: 'collecting' });
   return promise;
 }
 
@@ -273,6 +305,7 @@ async function runGeneration({ directory, source, repoRoot, key, force, explicit
   }
 
   const { digest, files, idByAlias, fileCount, hunkCount, generatedFileCount } = await loadCurrentDiff(directory, source, deps);
+  setStage(repoRoot, key, 'asking');
   if (hunkCount === 0) {
     if (files.length > 0 && generatedFileCount === files.length) {
       throw fail('Only generated files changed — there is nothing to review', 400, { code: 'only-generated' });
@@ -374,6 +407,7 @@ async function runGeneration({ directory, source, repoRoot, key, force, explicit
     if (!rejectedSchema) throw error;
 
     usedSchema = false;
+    setStage(repoRoot, key, 'retrying');
     try {
       raw = await run({ prompt, system: `${system}\n${JSON_SHAPE_INSTRUCTION}`, responseSchema: undefined });
     } catch (fallbackError) {
@@ -391,6 +425,8 @@ async function runGeneration({ directory, source, repoRoot, key, force, explicit
       throw fallbackError;
     }
   }
+
+  setStage(repoRoot, key, 'assembling');
 
   let walkthrough;
   try {

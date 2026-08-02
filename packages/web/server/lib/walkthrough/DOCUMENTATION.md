@@ -222,6 +222,21 @@ long on purpose — losing a nearly-complete generation costs real money, while 
 over-long deadline only holds a job slot. Note that the schema fallback can use
 the deadline twice, once per attempt.
 
+## Progress
+
+A running job records a coarse stage: `collecting` (reading the diff, which for
+a pull request is seconds of network), `asking`, `retrying` when a provider
+rejects the schema and the prompt-side fallback runs, and `assembling`.
+
+Only phases a person can wait on are named. Building the digest and reading the
+cache take single-digit milliseconds; giving them rows would imply progress that
+is not happening. `retrying` deliberately replaces `asking` in place rather than
+adding a step, because the work went back rather than forward.
+
+`GET /api/walkthrough/progress` reads the job registry and nothing else — no git,
+no network — so the client can poll it once a second. The full read must never
+be used for this: it re-runs the whole git pipeline.
+
 ## Routes
 
 - `GET /api/walkthrough?directory&source` — last walkthrough, the current hunk
@@ -229,6 +244,8 @@ the deadline twice, once per attempt.
 - `POST /api/walkthrough/generate` — `{ directory, source, force }`. Survives
   client disconnects; a concurrent call for the same source joins the running
   job.
+- `GET /api/walkthrough/progress?directory&source` — the current stage, or
+  `null`. Memory-only and safe to poll.
 - `POST /api/walkthrough/cancel` — `{ directory, source }`; aborts a running
   generation.
 
