@@ -236,8 +236,18 @@ rejects the schema and the prompt-side fallback runs, and `assembling`.
 
 Only phases a person can wait on are named. Building the digest and reading the
 cache take single-digit milliseconds; giving them rows would imply progress that
-is not happening. `retrying` deliberately replaces `asking` in place rather than
-adding a step, because the work went back rather than forward.
+is not happening.
+
+`retrying` exists for diagnostics but is **not shown**: from outside it is the
+same wait on the same model, and naming our fallback only raises the question of
+what it is. The client folds it into `asking`.
+
+The client also paces the display, holding each step for a floor before
+revealing the next and keeping the list on screen briefly after the work ends.
+Assembling takes milliseconds, so without that the result replaces the list
+before the final step is ever seen finishing — naming a step the user never
+observes is worse than not naming it. The cost is well under a second at the end
+of a wait measured in minutes.
 
 `GET /api/walkthrough/progress` reads the job registry and nothing else — no git,
 no network — so the client can poll it once a second. The full read must never

@@ -1127,7 +1127,6 @@ export const dict: Record<I18nKey, string> = {
   'walkthrough.action.open': 'AI 導讀',
   'walkthrough.stage.collecting': '正在收集變更',
   'walkthrough.stage.asking': '正在等待模型',
-  'walkthrough.stage.retrying': '模型拒絕了結構化請求，改用純文字詢問',
   'walkthrough.stage.assembling': '正在組裝導讀',
   'walkthrough.empty.title': '尚未有導讀',
   'walkthrough.empty.description': '為這些變更建立一條引導式閱讀路線。此操作會呼叫小模型並消耗 token，因此只在你主動要求時執行。',

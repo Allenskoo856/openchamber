@@ -1115,7 +1115,6 @@ export const dict: Record<I18nKey, string> = {
   "walkthrough.action.open": "AI-розбір",
   "walkthrough.stage.collecting": "Збираю зміни",
   "walkthrough.stage.asking": "Чекаю на модель",
-  "walkthrough.stage.retrying": "Модель відхилила структурований запит — питаю простіше",
   "walkthrough.stage.assembling": "Складаю розбір",
   "walkthrough.empty.title": "Розбору ще немає",
   "walkthrough.empty.description": "Побудуйте маршрут читання цих змін. Це звертається до small model і витрачає токени, тому запускається лише на ваш запит.",

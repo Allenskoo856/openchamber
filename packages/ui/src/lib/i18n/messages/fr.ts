@@ -938,7 +938,6 @@ export const dict = {
   'walkthrough.action.open': 'Parcours IA',
   'walkthrough.stage.collecting': 'Collecte des modifications',
   'walkthrough.stage.asking': 'En attente du modèle',
-  'walkthrough.stage.retrying': 'Le modèle a refusé la requête structurée — nouvelle demande en clair',
   'walkthrough.stage.assembling': 'Assemblage du parcours',
   'walkthrough.empty.title': 'Aucun parcours pour l’instant',
   'walkthrough.empty.description': 'Construisez un parcours de lecture guidé à travers ces modifications. Cela appelle le petit modèle et consomme des jetons, donc rien ne se lance sans votre demande.',

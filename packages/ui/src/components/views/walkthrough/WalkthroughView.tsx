@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { WalkthroughBlocker } from './WalkthroughBlocker';
 import { WALKTHROUGH_ACTION_CLASS } from './walkthroughAction';
 import { WalkthroughStages } from './WalkthroughStages';
+import { useWalkthroughStageProgress } from './useWalkthroughStageProgress';
 import { WalkthroughStream } from './WalkthroughStream';
 import { WalkthroughToc } from './WalkthroughToc';
 
@@ -331,6 +332,26 @@ export const WalkthroughView = ({ directory }: WalkthroughViewProps) => {
   );
 
   const isBusy = entry.status === 'loading' || entry.status === 'generating';
+
+  // The stage list outlives the work by a beat. Assembling takes milliseconds,
+  // so without this the result replaces the list before the last step is ever
+  // seen finishing — the user is told about a step they never observe.
+  const stageProgress = useWalkthroughStageProgress(entry.stage, entry.status === 'generating');
+
+  // Only a generation that started from an empty panel gets held: regenerating
+  // over an existing walkthrough keeps the stream on screen with a banner, and
+  // hiding readable content to show a progress list would be a downgrade.
+  const startedFromEmptyRef = useRef(false);
+  const previousStatusRef = useRef(entry.status);
+  useEffect(() => {
+    if (previousStatusRef.current !== 'generating' && entry.status === 'generating') {
+      startedFromEmptyRef.current = !view;
+    }
+    previousStatusRef.current = entry.status;
+  }, [entry.status, view]);
+
+  const showStages = startedFromEmptyRef.current
+    && (entry.status === 'generating' || stageProgress.holding);
   const blockedReason = entry.error?.code === 'context-too-small'
     || entry.error?.code === 'structured-output-unsupported'
     || entry.error?.code === 'no-model'
@@ -488,11 +509,9 @@ export const WalkthroughView = ({ directory }: WalkthroughViewProps) => {
           <span className="typography-meta text-foreground">
             {entry.stage === 'collecting'
               ? t('walkthrough.stage.collecting')
-              : entry.stage === 'retrying'
-                ? t('walkthrough.stage.retrying')
-                : entry.stage === 'assembling'
-                  ? t('walkthrough.stage.assembling')
-                  : t('walkthrough.stage.asking')}
+              : entry.stage === 'assembling'
+                ? t('walkthrough.stage.assembling')
+                : t('walkthrough.stage.asking')}
           </span>
         </div>
       )}
@@ -538,6 +557,10 @@ export const WalkthroughView = ({ directory }: WalkthroughViewProps) => {
             availableChars={blockedAvailableChars}
             onRetry={() => void load(directory, source)}
           />
+        ) : showStages ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8">
+            <WalkthroughStages progress={stageProgress} />
+          </div>
         ) : view ? (
           <>
             {showToc && (
@@ -577,9 +600,7 @@ export const WalkthroughView = ({ directory }: WalkthroughViewProps) => {
           </>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-            {entry.status === 'generating' ? (
-              <WalkthroughStages stage={entry.stage} />
-            ) : entry.status === 'loading' ? (
+            {entry.status === 'loading' ? (
               <Icon name="loader-4" className="size-6 animate-spin text-muted-foreground" />
             ) : (
               <>

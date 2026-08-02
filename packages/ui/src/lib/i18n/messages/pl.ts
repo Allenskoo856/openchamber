@@ -1430,7 +1430,6 @@ export const dict: Record<I18nKey, string> = {
   'walkthrough.action.open': 'Przewodnik AI',
   'walkthrough.stage.collecting': 'Zbieram zmiany',
   'walkthrough.stage.asking': 'Czekam na model',
-  'walkthrough.stage.retrying': 'Model odrzucił ustrukturyzowane żądanie — pytam zwykłym tekstem',
   'walkthrough.stage.assembling': 'Składam przewodnik',
   'walkthrough.empty.title': 'Nie ma jeszcze przewodnika',
   'walkthrough.empty.description': 'Zbuduj prowadzoną ścieżkę czytania tych zmian. Wywołuje to mały model i zużywa tokeny, więc uruchamia się tylko na Twoje żądanie.',

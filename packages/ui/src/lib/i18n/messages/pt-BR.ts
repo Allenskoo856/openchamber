@@ -1115,7 +1115,6 @@ export const dict: Record<I18nKey, string> = {
   "walkthrough.action.open": "Percurso com IA",
   "walkthrough.stage.collecting": "Reunindo as mudanças",
   "walkthrough.stage.asking": "Aguardando o modelo",
-  "walkthrough.stage.retrying": "O modelo recusou a requisição estruturada — perguntando em texto simples",
   "walkthrough.stage.assembling": "Montando o percurso",
   "walkthrough.empty.title": "Ainda não há percurso",
   "walkthrough.empty.description": "Monte um percurso de leitura por estas mudanças. Isso chama o modelo pequeno e consome tokens, então só roda quando você pede.",
