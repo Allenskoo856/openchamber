@@ -54,6 +54,12 @@ written against staged code never silently re-anchors onto an unstaged edit.
 | `branch` | `branch` | `getRangeDiff` uses three-dot `base...head`, so work merged in from the base branch is excluded |
 | `pr` | `pr:<number>` | GitHub returns the merge-base diff, matching the branch semantics |
 
+The panel offers the current branch's pull request on its own: it registers with
+the shared GitHub PR status store (`useGitHubPrStatusStore`) rather than waiting
+for the pull request panel to have been visited. That store already dedupes
+concurrent requests by signature and throttles by TTL, so several panels asking
+the same question produce one call to GitHub.
+
 ## No truncation
 
 Within what it covers, the digest is complete. When it does not fit the resolved

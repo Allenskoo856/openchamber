@@ -18,6 +18,13 @@ import { deriveBaseBranch } from '@/components/views/git/baseBranch';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useGitBranches, useGitStatus } from '@/stores/useGitStore';
+import { useGitHubAuthStore } from '@/stores/useGitHubAuthStore';
+import {
+  getFreshestPrStatusForBranch,
+  getGitHubPrStatusKey,
+  useGitHubPrStatusStore,
+} from '@/stores/useGitHubPrStatusStore';
+import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useUIStore } from '@/stores/useUIStore';
 import { useWalkthroughStore } from '@/stores/useWalkthroughStore';
 import { cn } from '@/lib/utils';
@@ -150,10 +157,61 @@ export const WalkthroughView = ({ directory }: WalkthroughViewProps) => {
     return { kind: 'branch', baseRef, headRef };
   }, [branches, currentBranch]);
 
+  // The pull request for this branch used to appear only after visiting the PR
+  // panel, because nothing else asked GitHub about it. Ask here too: the status
+  // store already dedupes by signature and throttles by TTL, so several panels
+  // wanting the same answer produce one request.
+  const { github } = useRuntimeAPIs();
+  const githubConnected = useGitHubAuthStore((state) => state.status?.connected ?? false);
+  const githubAuthChecked = useGitHubAuthStore((state) => state.hasChecked);
+  const ensurePrStatusEntry = useGitHubPrStatusStore((state) => state.ensureEntry);
+  const setPrStatusParams = useGitHubPrStatusStore((state) => state.setParams);
+  const refreshPrStatusTargets = useGitHubPrStatusStore((state) => state.refreshTargets);
+
+  useEffect(() => {
+    if (!directory || !currentBranch || !githubAuthChecked || !githubConnected) return;
+    const key = getGitHubPrStatusKey(directory, currentBranch);
+    ensurePrStatusEntry(key);
+    setPrStatusParams(key, {
+      directory,
+      branch: currentBranch,
+      remoteName: null,
+      canShow: true,
+      github,
+      githubAuthChecked,
+      githubConnected,
+    });
+    void refreshPrStatusTargets([{ directory, branch: currentBranch, remoteName: null }]);
+  }, [
+    currentBranch,
+    directory,
+    ensurePrStatusEntry,
+    github,
+    githubAuthChecked,
+    githubConnected,
+    refreshPrStatusTargets,
+    setPrStatusParams,
+  ]);
+
+  // Selecting the number rather than the entry map: a primitive keeps this
+  // panel out of every unrelated PR status update.
+  const branchPrNumber = useGitHubPrStatusStore((state) => (
+    directory && currentBranch
+      ? getFreshestPrStatusForBranch(state.entries, directory, currentBranch)?.pr?.number ?? null
+      : null
+  ));
+
   const source = useMemo<WalkthroughSource>(
     () => requestedSource ?? { kind: 'working-tree', scope },
     [requestedSource, scope]
   );
+
+  // Offer whichever pull request we know about: the one already selected, or
+  // the one this branch has.
+  const prSource = useMemo<Extract<WalkthroughSource, { kind: 'pr' }> | null>(() => {
+    if (source.kind === 'pr') return source;
+    return branchPrNumber ? { kind: 'pr', number: branchPrNumber } : null;
+  }, [branchPrNumber, source]);
 
   const selectWorkingTree = useCallback(
     (value: WalkthroughWorkingTreeScope) => {
@@ -319,7 +377,10 @@ export const WalkthroughView = ({ directory }: WalkthroughViewProps) => {
                   if (branchSource) requestSource(directory, branchSource);
                   return;
                 }
-                if (value === 'pr') return;
+                if (value === 'pr') {
+                  if (prSource) requestSource(directory, prSource);
+                  return;
+                }
                 selectWorkingTree(value as WalkthroughWorkingTreeScope);
               }}
             >
@@ -338,7 +399,7 @@ export const WalkthroughView = ({ directory }: WalkthroughViewProps) => {
                       : t('walkthrough.scope.working')}
                 </DropdownMenuRadioItem>
               ))}
-              {(branchSource || source.kind === 'pr') && (
+              {(branchSource || prSource) && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel className={SCOPE_GROUP_LABEL_CLASS}>
@@ -351,9 +412,9 @@ export const WalkthroughView = ({ directory }: WalkthroughViewProps) => {
                   {t('walkthrough.scope.branch')}
                 </DropdownMenuRadioItem>
               )}
-              {source.kind === 'pr' && (
+              {prSource && (
                 <DropdownMenuRadioItem value="pr">
-                  {t('walkthrough.scope.pullRequest', { number: source.number })}
+                  {t('walkthrough.scope.pullRequest', { number: prSource.number })}
                 </DropdownMenuRadioItem>
               )}
             </DropdownMenuRadioGroup>
