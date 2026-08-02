@@ -4,8 +4,8 @@ import type { Session } from '@opencode-ai/sdk/v2';
 import { Icon } from '@/components/icon/Icon';
 import { formatSessionCompactDateLabel } from '@/components/session/sidebar/utils';
 import { useSwitcherItems } from '@/components/session/sidebar/hooks/useSwitcherItems';
+import { useTabletLayout } from '@/lib/device';
 import { useI18n } from '@/lib/i18n';
-import { isIPadApp } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -82,7 +82,7 @@ export const MobileSessionSwitcher: React.FC<{
   // Tablet: a phone-width sheet stretched across the whole chat column looks
   // broken — anchor a popover under the title instead. Mirror image of the
   // metadata/usage popover, which anchors to the ring on the right.
-  const isIPad = React.useMemo(() => isIPadApp(), []);
+  const { enabled: isTabletLayout } = useTabletLayout();
   const wrapperRef = React.useRef<HTMLDivElement>(null);
   const [anchorLeft, setAnchorLeft] = React.useState<number | null>(null);
 
@@ -90,7 +90,7 @@ export const MobileSessionSwitcher: React.FC<{
   // block is the chat column, NOT the viewport — anchor in the wrapper's own
   // coordinate space (see SessionMetadataOverlay for the same reasoning).
   React.useLayoutEffect(() => {
-    if (!open || !isIPad || !shouldRender) return;
+    if (!open || !isTabletLayout || !shouldRender) return;
     const compute = () => {
       const anchorRect = anchorRef.current?.getBoundingClientRect();
       const wrapperRect = wrapperRef.current?.getBoundingClientRect();
@@ -112,9 +112,9 @@ export const MobileSessionSwitcher: React.FC<{
     const observer = new ResizeObserver(compute);
     observer.observe(wrapper);
     return () => observer.disconnect();
-  }, [anchorRef, isIPad, open, shouldRender]);
+  }, [anchorRef, isTabletLayout, open, shouldRender]);
 
-  const isPopover = isIPad && anchorLeft !== null;
+  const isPopover = isTabletLayout && anchorLeft !== null;
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);

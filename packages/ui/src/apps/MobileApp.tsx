@@ -20,10 +20,9 @@ import { useUpdatePolling } from '@/hooks/useUpdatePolling';
 import { useWindowTitle } from '@/hooks/useWindowTitle';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { RuntimeAPIs } from '@/lib/api/types';
-import { useOrientation } from '@/lib/device';
+import { readTabletLayout, useOrientation, useTabletLayout } from '@/lib/device';
 import { useHardwareKeyboard } from '@/lib/hardwareKeyboard';
 import { useI18n } from '@/lib/i18n';
-import { isIPadApp } from '@/lib/platform';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
 import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
@@ -139,18 +138,27 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     openSurface('settings');
   }, [openSurface]);
 
-  // Tablet (iPad, Capacitor): sessions live in a persistent full-height left
-  // sidebar instead of the phone's drawer. Everything else — the workspace
-  // drawer, the header, the app-level surfaces — is shared with phones.
-  const isIPad = React.useMemo(() => isIPadApp(), []);
+  // Tablet: sessions live in a persistent full-height left sidebar instead of
+  // the phone's drawer. Everything else — the workspace drawer, the header, the
+  // app-level surfaces — is shared with phones.
+  //
+  // A SIZE class, not a device check: an unfolded book foldable is a tablet
+  // until it is folded shut, and the shell keeps running across that change.
+  const { enabled: isTabletLayout, roomyForPanels } = useTabletLayout();
   const orientation = useOrientation();
   const isPortrait = orientation === 'portrait';
   const hasHardwareKeyboard = useHardwareKeyboard();
-  const [ipadSidebarOpen, setIpadSidebarOpen] = React.useState(isIPad && !isPortrait);
+  const [sidebarOpen, setSidebarOpen] = React.useState(() => readTabletLayout().roomyForPanels);
 
-  const toggleIpadSidebar = React.useCallback(() => {
-    setIpadSidebarOpen((current) => !current);
+  const toggleSidebar = React.useCallback(() => {
+    setSidebarOpen((current: boolean) => !current);
   }, []);
+
+  // Folding shut (or losing the room for a side-by-side layout) must not leave
+  // a sidebar open over a phone-width screen.
+  React.useEffect(() => {
+    if (!isTabletLayout) setSidebarOpen(false);
+  }, [isTabletLayout]);
 
   const openFilesSurface = React.useCallback(() => {
     setPendingChangesDiff(null);
@@ -171,12 +179,14 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
     IPAD_RIGHT_SIDEBAR_WIDTH,
     IPAD_WORKSPACE_SIDEBAR_MAX_WIDTH,
   );
-  // Landscape has room for the workspace beside the chat, so it becomes a real
-  // sidebar there; portrait keeps the phone's full-cover drawer, which would
-  // otherwise leave no usable chat column.
-  const workspaceAsPanel = isIPad && !isPortrait;
+  // The workspace becomes a real side panel only where the screen can host the
+  // sidebar, the panel AND a readable chat at once. Everywhere else — a tablet
+  // in portrait, and an unfolded foldable in EITHER orientation, since its long
+  // side is barely wider than a tablet's short one — it stays the full-cover
+  // drawer, which is the layout that actually works at that width.
+  const workspaceAsPanel = roomyForPanels;
   const workspacePanelWidth = workspaceAsPanel && workspaceOpen ? rightResize.width : 0;
-  const sidebarWidth = isIPad && ipadSidebarOpen ? leftResize.width : 0;
+  const sidebarWidth = isTabletLayout && sidebarOpen ? leftResize.width : 0;
 
   // Publish the chat column's insets so overlays portaled to <body> (model
   // picker, directory picker, every MobileOverlayPanel) can center on the CHAT
@@ -210,11 +220,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   // all). Landscape on the software keyboard still hides them — see mobile.css.
   React.useEffect(() => {
     if (typeof document === 'undefined') return;
-    const keep = isIPad && (isPortrait || hasHardwareKeyboard);
+    const keep = isTabletLayout && (isPortrait || hasHardwareKeyboard);
     const root = document.documentElement;
     root.classList.toggle('oc-keep-draft-starters', keep);
     return () => root.classList.remove('oc-keep-draft-starters');
-  }, [hasHardwareKeyboard, isIPad, isPortrait]);
+  }, [hasHardwareKeyboard, isTabletLayout, isPortrait]);
 
   const mobileActions = React.useMemo<MobileAppActions>(
     () => ({
@@ -233,7 +243,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const deepLinkHandlers = React.useMemo(
     () => ({
       openSessions: () => {
-        if (isIPad) setIpadSidebarOpen(true);
+        if (isTabletLayout) setSidebarOpen(true);
         else setSessionsSheetOpen(true);
       },
       openView: (target: 'files' | 'mcp' | 'instances' | 'update') => {
@@ -256,7 +266,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         openSettingsSurface(section ? 'page-content' : 'nav');
       },
     }),
-    [isIPad, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, setSettingsPage],
+    [isTabletLayout, openChangesSurface, openFilesSurface, openSettingsSurface, openSurface, setSettingsPage],
   );
   useDeepLinkHandlers(deepLinkHandlers);
 
@@ -265,7 +275,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const chatMainRef = React.useRef<HTMLElement>(null);
   useEdgeSwipe(chatMainRef, {
     onLeftEdgeSwipe: () => {
-      if (isIPad) setIpadSidebarOpen(true);
+      if (isTabletLayout) setSidebarOpen(true);
       else setSessionsSheetOpen(true);
     },
     onRightEdgeSwipe: () => setWorkspaceOpen(true),
@@ -305,7 +315,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
 
   // Tablets pack the app-level pages (settings, instances, a plan) into a
   // centered dialog instead of covering the whole screen.
-  const surfaceVariant = isIPad ? 'dialog' as const : 'fullscreen' as const;
+  const surfaceVariant = isTabletLayout ? 'dialog' as const : 'fullscreen' as const;
 
   // App-level footer of the sessions list — the same on a phone drawer and a
   // tablet sidebar: connected instance, pending web update, settings.
@@ -360,7 +370,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         {/* iPad: persistent full-height sessions sidebar; the chat column and
             its header butt against it (iPadOS-style split layout). Always
             mounted so open/close animates width, same as the desktop Sidebar. */}
-        {isIPad ? (
+        {isTabletLayout ? (
           <aside
             ref={leftResize.asideRef}
             className={cn(
@@ -369,12 +379,12 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               // them), so a tinted sidebar would show through as row-shaped
               // bands. Same surface as the phone drawer.
               'relative flex h-full shrink-0 flex-col overflow-hidden border-r border-border/70 bg-background will-change-[width] motion-reduce:transition-none',
-              !ipadSidebarOpen && 'border-r-0',
+              !sidebarOpen && 'border-r-0',
             )}
             style={{
-              width: ipadSidebarOpen ? leftResize.width : 0,
-              minWidth: ipadSidebarOpen ? leftResize.width : 0,
-              maxWidth: ipadSidebarOpen ? leftResize.width : 0,
+              width: sidebarOpen ? leftResize.width : 0,
+              minWidth: sidebarOpen ? leftResize.width : 0,
+              maxWidth: sidebarOpen ? leftResize.width : 0,
               ['--oc-ipad-sidebar-width' as string]: `${leftResize.width}px`,
               overflowX: 'clip',
               paddingTop: 'var(--oc-safe-area-top, 0px)',
@@ -382,14 +392,14 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
               transitionDuration: '200ms',
               transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
             }}
-            aria-hidden={!ipadSidebarOpen}
+            aria-hidden={!sidebarOpen}
             data-page-scroll-lock="true"
           >
             <div
               className={cn(
                 'flex h-full shrink-0 flex-col transition-opacity duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
                 leftResize.isResizing && 'pointer-events-none',
-                !ipadSidebarOpen && 'pointer-events-none select-none opacity-0',
+                !sidebarOpen && 'pointer-events-none select-none opacity-0',
               )}
               style={{ width: 'var(--oc-ipad-sidebar-width)', overflowX: 'hidden' }}
             >
@@ -397,11 +407,11 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
                 <MobileSessionsSheet
                   open
                   variant="sidebar"
-                  // The surface asks to close after picking a session/project or
-                  // creating a worktree; the persistent landscape sidebar stays
-                  // put, portrait gives the space back to the chat.
+                  // The surface asks to close after picking a session/project
+                  // or creating a worktree: give the space back to the chat
+                  // where the sidebar is a guest, keep it put where it is not.
                   onOpenChange={(value) => {
-                    if (!value && isPortrait) setIpadSidebarOpen(false);
+                    if (!value && !roomyForPanels) setSidebarOpen(false);
                   }}
                   footer={sessionsFooter}
                 />
@@ -409,7 +419,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             </div>
             {/* After the content, not before it: panes stack their own overlays
                 and the handle has to sit above every one of them. */}
-            {ipadSidebarOpen ? (
+            {sidebarOpen ? (
               <IpadSidebarResizeHandle
                 side="left"
                 isResizing={leftResize.isResizing}
@@ -422,9 +432,9 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
 
         <div className="flex h-full min-w-0 flex-1 flex-col" data-page-scroll-lock="true">
           <MobileHeader
-            onOpenSessions={() => (isIPad ? toggleIpadSidebar() : setSessionsSheetOpen(true))}
+            onOpenSessions={() => (isTabletLayout ? toggleSidebar() : setSessionsSheetOpen(true))}
             onOpenWorkspace={() => setWorkspaceOpen(true)}
-            compactTitle={isIPad}
+            compactTitle={isTabletLayout}
           />
           <main ref={chatMainRef} className="relative min-h-0 flex-1 overflow-hidden" data-page-scroll-lock="true">
             <div className="h-full w-full">
@@ -438,7 +448,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         {/* Mounted permanently on phones (parked off-screen while closed) so
             the sessions/worktree state stays warm and the drawer opens with
             data already on screen — see MobileSessionsDrawerContainer. */}
-        {!isIPad ? (
+        {!isTabletLayout ? (
           <MobileSessionsSheet
             open={sessionsSheetOpen}
             onOpenChange={setSessionsSheetOpen}
@@ -451,7 +461,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             tree across rotation — only its `variant` changes — so the mounted
             panes (open diff, edited file, attached terminal) survive it. In
             portrait the drawer portals itself out and this aside stays at 0. */}
-        {isIPad ? (
+        {isTabletLayout ? (
           <aside
             ref={rightResize.asideRef}
             className={cn(
