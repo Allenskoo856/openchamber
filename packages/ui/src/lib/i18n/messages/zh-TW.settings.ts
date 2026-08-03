@@ -1271,6 +1271,8 @@
 
 
   'settings.providers.page.auth.useReconnectHint': '· 使用「重新連線」以更新憑證',
+  'settings.providers.page.auth.signInRequired': '需要登入',
+  'settings.providers.page.auth.signInRequiredHint': '· 使用「連線」在瀏覽器中登入此供應商',
   'settings.providers.page.connectionDetails.title': '連線詳情',
   'settings.providers.page.connectionDetails.configuredIn': '設定來源：',
   'settings.providers.page.connectionDetails.noActiveSource': '沒有活動設定來源',

@@ -1390,6 +1390,8 @@ export const settingsDict = {
   'settings.providers.page.auth.incomplete': 'Credentials missing',
   'settings.providers.page.auth.incompleteHint': '· Add an API key or {env:VAR} before using this provider in chat',
   'settings.providers.page.auth.useReconnectHint': '· Use Reconnect to update credentials',
+  'settings.providers.page.auth.signInRequired': 'Sign-in required',
+  'settings.providers.page.auth.signInRequiredHint': '· Use Connect to sign in with this provider in your browser',
   'settings.providers.page.connectionDetails.title': 'Connection Details',
   'settings.providers.page.connectionDetails.configuredIn': 'Configured in:',
   'settings.providers.page.connectionDetails.noActiveSource': 'No active configuration source',

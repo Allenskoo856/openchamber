@@ -1386,6 +1386,8 @@ export const settingsDict = {
   'settings.providers.page.auth.pasteAuthorizationCodePlaceholder': 'Wklej kod autoryzacyjny',
   'settings.providers.page.auth.title': 'Uwierzytelnianie',
   'settings.providers.page.auth.useReconnectHint': '· Użyj Połącz ponownie, aby zaktualizować dane logowania',
+  'settings.providers.page.auth.signInRequired': 'Wymagane logowanie',
+  'settings.providers.page.auth.signInRequiredHint': '· Użyj przycisku Połącz, aby zalogować się u tego dostawcy w przeglądarce',
   'settings.providers.page.custom.optionLabel': 'Inny / Niestandardowy',
   'settings.providers.page.custom.title': 'Niestandardowy dostawca',
   'settings.providers.page.custom.editTitle': 'Edytuj niestandardowego dostawcę',

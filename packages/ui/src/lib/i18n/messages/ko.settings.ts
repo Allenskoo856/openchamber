@@ -1365,6 +1365,8 @@ export const settingsDict = {
 
 
   'settings.providers.page.auth.useReconnectHint': '· 인증 정보를 업데이트하려면 Reconnect를 사용하세요',
+  'settings.providers.page.auth.signInRequired': '로그인이 필요합니다',
+  'settings.providers.page.auth.signInRequiredHint': '· 연결을 눌러 브라우저에서 이 프로바이더에 로그인하세요',
   'settings.providers.page.connectionDetails.title': '연결 세부 정보',
   'settings.providers.page.connectionDetails.configuredIn': '설정 위치:',
   'settings.providers.page.connectionDetails.noActiveSource': '활성 설정 소스 없음',

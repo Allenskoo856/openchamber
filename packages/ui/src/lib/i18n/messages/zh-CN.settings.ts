@@ -1365,6 +1365,8 @@ export const settingsDict = {
 
 
   'settings.providers.page.auth.useReconnectHint': '· 使用“重新连接”以更新凭据',
+  'settings.providers.page.auth.signInRequired': '需要登录',
+  'settings.providers.page.auth.signInRequiredHint': '· 使用“连接”在浏览器中登录该提供商',
   'settings.providers.page.connectionDetails.title': '连接详情',
   'settings.providers.page.connectionDetails.configuredIn': '配置来源：',
   'settings.providers.page.connectionDetails.noActiveSource': '没有活动配置来源',

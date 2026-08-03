@@ -1325,6 +1325,8 @@ export const settingsDict = {
   'settings.providers.page.auth.incomplete': 'Anmeldedaten fehlen',
   'settings.providers.page.auth.incompleteHint': '· Fügen Sie einen API-Schlüssel oder {env:VAR} hinzu, bevor Sie diesen Anbieter im Chat verwenden',
   'settings.providers.page.auth.useReconnectHint': '· Verwenden Sie „Erneut verbinden“, um Anmeldedaten zu aktualisieren',
+  'settings.providers.page.auth.signInRequired': 'Anmeldung erforderlich',
+  'settings.providers.page.auth.signInRequiredHint': '· Verwenden Sie „Verbinden“, um sich bei diesem Anbieter im Browser anzumelden',
   'settings.providers.page.connectionDetails.title': 'Verbindungsdetails',
   'settings.providers.page.connectionDetails.configuredIn': 'Konfiguriert in:',
   'settings.providers.page.connectionDetails.noActiveSource': 'Keine aktive Konfigurationsquelle',

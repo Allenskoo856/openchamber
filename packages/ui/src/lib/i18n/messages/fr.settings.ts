@@ -1286,6 +1286,8 @@ export const settingsDict = {
 
 
   'settings.providers.page.auth.useReconnectHint': '· Utilisez Reconnect pour mettre à jour les informations d\'identification',
+  'settings.providers.page.auth.signInRequired': 'Connexion requise',
+  'settings.providers.page.auth.signInRequiredHint': '· Utilisez Connecter pour vous connecter à ce fournisseur dans le navigateur',
   'settings.providers.page.connectionDetails.title': 'Détails de connexion',
   'settings.providers.page.connectionDetails.configuredIn': 'Configuré dans :',
   'settings.providers.page.connectionDetails.noActiveSource': 'Aucune source de configuration active',

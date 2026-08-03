@@ -1365,6 +1365,8 @@ export const settingsDict = {
 
 
   "settings.providers.page.auth.useReconnectHint": "· Скористайтеся повторним підключенням, щоб оновити облікові дані",
+  "settings.providers.page.auth.signInRequired": "Потрібен вхід",
+  "settings.providers.page.auth.signInRequiredHint": "· Скористайтеся «Підключитися», щоб увійти до цього провайдера у браузері",
   "settings.providers.page.connectionDetails.title": "Деталі підключення",
   "settings.providers.page.connectionDetails.configuredIn": "Налаштовано в:",
   "settings.providers.page.connectionDetails.noActiveSource": "Немає активного джерела конфігурації",

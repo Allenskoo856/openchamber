@@ -1365,6 +1365,8 @@ export const settingsDict = {
 
 
   "settings.providers.page.auth.useReconnectHint": "· Usar Reconnect para actualizar credenciales",
+  "settings.providers.page.auth.signInRequired": "Inicio de sesión requerido",
+  "settings.providers.page.auth.signInRequiredHint": "· Usa Conectar para iniciar sesión con este proveedor en el navegador",
   "settings.providers.page.connectionDetails.title": "Detalles de conexión",
   "settings.providers.page.connectionDetails.configuredIn": "Configurado en:",
   "settings.providers.page.connectionDetails.noActiveSource": "No hay fuente de configuración activa",

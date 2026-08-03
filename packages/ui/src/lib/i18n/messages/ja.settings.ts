@@ -1398,6 +1398,8 @@ export const settingsDict = {
 
 
   'settings.providers.page.auth.useReconnectHint': '· 認証情報を更新するには再接続を使用',
+  'settings.providers.page.auth.signInRequired': 'サインインが必要です',
+  'settings.providers.page.auth.signInRequiredHint': '· 「接続」からブラウザーでこのプロバイダーにサインインしてください',
   'settings.providers.page.connectionDetails.title': '接続詳細',
   'settings.providers.page.connectionDetails.configuredIn': '設定場所:',
   'settings.providers.page.connectionDetails.noActiveSource': 'アクティブな設定ソースがありません',
