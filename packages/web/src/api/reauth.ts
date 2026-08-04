@@ -16,6 +16,24 @@ const sha256 = async (value: string): Promise<string> => {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
+const postReauth = async (body: Record<string, unknown>): Promise<{ response: Response; payload: (WorkspaceReauthProofResult & { error?: string; stepUpRequired?: boolean; setupRequired?: boolean }) | null }> => {
+  const response = await runtimeFetch('/auth/reauth', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => null) as (WorkspaceReauthProofResult & { error?: string; stepUpRequired?: boolean; setupRequired?: boolean }) | null;
+  return { response, payload };
+};
+
+const reauthFailure = (response: Response, payload: { error?: string; stepUpRequired?: boolean; setupRequired?: boolean } | null): Error =>
+  Object.assign(new Error(payload?.error || response.statusText || 'Reauthentication failed'), {
+    stepUpRequired: payload?.stepUpRequired === true,
+    setupRequired: payload?.setupRequired === true,
+    status: response.status,
+  });
+
 export const requestReauthProof = async (input: WorkspaceReauthProofRequest): Promise<WorkspaceReauthProofResult> => {
   const binding = {
     operation: input.operation,
@@ -24,17 +42,15 @@ export const requestReauthProof = async (input: WorkspaceReauthProofRequest): Pr
     nonce: crypto.randomUUID(),
   };
   if (input.password === undefined) {
+    // A still-valid step-up window mints the proof without any user interaction.
+    const probe = await postReauth(binding);
+    if (probe.response.ok && typeof probe.payload?.proof === 'string') return probe.payload;
+    if (probe.payload?.setupRequired) throw reauthFailure(probe.response, probe.payload);
     return reauthenticateWithPasskey(binding) as Promise<WorkspaceReauthProofResult>;
   }
-  const response = await runtimeFetch('/auth/reauth', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ ...binding, password: input.password }),
-  });
-  const payload = await response.json().catch(() => null) as (WorkspaceReauthProofResult & { error?: string }) | null;
+  const { response, payload } = await postReauth({ ...binding, password: input.password });
   if (!response.ok || typeof payload?.proof !== 'string') {
-    throw new Error(payload?.error || response.statusText || 'Reauthentication failed');
+    throw reauthFailure(response, payload);
   }
   return payload;
 };

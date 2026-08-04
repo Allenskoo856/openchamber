@@ -91,6 +91,8 @@ export const createServerUtilsRuntime = (dependencies) => {
       path.join(appData, 'npm'),
       path.join(programFiles, 'nodejs'),
       programFilesX86 ? path.join(programFilesX86, 'nodejs') : '',
+      path.join(programFiles, 'Docker', 'Docker', 'resources', 'bin'),
+      programFilesX86 ? path.join(programFilesX86, 'Docker', 'Docker', 'resources', 'bin') : '',
       path.join(localAppData, 'Programs', 'nodejs'),
       getEnvValue('PNPM_HOME'),
       path.join(localAppData, 'pnpm'),

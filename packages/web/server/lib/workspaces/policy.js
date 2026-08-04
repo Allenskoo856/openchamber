@@ -231,7 +231,11 @@ export function readWorkspaceSettings(settings = {}) {
     appleMemoryLimit: optionalString(settings.secureWorkspacesAppleMemoryLimit),
     appleCpuLimit: optionalString(settings.secureWorkspacesAppleCpuLimit),
     preserveOnDelete: settings.secureWorkspacesRetentionPreserveOnDelete === true,
-    modelAuth: MODEL_AUTH_MODES.has(settings.secureWorkspacesModelAuth) ? settings.secureWorkspacesModelAuth : 'none',
+    // Granting the explicitly selected model credentials is the default: a workspace
+    // without them cannot answer at all, so 'none' would ship the feature broken. The
+    // grant stays explicit in the sense that matters — only selected credentials are
+    // materialised, into provider secret storage, never into metadata or logs.
+    modelAuth: MODEL_AUTH_MODES.has(settings.secureWorkspacesModelAuth) ? settings.secureWorkspacesModelAuth : 'explicit-opencode-auth-content',
   };
 }
 

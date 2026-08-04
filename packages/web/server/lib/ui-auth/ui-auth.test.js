@@ -86,6 +86,88 @@ describe('ui auth client credential seam', () => {
     auth.dispose();
   });
 
+  it('opens a step-up window after a password ceremony and mints adjacent proofs silently', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    const auth = createUiAuth({ password: 'secret' });
+    const loginRes = createResponse();
+    await auth.handleSessionCreate({ method: 'POST', headers: {}, body: { password: 'secret' } }, loginRes);
+    const cookie = String(loginRes.getHeader('set-cookie')).split(';', 1)[0];
+    const first = createResponse();
+    await auth.handleReauthProof({
+      headers: { cookie },
+      body: { password: 'secret', operation: 'workspace.export', project: '/repo', bodyHash: 'a'.repeat(64), nonce: 'nonce-1234567890abcdef' },
+    }, first);
+    expect(first.statusCode).toBe(200);
+    expect(typeof first.body.windowExpiresAt).toBe('number');
+
+    const second = createResponse();
+    await auth.handleReauthProof({
+      headers: { cookie },
+      body: { operation: 'host.apply', project: '/repo', bodyHash: 'b'.repeat(64), nonce: 'nonce-abcdef1234567890' },
+    }, second);
+    expect(second.statusCode).toBe(200);
+    expect(typeof second.body.proof).toBe('string');
+    expect(second.body.proof).not.toBe(first.body.proof);
+    const consumed = await auth.consumeReauthProof(
+      { headers: { cookie, 'x-openchamber-reauth-proof': second.body.proof, 'x-openchamber-reauth-nonce': second.body.nonce } },
+      { operation: 'host.apply', project: '/repo', bodyHash: 'b'.repeat(64) },
+    );
+    expect(consumed).toBe(true);
+    auth.dispose();
+  });
+
+  it('requires a fresh ceremony when no step-up window is active or after it expires', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    const auth = createUiAuth({ password: 'secret', stepUpWindowTtlMs: 1 });
+    const loginRes = createResponse();
+    await auth.handleSessionCreate({ method: 'POST', headers: {}, body: { password: 'secret' } }, loginRes);
+    const cookie = String(loginRes.getHeader('set-cookie')).split(';', 1)[0];
+    const binding = { operation: 'workspace.cleanup', project: '/repo', bodyHash: 'c'.repeat(64), nonce: 'nonce-1234567890abcdef' };
+
+    const probeWithoutWindow = createResponse();
+    await auth.handleReauthProof({ headers: { cookie }, body: binding }, probeWithoutWindow);
+    expect(probeWithoutWindow.statusCode).toBe(401);
+    expect(probeWithoutWindow.body).toMatchObject({ stepUpRequired: true });
+
+    const ceremony = createResponse();
+    await auth.handleReauthProof({ headers: { cookie }, body: { ...binding, password: 'secret' } }, ceremony);
+    expect(ceremony.statusCode).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const probeAfterExpiry = createResponse();
+    await auth.handleReauthProof({ headers: { cookie }, body: { ...binding, nonce: 'nonce-abcdef1234567890' } }, probeAfterExpiry);
+    expect(probeAfterExpiry.statusCode).toBe(401);
+    expect(probeAfterExpiry.body).toMatchObject({ stepUpRequired: true });
+    auth.dispose();
+  });
+
+  it('binds the step-up window to the authenticated principal', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    const auth = createUiAuth({
+      password: 'secret',
+      requireClientAuth: true,
+      clientAuthController: {
+        authenticateBearerToken: async (token) => token === 'client-a'
+          ? { ok: true, clientId: 'a' }
+          : token === 'client-b' ? { ok: true, clientId: 'b' } : null,
+      },
+    });
+    const binding = { operation: 'workspace.create', project: '/repo', bodyHash: 'd'.repeat(64), nonce: 'nonce-1234567890abcdef' };
+    const ceremony = createResponse();
+    await auth.handleReauthProof({ headers: { authorization: 'Bearer client-a' }, body: { ...binding, password: 'secret' } }, ceremony);
+    expect(ceremony.statusCode).toBe(200);
+
+    const sameClient = createResponse();
+    await auth.handleReauthProof({ headers: { authorization: 'Bearer client-a' }, body: { ...binding, nonce: 'nonce-abcdef1234567890' } }, sameClient);
+    expect(sameClient.statusCode).toBe(200);
+
+    const otherClient = createResponse();
+    await auth.handleReauthProof({ headers: { authorization: 'Bearer client-b' }, body: { ...binding, nonce: 'nonce-fedcba0987654321' } }, otherClient);
+    expect(otherClient.statusCode).toBe(401);
+    expect(otherClient.body).toMatchObject({ stepUpRequired: true });
+    auth.dispose();
+  });
+
   it('fails closed for passwordless privileged reauthentication', async () => {
     const createUiAuth = await loadCreateUiAuth();
     const auth = createUiAuth({

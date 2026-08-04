@@ -1370,6 +1370,7 @@ const loadWindowsEnv = () => {
     path.join(homeDir, '.opencode', 'bin'),
     path.join(homeDir, '.bun', 'bin'),
     path.join(homeDir, '.local', 'bin'),
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Docker', 'Docker', 'resources', 'bin'),
     path.join(localAppData, 'Programs', 'Microsoft VS Code', 'bin'),
     path.join(localAppData, 'Programs', 'Cursor', 'resources', 'app', 'bin'),
     path.join(appData, 'npm'),

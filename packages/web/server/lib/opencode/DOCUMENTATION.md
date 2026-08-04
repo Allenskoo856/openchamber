@@ -130,6 +130,11 @@ runtime. PATH and `OPENCODE_SERVER_PASSWORD` remain lifecycle-owned and cannot
 be replaced by injected values. External OpenCode processes receive no
 OpenChamber tool injection.
 
+When `OPENCHAMBER_DATA_DIR` is supplied, the managed OpenCode child receives a
+profile-local `XDG_DATA_HOME` unless explicitly set by the caller. This keeps
+disposable OpenChamber profiles independent from global OpenCode sessions while
+retaining the shared OpenCode configuration that owns plugin setup.
+
 Set `OPENCHAMBER_STARTUP_PERF=1` to emit bounded startup phase records for server listen, managed OpenCode preparation/readiness, and proxy readiness holds. Every OpenCode bootstrap emits one terminal `opencode.bootstrap.ready` or `opencode.bootstrap.error` event, including reused and external server paths. Records contain controlled phase/outcome/route labels and timing values only; they never contain request URLs, runtime keys, directories, session IDs, credentials, or content.
 
 macOS `say` voice enumeration starts concurrently with server composition. The server listener and managed OpenCode startup do not wait for it; `/api/tts/say/status` awaits the same authoritative capability promise when queried before enumeration completes.

@@ -95,6 +95,12 @@ async function atomicWritePrivateJson(file, value) {
   }
 }
 
+function platformProviders() {
+  const providers = ['docker', 'kubernetes'];
+  if (process.platform === 'darwin') providers.push('apple-container');
+  return providers;
+}
+
 function createCompatibilityResult({ configured, spec, adapterProbe, boundary }) {
   const adapterKinds = adapterProbe.adapters.map((adapter) => adapter?.kind ?? adapter?.id ?? adapter?.type).filter(Boolean);
   const active = adapterProbe.ok && adapterKinds.some((kind) => SECURE_WORKSPACE_PROVIDERS.has(kind));
@@ -109,6 +115,8 @@ function createCompatibilityResult({ configured, spec, adapterProbe, boundary })
       error: boundary.error,
       diagnostics: boundary.diagnostics ?? [],
       handoffSupported: false,
+      platform: process.platform,
+      platformProviders: platformProviders(),
     };
   }
   return {
@@ -121,6 +129,8 @@ function createCompatibilityResult({ configured, spec, adapterProbe, boundary })
     error: adapterProbe.error,
     diagnostics: boundary?.diagnostics ?? [],
     handoffSupported: true,
+    platform: process.platform,
+    platformProviders: platformProviders(),
   };
 }
 
@@ -154,28 +164,45 @@ function authoritativeIdentity(workspace) {
   };
 }
 
+function recoverableIdentityMismatch(workspace) {
+  const metadata = workspace?.extra;
+  return Boolean(workspace && typeof workspace.id === 'string' && workspace.id
+    && typeof workspace.projectID === 'string' && workspace.projectID
+    && SECURE_WORKSPACE_PROVIDERS.has(workspace.type)
+    && metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    && metadata.version === 1 && metadata.provider === workspace.type
+    && metadata.projectID === workspace.projectID
+    && typeof metadata.providerResourceID === 'string' && metadata.providerResourceID
+    && typeof metadata.controlPlaneWorkspaceID === 'string' && metadata.controlPlaneWorkspaceID
+    && metadata.controlPlaneWorkspaceID !== workspace.id);
+}
+
 async function verifiedAuthoritativeWorkspace(workspace, operations) {
   try {
     authoritativeIdentity(workspace);
     return workspace;
   } catch (error) {
-    const metadata = workspace?.extra;
-    const recoverableMismatch = workspace && typeof workspace.id === 'string' && workspace.id
-      && typeof workspace.projectID === 'string' && workspace.projectID
-      && SECURE_WORKSPACE_PROVIDERS.has(workspace.type)
-      && metadata && typeof metadata === 'object' && !Array.isArray(metadata)
-      && metadata.version === 1 && metadata.provider === workspace.type
-      && metadata.projectID === workspace.projectID
-      && typeof metadata.providerResourceID === 'string' && metadata.providerResourceID
-      && typeof metadata.controlPlaneWorkspaceID === 'string' && metadata.controlPlaneWorkspaceID
-      && metadata.controlPlaneWorkspaceID !== workspace.id;
-    if (!recoverableMismatch || typeof operations?.adoptWorkspace !== 'function') throw error;
+    if (!recoverableIdentityMismatch(workspace) || typeof operations?.adoptWorkspace !== 'function') throw error;
+    const metadata = workspace.extra;
     const adopted = await operations.adoptWorkspace(workspace);
     const identity = authoritativeIdentity(adopted);
     if (adopted.id !== workspace.id || identity.providerResourceID !== metadata.providerResourceID || identity.projectID !== metadata.projectID || identity.provider !== metadata.provider) {
       throw Object.assign(new Error('Workspace recovery operation returned a mismatched identity'), { statusCode: 409 });
     }
     return adopted;
+  }
+}
+
+// Cleanup verification tolerates a control-plane ID drift without requiring a healthy
+// adoption: a degraded workspace must remain deletable, and the identity drift is
+// resolved by the plugin operations layer against persisted provider state.
+function verifiedCleanupWorkspace(workspace) {
+  try {
+    authoritativeIdentity(workspace);
+    return workspace;
+  } catch (error) {
+    if (!recoverableIdentityMismatch(workspace)) throw error;
+    return workspace;
   }
 }
 
@@ -470,7 +497,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
       const context = await persistedContext('', null);
       return res.json(await (await operationsFor(context)).validateProvider(provider));
     } catch (error) {
-      return res.status(error?.statusCode || 503).json({ available: false, error: safeErrorMessage(error, 'Workspace provider is unavailable') });
+      return res.status(error?.statusCode || 503).json({ available: false, error: safeErrorMessage(error, 'Workspace provider is unavailable'), code: typeof error?.code === 'string' ? error.code : undefined });
     }
   }
   app.get('/api/workspaces/providers/validate', handleProviderValidation);
@@ -489,6 +516,55 @@ export function registerWorkspaceRoutes(app, dependencies) {
       return res.json(createCompatibilityResult({ configured: Boolean(configuredEntry), spec: configuredEntry?.spec ?? pluginSpec ?? undefined, adapterProbe, boundary }));
     } catch (error) {
       return res.status(500).json({ error: safeErrorMessage(error, 'Failed to inspect workspace compatibility') });
+    }
+  });
+
+  // Readiness answers "can this machine run a Secure Workspace, and if not, why" without
+  // any privileged step-up: it returns availability codes only, never provider output,
+  // credentials, or policy. Learning that a container runtime is missing must not cost
+  // the user a password — that is a fact about their machine, not a privileged action.
+  app.get('/api/workspaces/readiness', async (req, res) => {
+    if (!await authorizeCapabilityRequest(req, res, 'workspace.read', { allowUnsupported: true })) return;
+    try {
+      await settingsRecoveryPromise;
+      const directory = typeof req.query.directory === 'string' ? req.query.directory : '';
+      const pluginSpec = workspacePluginSpec ?? (() => { try { return resolvePluginSpec(); } catch { return null; } })();
+      const entries = listPluginEntries(null);
+      const configuredEntry = entries.find((entry) => isWorkspacePluginEntry(entry, pluginSpec)) ?? entries.find((entry) => isWorkspacePluginEntry(entry, null));
+      const boundary = getWorkspaceRuntimeBoundary();
+      const adapterProbe = boundary?.supported === false ? { ok: false, status: 501, adapters: [], error: boundary.error } : await probeWorkspaceAdapters(directory);
+      const compatibility = createCompatibilityResult({ configured: Boolean(configuredEntry), spec: configuredEntry?.spec ?? pluginSpec ?? undefined, adapterProbe, boundary });
+
+      let settings = null;
+      let operations = null;
+      let policyError;
+      try {
+        const context = await persistedContext(directory, null);
+        settings = context.settings;
+        operations = await operationsFor(context);
+      } catch (error) {
+        policyError = safeErrorMessage(error, 'Secure Workspace policy is incomplete');
+      }
+
+      const providers = await Promise.all(compatibility.platformProviders.map(async (provider) => {
+        if (!operations) return { provider, available: false, code: 'WORKSPACE_POLICY_INCOMPLETE' };
+        try {
+          const result = await operations.validateProvider(provider);
+          return { provider, available: result?.available === true };
+        } catch (error) {
+          return { provider, available: false, code: typeof error?.code === 'string' ? error.code : 'WORKSPACE_PROVIDER_UNAVAILABLE' };
+        }
+      }));
+
+      return res.json({
+        ...compatibility,
+        enabled: settings?.enabled === true,
+        defaultProvider: settings?.defaultProvider ?? 'docker',
+        providers,
+        ...(policyError ? { policyError } : {}),
+      });
+    } catch (error) {
+      return res.status(500).json({ error: safeErrorMessage(error, 'Failed to inspect workspace readiness') });
     }
   });
 
@@ -537,18 +613,27 @@ export function registerWorkspaceRoutes(app, dependencies) {
     try {
       const context = await persistedContext(directory, null);
       const provider = context.settings.defaultProvider;
-      const payload = { operationID, directory: context.directory, title };
+      // The proof binds the exact request the client signed: raw directory and title as
+      // submitted, matching every other privileged route. Canonicalization happens after
+      // authorization; hashing the canonical path here breaks the binding on hosts where
+      // the canonical form differs from the client's project string (e.g. Windows).
+      const payload = { operationID, directory, title };
       const result = await startOrdinaryWorkspaceSession({ operationID, principal: authorization.principal, directory: context.directory, projectID: context.project.id, title, provider, client: await sdkClient(context.directory), journal: ordinarySessionJournal, maxAttempts: workspaceCreateStatusMaxAttempts, pollIntervalMs: workspaceCreateStatusPollIntervalMs, authorizeCreation: async () => {
         const capabilities = Array.isArray(authorization.context?.client?.capabilities) ? authorization.context.client.capabilities : [];
         if (authorization.context?.type !== 'session' && !capabilities.includes('workspace.admin')) throw Object.assign(new Error('Client capability required: workspace.admin'), { statusCode: 403, code: 'WORKSPACE_SESSION_UNAUTHORIZED' });
-        if (!await uiAuthController.consumeReauthProof(req, { operation: 'workspace.session.start', project: context.directory, bodyHash: reauthBodyHash(payload) })) {
+        if (!await uiAuthController.consumeReauthProof(req, { operation: 'workspace.session.start', project: directory, bodyHash: reauthBodyHash(payload) })) {
           throw Object.assign(new Error('Reauthentication required'), { statusCode: 428, code: 'WORKSPACE_SESSION_REAUTH_REQUIRED' });
         }
         return true;
       } });
       return res.status(result.status === 'completed' ? 201 : 202).json(result);
     } catch (error) {
-      return res.status(error?.statusCode || 409).json({ code: error?.code || 'WORKSPACE_SESSION_START_FAILED', message: safeErrorMessage(error, 'Failed to start workspace session'), retryable: error?.retryable === true || error?.statusCode === 428, operationID, ...(error?.workspaceID ? { workspaceID: error.workspaceID } : {}), ...(error?.sessionID ? { sessionID: error.sessionID } : {}) });
+      const message = safeErrorMessage(error, 'Failed to start workspace session');
+      const code = error?.code || 'WORKSPACE_SESSION_START_FAILED';
+      if (code !== 'WORKSPACE_SESSION_REAUTH_REQUIRED') {
+        console.error(`[Secure Workspaces] Session start failed for operation ${operationID} (${code}): ${message}`);
+      }
+      return res.status(error?.statusCode || 409).json({ code, message, retryable: error?.retryable === true || error?.statusCode === 428, operationID, ...(error?.workspaceID ? { workspaceID: error.workspaceID } : {}), ...(error?.sessionID ? { sessionID: error.sessionID } : {}) });
     }
   });
 
@@ -562,16 +647,23 @@ export function registerWorkspaceRoutes(app, dependencies) {
       let workspace = await loadOpenCodeWorkspace({ id, directory, buildOpenCodeUrl, getOpenCodeAuthHeaders, createClient: createOpenCodeClient });
       const context = await persistedContext(directory, workspace);
       const operations = await operationsFor(context);
-      workspace = await verifiedAuthoritativeWorkspace(workspace, operations);
+      workspace = verifiedCleanupWorkspace(workspace);
       const cleanup = await operations.cleanupWorkspace(workspace);
-      if (cleanup?.ok !== true || !Array.isArray(cleanup.remainingResources) || cleanup.remainingResources.length !== 0) {
-        return res.status(409).json({ cleaned: false, retryable: true, error: 'Workspace provider cleanup is incomplete', remainingResources: Array.isArray(cleanup?.remainingResources) ? cleanup.remainingResources : [] });
+      const remainingResources = Array.isArray(cleanup?.remainingResources) ? cleanup.remainingResources.filter((item) => typeof item === 'string') : [];
+      const retainedResources = Array.isArray(cleanup?.retainedResources) ? cleanup.retainedResources.filter((item) => typeof item === 'string') : [];
+      const diagnostics = Array.isArray(cleanup?.diagnostics) ? cleanup.diagnostics.filter((item) => typeof item === 'string') : [];
+      if (cleanup?.ok !== true || remainingResources.length > 0) {
+        console.error(`[Secure Workspaces] Cleanup incomplete for workspace ${id}: remaining ${remainingResources.join(', ') || 'unknown'}`);
+        return res.status(409).json({ cleaned: false, retryable: true, error: 'Workspace provider cleanup is incomplete', remainingResources, retainedResources, diagnostics });
       }
       const result = await (await sdkClient(context.directory)).experimental.workspace.remove({ id, directory: context.directory });
       if (result?.error || !result?.data) throw new Error('Provider cleanup succeeded, but the OpenCode workspace record could not be removed');
-      return res.json({ cleaned: true, workspace: result.data, diagnostics: Array.isArray(cleanup.diagnostics) ? cleanup.diagnostics : [] });
+      console.log(`[Secure Workspaces] Cleanup completed for workspace ${id}${retainedResources.length > 0 ? ` (retained: ${retainedResources.join(', ')})` : ''}`);
+      return res.json({ cleaned: true, workspace: result.data, diagnostics, retainedResources });
     } catch (error) {
-      return res.status(error?.statusCode || 409).json({ cleaned: false, retryable: true, error: safeErrorMessage(error, 'Failed to clean up workspace'), remainingResources: Array.isArray(error?.remainingResources) ? error.remainingResources : [] });
+      const message = safeErrorMessage(error, 'Failed to clean up workspace');
+      console.error(`[Secure Workspaces] Cleanup failed for workspace ${id}${typeof error?.code === 'string' ? ` (${error.code})` : ''}: ${message}`);
+      return res.status(error?.statusCode || 409).json({ cleaned: false, retryable: true, error: message, code: typeof error?.code === 'string' ? error.code : undefined, remainingResources: Array.isArray(error?.remainingResources) ? error.remainingResources : [] });
     }
   };
   app.delete('/api/workspaces/:id', handleWorkspaceCleanup);
@@ -664,7 +756,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
       const identity = authoritativeIdentity(workspace);
       const rawArtifact = await operations.exportWorkspace(workspace);
       const parsed = parseWorkspaceArtifact(rawArtifact, { ...identity, targetDirectory: context.directory });
-      const review = createArtifactReview(parsed);
+      const review = await createArtifactReview(parsed, { directory: context.directory });
       const cached = await artifactCache.set(parsed);
       return res.json({ exportID: parsed.artifact.id, provider: parsed.artifact.provider, expiresAt: cached?.expiresAt ?? parsed.artifact.expiresAt, review });
     } catch (error) {

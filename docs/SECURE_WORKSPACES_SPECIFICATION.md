@@ -19,7 +19,13 @@ The target is one complete production product. Work may proceed through explicit
 - A requirement is complete only when implementation, focused automated coverage, relevant live validation, and documentation agree.
 - Static type-checking and linting do not prove provider, security, recovery, packaging, or platform behavior.
 - A historical smoke result does not validate a later plugin commit, OpenCode version, dependency pin, image digest, or packaged application.
-- Provider failure MUST NOT become an authoritative empty result.
+- Provider failure MUST NOT become an authoritative empty result. Absent provider
+  tooling is distinct from provider failure: when a provider's CLI or configuration
+  is not present on the host, that provider cannot own resources there, so discovery
+  returns an authoritative empty result. Tooling that is present but failing (daemon
+  unreachable, cluster unreachable, malformed output) MUST still surface as an
+  explicit failure. Availability is reported by provider validation, not by discovery
+  errors.
 - Partial success, cleanup failure, rollback failure, stale data, and unsupported platform behavior MUST be explicit.
 - No release may be described as production-ready while a security, host-integrity, recovery, image, packaging, or required-platform gate remains incomplete.
 
@@ -607,6 +613,15 @@ Every destructive, target, export, or exec-like operation MUST validate:
 - complete expected resource set;
 - configured namespace, context, and network policy.
 
+Cleanup is the deliberate exception to policy-fingerprint equality. A workspace
+created under an earlier policy MUST remain deletable after any policy change:
+cleanup validates immutable identity, canonical naming against the policy shape
+recorded at creation, persisted provider state identity, and per-resource
+ownership labels, and reports a fingerprint mismatch as an explicit diagnostic
+instead of refusing. Requiring fingerprint equality for deletion would strand
+provider resources permanently, which is itself a host-integrity failure. Use,
+target, export, and credential operations keep strict fingerprint validation.
+
 ### 9.2 State And Secrets
 
 Local provider state is allowed only for operation journals, secret references, stable target ports, baseline generation, and reconciliation diagnostics.
@@ -679,6 +694,14 @@ Cleanup MUST:
 12. return explicit remaining resources on partial failure.
 
 Absent resources are idempotent success. Foreign resources are never removed.
+
+Cleanup MUST NOT require the active policy fingerprint to match the workspace
+metadata (see section 9.1) and MUST NOT require a healthy reconcile before
+deletion: a degraded workspace remains deletable, with ownership verified per
+resource. Storage retained by explicit retention policy is a successful cleanup
+outcome: the result reports `ok: true` with the retained resources listed in
+`retainedResources` and a diagnostic, and the control-plane record is removed.
+Retained storage remains recorded in local provider state.
 
 ### 10.3 Reconciliation
 
@@ -998,6 +1021,21 @@ Failure after journal creation MUST restore every backup, remove newly created p
 
 Unselected files MUST remain unchanged. Concurrent changes to an affected host file produce a conflict rather than an automatic merge.
 
+Because the baseline is the immutable creation-time snapshot, a change already applied
+to the host keeps appearing in later exports of the same workspace. Apply MUST classify
+each selected entry against the current host state rather than against the baseline
+alone:
+
+- host matches the artifact baseline — the change is pending and is applied;
+- host already matches the intended outcome — the change was applied earlier, so it is
+  reported as skipped and MUST NOT be treated as a conflict or reapplied;
+- host matches neither — an external change occurred and the operation fails as a
+  conflict.
+
+Review results carry the same per-entry classification so the surface can preselect only
+pending changes and label the rest. The baseline itself is never rewritten: apply grants
+no write path into baseline storage, preserving section 16's immutability guarantee.
+
 ## 21. Session Workflows
 
 ### 21.1 Start In Workspace
@@ -1045,6 +1083,16 @@ host.apply
 - host mutation requires `host.apply`.
 
 Default paired clients do not receive admin or apply capabilities. Privileged remote operations require a short-lived one-time proof bound to client/user, operation type, target project, request-body hash, nonce, and expiration. WebAuthn is preferred with password fallback. Apply additionally requires explicit review confirmation. Replay is rejected.
+
+A successful password or passkey ceremony additionally opens a server-side
+step-up authorization window (default 10 minutes) bound to the authenticated
+principal and held only in memory. While the window is valid, further one-time
+proofs are minted without repeating the ceremony; every proof keeps its full
+single-use binding. The window is cleared on credential rotation, password
+reset, and server restart, and silent window probes never consume the
+password rate limit. This implements the section 24 requirement to reuse a
+still-valid step-up authorization window instead of prompting for the password
+on every adjacent privileged action.
 
 Native Electron operator authority is not inferred from a persisted client kind. Only the current Electron-host process may mint and attest the native local client. Persisted marker strings, legacy records, password login, pairing, and generic client-create requests cannot manufacture native authority. The reserved `desktop-local` dedupe identity cannot be replaced by remote issuance paths. The attested local client always has all four capabilities and capability mutation rejects rather than reducing them.
 

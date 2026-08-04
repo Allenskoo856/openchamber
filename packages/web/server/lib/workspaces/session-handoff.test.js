@@ -223,8 +223,8 @@ describe('Secure Workspace session handoff', () => {
     const restarted = fixture({ rootDirectory: fx.rootDirectory });
     const inspected = await restarted.handoff.inspect(operation.operationID, principal);
     expect(inspected.state).toBe('cleanup-required');
-    expect(fs.statSync(fx.rootDirectory).mode & 0o777).toBe(0o700);
-    expect(fs.statSync(path.join(fx.rootDirectory, `${operation.operationID}.json`)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(fs.statSync(fx.rootDirectory).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') expect(fs.statSync(path.join(fx.rootDirectory, `${operation.operationID}.json`)).mode & 0o777).toBe(0o600);
   });
 
   it('does not persist a partial draft when authoritative pagination fails', async () => {

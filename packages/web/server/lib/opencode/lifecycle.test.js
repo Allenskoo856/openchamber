@@ -410,6 +410,28 @@ describe('OpenCode lifecycle', () => {
     await server.close();
   });
 
+  it('passes an isolated OpenCode data root to the managed process', async () => {
+    const child = createMockChild();
+    spawnMock.mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        child.stdout.emit('data', 'opencode server listening on http://127.0.0.1:45678\n');
+      });
+      return child;
+    });
+    const runtime = createRuntime({
+      getManagedOpenCodeEnv: vi.fn(async () => ({
+        XDG_DATA_HOME: '/tmp/openchamber-profile/opencode-data',
+      })),
+    });
+
+    const server = await runtime.startOpenCode();
+    const [, , options] = spawnMock.mock.calls[0];
+
+    expect(options.env.XDG_DATA_HOME).toBe('/tmp/openchamber-profile/opencode-data');
+
+    await server.close();
+  });
+
   it('falls back to buildAugmentedPath when buildManagedOpenCodePath is not provided', async () => {
     delete process.env.OPENCODE_BINARY;
     const child = createMockChild();

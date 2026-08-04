@@ -86,7 +86,7 @@ const main = async () => {
     fail(`timed out after ${timeoutMs}ms waiting for server and renderer readiness`);
   } finally {
     child.kill();
-    fs.rmSync(smokeDir, { recursive: true, force: true });
+    await fs.promises.rm(smokeDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 };
 

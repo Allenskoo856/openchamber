@@ -11,6 +11,7 @@ const TRUSTED_DEVICE_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const URL_AUTH_TOKEN_TTL_MS = 60 * 1000;
 const URL_AUTH_TOKEN_PREFIX = 'oc_url_';
 const REAUTH_PROOF_TTL_MS = 2 * 60 * 1000;
+const STEP_UP_WINDOW_TTL_MS = 10 * 60 * 1000;
 const REAUTH_PROOF_PREFIX = 'oc_reauth_';
 const REAUTH_PROOF_OPERATIONS = new Set([
   'workspace.configure',
@@ -425,10 +426,15 @@ export const createUiAuth = ({
   clientAuthController = null,
   requireClientAuth = false,
   reauthProofTtlMs = REAUTH_PROOF_TTL_MS,
+  stepUpWindowTtlMs = STEP_UP_WINDOW_TTL_MS,
 } = {}) => {
   const normalizedPassword = normalizePassword(password);
   const urlAuthTokens = new Map();
   const reauthProofs = new Map();
+  // A successful password/passkey ceremony opens a short principal-bound window during
+  // which further proofs are minted without repeating the ceremony. Proofs themselves
+  // stay single-use and bound to operation, project, body hash, nonce, and principal.
+  const stepUpWindows = new Map();
 
   const sweepUrlAuthTokens = () => {
     const now = Date.now();
@@ -526,6 +532,25 @@ export const createUiAuth = ({
     const expiresAt = Date.now() + reauthProofTtlMs;
     reauthProofs.set(tokenHash, { ...binding, principal, expiresAt });
     return { proof: token, nonce: binding.nonce, expiresAt };
+  };
+
+  const grantStepUpWindow = (context) => {
+    const principal = authContextPrincipal(context);
+    if (!principal) return null;
+    const expiresAt = Date.now() + stepUpWindowTtlMs;
+    stepUpWindows.set(principal, expiresAt);
+    return expiresAt;
+  };
+
+  const activeStepUpWindow = (context) => {
+    const principal = authContextPrincipal(context);
+    if (!principal) return null;
+    const expiresAt = stepUpWindows.get(principal);
+    if (!expiresAt || expiresAt <= Date.now()) {
+      stepUpWindows.delete(principal);
+      return null;
+    }
+    return expiresAt;
   };
 
   const normalizeHttpClientKind = (value) => value === 'mobile' || value === 'desktop' ? value : null;
@@ -700,6 +725,7 @@ export const createUiAuth = ({
       },
       dispose: () => {
         reauthProofs.clear();
+    stepUpWindows.clear();
       },
     };
   }
@@ -728,6 +754,7 @@ export const createUiAuth = ({
     jwtSecret = persistJwtSecret(nextSecret);
     urlAuthTokens.clear();
     reauthProofs.clear();
+    stepUpWindows.clear();
     rebuildPasskeyController();
   };
 
@@ -938,6 +965,16 @@ export const createUiAuth = ({
   const handleReauthProof = async (req, res) => {
     const context = await resolveAuthContext(req, res, { allowClientAuth: true, allowUrlToken: false });
     if (!context) return respondUnauthorized(req, res);
+    if (req.body?.password === undefined) {
+      // Silent probe: mint from a still-valid step-up window. Not a credential guess,
+      // so it neither consumes the rate limit nor records a failed attempt.
+      const windowExpiresAt = activeStepUpWindow(context);
+      if (!windowExpiresAt) return res.status(401).json({ error: 'Step-up authorization required', stepUpRequired: true });
+      const result = issueReauthProof(context, req.body);
+      if (!result) return res.status(400).json({ error: 'Invalid reauthentication binding' });
+      res.setHeader('Cache-Control', 'no-store');
+      return res.json({ ...result, windowExpiresAt });
+    }
     const rateLimitResult = await checkRateLimit(req);
     res.setHeader('X-RateLimit-Limit', rateLimitResult.limit);
     res.setHeader('X-RateLimit-Remaining', rateLimitResult.remaining);
@@ -953,8 +990,9 @@ export const createUiAuth = ({
     const result = issueReauthProof(context, req.body);
     if (!result) return res.status(400).json({ error: 'Invalid reauthentication binding' });
     await clearRateLimit(req);
+    const windowExpiresAt = grantStepUpWindow(context);
     res.setHeader('Cache-Control', 'no-store');
-    return res.json(result);
+    return res.json({ ...result, windowExpiresAt });
   };
 
   const handlePasskeyReauthOptions = async (req, res) => {
@@ -983,8 +1021,9 @@ export const createUiAuth = ({
       }
       const proof = issueReauthProof(context, result.binding);
       if (!proof) return res.status(400).json({ error: 'Invalid reauthentication binding' });
+      const windowExpiresAt = grantStepUpWindow(context);
       res.setHeader('Cache-Control', 'no-store');
-      return res.json(proof);
+      return res.json({ ...proof, windowExpiresAt });
     } catch (error) {
       return respondPasskeyError(res, error);
     }
@@ -1100,6 +1139,7 @@ export const createUiAuth = ({
     }
     passkeyController.dispose();
     reauthProofs.clear();
+    stepUpWindows.clear();
   };
 
   return {

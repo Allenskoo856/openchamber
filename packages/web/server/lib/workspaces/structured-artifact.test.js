@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { WorkspaceArtifactCache, applyWorkspaceArtifact, parseWorkspaceArtifact } from './structured-artifact.js';
+import { WorkspaceArtifactCache, applyWorkspaceArtifact, createArtifactReview, parseWorkspaceArtifact } from './structured-artifact.js';
 
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const fileEntry = (filePath, content, mode = 0o644, binary = false) => ({ path: filePath, type: 'file', mode, size: content.length, hash: hash(content), binary });
@@ -76,6 +76,68 @@ function parse(value, directory) {
 }
 
 describe('structured workspace artifacts', () => {
+  it('treats a change already present on the host as applied instead of a conflict', async () => {
+    const data = fixture();
+    const content = Buffer.from('hello from secure workspace\n');
+    // The baseline stays the creation-time snapshot, so an add the user already applied
+    // keeps appearing in later exports. Re-applying it must be a no-op, not a conflict.
+    fs.writeFileSync(path.join(data.directory, 'applied.txt'), content);
+    const change = operation('add', null, fileEntry('applied.txt', content));
+    const parsed = parse(artifact([change], [blob(content)], { targetDirectory: data.directory }), data.directory);
+
+    const dryRun = await applyWorkspaceArtifact({ ...data, parsed, selections: [{ fileID: change.id }], checkOnly: true });
+    expect(dryRun).toMatchObject({ applied: false, files: [], skipped: [change.id] });
+
+    const applied = await applyWorkspaceArtifact({ ...data, parsed, selections: [{ fileID: change.id }], checkOnly: false });
+    expect(applied).toMatchObject({ applied: true, files: [], skipped: [change.id] });
+    expect(fs.readFileSync(path.join(data.directory, 'applied.txt'))).toEqual(content);
+  });
+
+  it('applies pending changes while skipping ones already on the host', async () => {
+    const data = fixture();
+    const done = Buffer.from('already there\n');
+    const fresh = Buffer.from('brand new\n');
+    fs.writeFileSync(path.join(data.directory, 'done.txt'), done);
+    const appliedChange = operation('add', null, fileEntry('done.txt', done));
+    const pendingChange = operation('add', null, fileEntry('fresh.txt', fresh));
+    const parsed = parse(artifact([appliedChange, pendingChange], [blob(done), blob(fresh)], { targetDirectory: data.directory }), data.directory);
+
+    const result = await applyWorkspaceArtifact({ ...data, parsed, selections: [{ fileID: appliedChange.id }, { fileID: pendingChange.id }], checkOnly: false });
+
+    expect(result).toMatchObject({ applied: true, files: [pendingChange.id], skipped: [appliedChange.id] });
+    expect(fs.readFileSync(path.join(data.directory, 'fresh.txt'))).toEqual(fresh);
+  });
+
+  it('still refuses when the host entry matches neither the baseline nor the result', async () => {
+    const data = fixture();
+    const content = Buffer.from('workspace version\n');
+    fs.writeFileSync(path.join(data.directory, 'contested.txt'), 'someone else wrote this\n');
+    const change = operation('add', null, fileEntry('contested.txt', content));
+    const parsed = parse(artifact([change], [blob(content)], { targetDirectory: data.directory }), data.directory);
+
+    await expect(applyWorkspaceArtifact({ ...data, parsed, selections: [{ fileID: change.id }], checkOnly: false })).rejects.toThrow(/conflicts/);
+    expect(fs.readFileSync(path.join(data.directory, 'contested.txt'), 'utf8')).toBe('someone else wrote this\n');
+  });
+
+  it('reports per-file host state so review separates pending, applied, and conflicting changes', async () => {
+    const data = fixture();
+    const doneContent = Buffer.from('done\n');
+    const freshContent = Buffer.from('fresh\n');
+    const contestedContent = Buffer.from('expected\n');
+    fs.writeFileSync(path.join(data.directory, 'done.txt'), doneContent);
+    fs.writeFileSync(path.join(data.directory, 'contested.txt'), 'external edit\n');
+    const done = operation('add', null, fileEntry('done.txt', doneContent));
+    const fresh = operation('add', null, fileEntry('fresh.txt', freshContent));
+    const contested = operation('add', null, fileEntry('contested.txt', contestedContent));
+    const parsed = parse(artifact([done, fresh, contested], [blob(doneContent), blob(freshContent), blob(contestedContent)], { targetDirectory: data.directory }), data.directory);
+
+    const review = await createArtifactReview(parsed, { directory: data.directory });
+    const state = Object.fromEntries(review.files.map((file) => [file.newPath, file.hostState]));
+
+    expect(state).toEqual({ 'done.txt': 'applied', 'fresh.txt': 'pending', 'contested.txt': 'conflict' });
+  });
+
+
   it.each([
     ['malformed', '{', /malformed/],
     ['expired', null, /expired/],
@@ -230,7 +292,7 @@ describe('structured workspace artifacts', () => {
     expect(fs.readFileSync(path.join(data.directory, 'text.txt'), 'utf8')).toBe('new\n');
     expect(fs.readFileSync(path.join(data.directory, 'binary.bin'))).toEqual(binary);
     expect(fs.readlinkSync(path.join(data.directory, 'link'))).toBe('new-target');
-    expect(fs.statSync(path.join(data.directory, 'mode.sh')).mode & 0o777).toBe(0o755);
+    if (process.platform !== 'win32') expect(fs.statSync(path.join(data.directory, 'mode.sh')).mode & 0o777).toBe(0o755);
     expect(fs.existsSync(path.join(data.directory, 'old-name'))).toBe(false);
     expect(fs.readFileSync(path.join(data.directory, 'new-name'), 'utf8')).toBe('rename\n');
     expect(fs.existsSync(path.join(data.directory, 'delete.txt'))).toBe(false);
@@ -285,13 +347,14 @@ describe('structured workspace artifacts', () => {
     expect(fs.readFileSync(path.join(data.directory, 'b'))).toEqual(oldB);
 
     const recovery = fixture();
-    const canonicalDirectory = fs.realpathSync(recovery.directory);
+    const canonicalDirectory = await fs.promises.realpath(recovery.directory);
     const operationDirectory = path.join(recovery.transactionRoot, hash(canonicalDirectory), 'txn-crashed');
     const backups = path.join(operationDirectory, 'backups');
     fs.mkdirSync(backups, { recursive: true });
     fs.writeFileSync(path.join(recovery.directory, 'a'), newA);
     fs.writeFileSync(path.join(backups, '0'), oldA);
-    fs.writeFileSync(path.join(operationDirectory, 'journal.json'), JSON.stringify({ version: 2, state: 'applying', directory: canonicalDirectory, backupDirectory: backups, records: [{ path: 'a', existed: true, backup: '0', touched: true, fingerprint: { type: 'file', mode: 0o644, size: oldA.length, hash: hash(oldA) }, finalFingerprint: { type: 'file', mode: 0o644, size: newA.length, hash: hash(newA) } }] }));
+    const recoveryMode = fs.statSync(path.join(recovery.directory, 'a')).mode & 0o7777;
+    fs.writeFileSync(path.join(operationDirectory, 'journal.json'), JSON.stringify({ version: 2, state: 'applying', directory: canonicalDirectory, backupDirectory: backups, records: [{ path: 'a', existed: true, backup: '0', touched: true, fingerprint: { type: 'file', mode: recoveryMode, size: oldA.length, hash: hash(oldA) }, finalFingerprint: { type: 'file', mode: recoveryMode, size: newA.length, hash: hash(newA) } }] }));
     const recoveryFile = operation('modify', fileEntry('a', oldA), fileEntry('a', newA));
     const recoveryParsed = parse(artifact([recoveryFile], [blob(oldA), blob(newA)], { targetDirectory: recovery.directory }), recovery.directory);
     await applyWorkspaceArtifact({ ...recovery, parsed: recoveryParsed, selections: [{ fileID: recoveryFile.id }], checkOnly: true });
@@ -358,7 +421,7 @@ describe('structured workspace artifacts', () => {
     expect(fs.readFileSync(path.join(data.directory, 'file'))).toEqual(before);
 
     const recovery = fixture();
-    const canonicalDirectory = fs.realpathSync(recovery.directory);
+    const canonicalDirectory = await fs.promises.realpath(recovery.directory);
     const operationDirectory = path.join(recovery.transactionRoot, hash(canonicalDirectory), 'txn-committed');
     const backups = path.join(operationDirectory, 'backups');
     fs.mkdirSync(backups, { recursive: true });
@@ -396,10 +459,10 @@ describe('workspace artifact disk cache', () => {
     const data = cacheFixture();
     const parsed = data.createParsed('private');
     await data.cache.set(parsed);
-    expect(fs.statSync(data.storage).mode & 0o777).toBe(0o700);
+    if (process.platform !== 'win32') expect(fs.statSync(data.storage).mode & 0o777).toBe(0o700);
     const files = fs.readdirSync(data.storage);
     expect(files).toHaveLength(1);
-    expect(fs.statSync(path.join(data.storage, files[0])).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(fs.statSync(path.join(data.storage, files[0])).mode & 0o777).toBe(0o600);
     expect((await data.cache.get('private')).serialized.toString('utf8')).toBe(parsed.serialized);
     await data.cache.delete('private');
     expect(fs.readdirSync(data.storage)).toEqual([]);

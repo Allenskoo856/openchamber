@@ -36,6 +36,19 @@ describe('ordinary workspace session start', () => {
     expect(fx.client.session.create).toHaveBeenCalledWith({ directory: '/repo', workspace: 'ws-1' });
   });
 
+  it('accepts OpenCode project IDs from a different ID space than the OpenChamber project', async () => {
+    const openCodeScoped = { id: 'ws-global', type: 'docker', projectID: 'global' };
+    const fx = fixture({ listed: [openCodeScoped] });
+    fx.client.experimental.workspace.status.mockResolvedValue({ data: [{ workspaceID: 'ws-global', status: 'connected' }] });
+    fx.client.session.create.mockResolvedValue({ data: { id: 'session-1', projectID: 'global', workspaceID: 'ws-global' } });
+    fx.client.session.get.mockResolvedValue({ data: { id: 'session-1', projectID: 'global', workspaceID: 'ws-global' } });
+
+    const result = await startOrdinaryWorkspaceSession(input(fx, { projectID: 'path_QzovVXNlcnMvT3BlbkNoYW1iZXI' }));
+
+    expect(result).toMatchObject({ status: 'completed', workspaceID: 'ws-global' });
+    expect(fx.client.experimental.workspace.create).not.toHaveBeenCalled();
+  });
+
   it('creates exactly one workspace and retries idempotently', async () => {
     const fx = fixture({ listed: [] });
     const first = await startOrdinaryWorkspaceSession(input(fx, { authorizeCreation: vi.fn(async () => true) }));

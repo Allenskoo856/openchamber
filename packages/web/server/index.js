@@ -1090,11 +1090,19 @@ const openCodeLifecycleRuntime = createOpenCodeLifecycleRuntime({
     const managedEnv = settings?.agentControlToolEnabled === false
       ? {}
       : await (agentToolRuntime?.prepareManagedOpenCodeEnv() || {});
-    if (settings?.optimizeSystemPrompt !== true) return managedEnv;
+
+    // A caller-supplied data directory is an isolated OpenChamber profile, so
+    // its managed OpenCode child must not inherit the user's global state.
+    const isolatedProfileEnv = process.env.OPENCHAMBER_DATA_DIR
+      ? {
+          XDG_DATA_HOME: process.env.XDG_DATA_HOME || path.join(OPENCHAMBER_DATA_DIR, 'opencode-data'),
+        }
+      : {};
+    if (settings?.optimizeSystemPrompt !== true) return { ...managedEnv, ...isolatedProfileEnv };
 
     const configContent = managedEnv.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT;
     const systemPromptEnv = await systemPromptRuntime.prepareManagedOpenCodeEnv(configContent);
-    return { ...managedEnv, ...systemPromptEnv };
+    return { ...managedEnv, ...systemPromptEnv, ...isolatedProfileEnv };
   },
 });
 

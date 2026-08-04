@@ -6,6 +6,7 @@ import type {
   WorkspaceExportResult,
   WorkspaceProviderValidationInput,
   WorkspaceProviderValidationResult,
+  WorkspaceReadinessResult,
   WorkspaceSecurityAPI,
   WorkspaceHandoffOperation,
   WorkspaceSessionStartError,
@@ -35,6 +36,17 @@ export const createWebWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
     const payload = await readJson<WorkspaceProviderValidationResult>(response, { available: false });
     if (!response.ok) return { ...payload, available: false, error: payload.error || response.statusText };
     return payload;
+  },
+
+  async readiness(input?: { directory?: string | null }): Promise<WorkspaceReadinessResult> {
+    const response = await runtimeFetch('/api/workspaces/readiness', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      query: input?.directory ? { directory: input.directory } : {},
+    });
+    const payload = await readJson<WorkspaceReadinessResult | { error?: string }>(response, { error: response.statusText });
+    if (!response.ok) throw new Error('error' in payload && payload.error ? payload.error : 'Failed to inspect workspace readiness');
+    return payload as WorkspaceReadinessResult;
   },
 
   async compatibility(input?: { directory?: string | null }): Promise<WorkspaceCompatibilityResult> {
@@ -77,7 +89,7 @@ export const createWebWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
       headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...proofHeaders(input.reauthProof, input.reauthNonce) },
       body: JSON.stringify({ directory: input.directory?.trim() || '' }),
     });
-    const result = await readJson<{ cleaned?: boolean; diagnostics?: string[]; remainingResources?: string[]; retryable?: boolean; error?: string }>(response, { error: response.statusText });
+    const result = await readJson<{ cleaned?: boolean; diagnostics?: string[]; remainingResources?: string[]; retainedResources?: string[]; retryable?: boolean; error?: string; code?: string }>(response, { error: response.statusText });
     if (!response.ok) return { ...result, cleaned: false, diagnostics: result.diagnostics ?? [], remainingResources: result.remainingResources ?? [], error: result.error || response.statusText };
     return { ...result, diagnostics: result.diagnostics ?? [] };
   },

@@ -194,7 +194,17 @@ export function parseWorkspaceArtifact(raw, expected, now = Date.now()) {
   return { artifact, blobs, bytes: Buffer.byteLength(serialized), serialized };
 }
 
-export function createArtifactReview(parsed) {
+export async function createArtifactReview(parsed, { directory } = {}) {
+  // Reviewing against the host — not only against the immutable baseline — lets the UI
+  // tell the user what will actually change on disk, and separates changes already
+  // applied earlier from entries an external edit now conflicts with.
+  const root = directory ? await fs.promises.realpath(directory).catch(() => null) : null;
+  const hostStates = new Map();
+  if (root) {
+    for (const file of parsed.artifact.files) {
+      hostStates.set(file.id, await classifyHostState(root, file, parsed.blobs).catch(() => undefined));
+    }
+  }
   const files = parsed.artifact.files.map((file) => {
     const beforeText = file.old?.type === 'file' && !file.old.binary && file.old.size <= MAX_TEXT_BYTES ? blobText(parsed.blobs.get(file.baselineBlob)) : undefined;
     const afterText = file.next?.type === 'file' && !file.next.binary && file.next.size <= MAX_TEXT_BYTES ? blobText(parsed.blobs.get(file.resultBlob)) : undefined;
@@ -207,6 +217,7 @@ export function createArtifactReview(parsed) {
       entryType: file.next?.type ?? file.old?.type,
       oldMode: file.oldMode ?? null,
       newMode: file.newMode ?? null,
+      hostState: hostStates.get(file.id),
       beforeText,
       afterText,
       textHunks: file.textHunks.map((hunk) => ({ id: hunk.id, oldStart: hunk.oldStart, oldCount: hunk.oldCount, newStart: hunk.newStart, newCount: hunk.newCount, removed: hunk.removed, added: hunk.added })),
@@ -253,10 +264,12 @@ export class WorkspaceArtifactCache {
     await this.fs.mkdir(this.rootDirectory, { recursive: true, mode: 0o700 });
     let rootHandle;
     try {
+      if ((await this.fs.lstat(this.rootDirectory)).isSymbolicLink()) fail('Workspace export storage root is unsafe', 500);
       rootHandle = await this.fs.open(this.rootDirectory, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
       const rootStat = await rootHandle.stat();
       if (!rootStat.isDirectory()) fail('Workspace export storage root is unsafe', 500);
-      await rootHandle.chmod(0o700);
+      // Windows does not support POSIX directory modes through file handles.
+      if (process.platform !== 'win32') await rootHandle.chmod(0o700);
     } catch (error) {
       if (error?.statusCode === 500) throw error;
       throw Object.assign(new Error('Workspace export storage root is unsafe'), { statusCode: 500, cause: error });
@@ -332,7 +345,7 @@ export class WorkspaceArtifactCache {
       try {
         handle = await this.fs.open(entry.path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
         const before = await handle.stat();
-        if (!before.isFile() || (before.mode & 0o777) !== 0o600 || before.size !== entry.bytes) throw new Error('stored file metadata changed');
+        if (!before.isFile() || (process.platform !== 'win32' && (before.mode & 0o777) !== 0o600) || before.size !== entry.bytes) throw new Error('stored file metadata changed');
         const serialized = await handle.readFile();
         const after = await handle.stat();
         if (!sameEntryIdentity(after, before) || serialized.length !== entry.bytes) throw new Error('stored file changed while reading');
@@ -410,7 +423,7 @@ async function syncDirectoryWith(filesystem, directory) {
     handle = await filesystem.open(directory, 'r');
     await handle.sync();
   } catch (error) {
-    if (!['EINVAL', 'ENOTSUP', 'EISDIR', 'EBADF'].includes(error?.code)) throw error;
+    if (!['EINVAL', 'ENOTSUP', 'EISDIR', 'EBADF', 'EPERM'].includes(error?.code)) throw error;
   } finally {
     await handle?.close();
   }
@@ -446,15 +459,55 @@ async function fingerprint(target) {
   return { type: 'unsupported', mode };
 }
 
+// The baseline is the immutable creation-time snapshot, so a change already applied to
+// the host keeps appearing in later exports. Comparing the host against the intended
+// outcome distinguishes "already applied" (a no-op) from a genuine external conflict,
+// without ever writing to baseline storage.
+function matchesOutcome(actual, nextEntry, result, resultBlob, blobs) {
+  if (!nextEntry) return actual === null;
+  if (!actual || actual.type !== nextEntry.type) return false;
+  if (process.platform !== 'win32' && actual.mode !== nextEntry.mode) return false;
+  if (nextEntry.type === 'directory') return true;
+  if (nextEntry.type === 'symlink') return actual.target === nextEntry.target;
+  const content = result ?? blobs.get(resultBlob)?.content;
+  if (!content) return false;
+  return actual.size === content.length && actual.hash === sha256(content);
+}
+
+async function alreadyOnHost(root, file, nextEntry, result, actual, blobs) {
+  if (file.kind === 'rename') {
+    if (actual !== null) return false;
+    return matchesOutcome(await fingerprint(path.join(root, file.next.path)), nextEntry, result, file.resultBlob, blobs);
+  }
+  return matchesOutcome(actual, nextEntry, result, file.resultBlob, blobs);
+}
+
+async function classifyHostState(root, file, blobs) {
+  const targetPath = file.old?.path ?? file.next?.path;
+  if (!targetPath) return 'conflict';
+  const actual = await fingerprint(path.join(root, targetPath));
+  if (sameBaseline(actual, file.old)) {
+    if (file.kind !== 'rename') return 'pending';
+    return await fingerprint(path.join(root, file.next.path)) === null ? 'pending' : 'conflict';
+  }
+  return await alreadyOnHost(root, file, file.next, null, actual, blobs) ? 'applied' : 'conflict';
+}
+
 function sameBaseline(actual, expected) {
-  if (!actual || !expected || actual.type !== expected.type || actual.mode !== expected.mode) return actual === expected;
+  if (!actual || !expected || actual.type !== expected.type || (process.platform !== 'win32' && actual.mode !== expected.mode)) return actual === expected;
   if (expected.type === 'file') return actual.hash === expected.hash && actual.size === expected.size;
   if (expected.type === 'symlink') return actual.hash === expected.hash && actual.target === expected.target;
   return expected.type === 'directory' ? actual.entries.length === 0 : true;
 }
 
 
-const sameFingerprint = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+const sameFingerprint = (left, right) => {
+  if (process.platform === 'win32') {
+    if (left) left = { ...left, mode: undefined };
+    if (right) right = { ...right, mode: undefined };
+  }
+  return JSON.stringify(left) === JSON.stringify(right);
+};
 const sameEntryIdentity = (left, right) => left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 
 async function assertNoParentSymlink(root, relativePath) {
@@ -471,7 +524,7 @@ async function syncDirectory(directory) {
     handle = await fs.promises.open(directory, 'r');
     await handle.sync();
   } catch (error) {
-    if (!['EINVAL', 'ENOTSUP', 'EISDIR', 'EBADF'].includes(error?.code)) throw error;
+    if (!['EINVAL', 'ENOTSUP', 'EISDIR', 'EBADF', 'EPERM'].includes(error?.code)) throw error;
   } finally {
     await handle?.close();
   }
@@ -490,7 +543,9 @@ async function copyEntry(source, destination) {
     await fs.promises.copyFile(source, destination);
     await fs.promises.chmod(destination, stat.mode & 0o7777);
     const handle = await fs.promises.open(destination, 'r');
-    try { await handle.sync(); } finally { await handle.close(); }
+    try { await handle.sync(); } catch (error) {
+      if (error?.code !== 'EPERM') throw error;
+    } finally { await handle.close(); }
   }
   await syncDirectory(path.dirname(destination));
 }
@@ -607,7 +662,9 @@ async function materialize(staging, nextEntry, result, resultBlob, blobs) {
   if (nextEntry.type === 'directory') await syncDirectory(target);
   else if (nextEntry.type === 'file') {
     const handle = await fs.promises.open(target, 'r');
-    try { await handle.sync(); } finally { await handle.close(); }
+    try { await handle.sync(); } catch (error) {
+      if (error?.code !== 'EPERM') throw error;
+    } finally { await handle.close(); }
   }
   await syncDirectory(path.dirname(target));
 }
@@ -627,21 +684,8 @@ export async function applyWorkspaceArtifact({ parsed, directory, selections, ch
     const projectTransactionRoot = path.join(transactionRoot, sha256(root));
     await recover(projectTransactionRoot, root);
     if (Date.parse(parsed.artifact.expiresAt) <= Date.now()) fail('Workspace export artifact has expired', 410);
-    const paths = [...new Set(files.flatMap((file) => [file.oldPath, file.newPath]).filter(Boolean))];
-    for (const relativePath of paths) await assertNoParentSymlink(root, relativePath);
-    const checkedFingerprints = new Map();
-    for (const file of files) {
-      const targetPath = file.old?.path ?? file.next?.path;
-      if (!targetPath) fail('Workspace export operation has no target path');
-      const target = path.join(root, targetPath);
-      const actual = await fingerprint(target);
-      if (!sameBaseline(actual, file.old)) fail(`Workspace export conflicts with the current project entry: ${targetPath}`, 409);
-      checkedFingerprints.set(targetPath, actual);
-      if (file.kind === 'rename') {
-        const renameTarget = await fingerprint(path.join(root, file.next.path));
-        if (renameTarget) fail(`Workspace rename target already exists: ${file.next.path}`, 409);
-        checkedFingerprints.set(file.next.path, null);
-      }
+    for (const relativePath of [...new Set(files.flatMap((file) => [file.oldPath, file.newPath]).filter(Boolean))]) {
+      await assertNoParentSymlink(root, relativePath);
     }
     const results = new Map(files.map((file) => [file.id, selectedResult(file, requested.get(file.id), parsed.blobs)]));
     const nextEntries = new Map(files.map((file) => {
@@ -649,7 +693,33 @@ export async function applyWorkspaceArtifact({ parsed, directory, selections, ch
       const partialDelete = file.kind === 'delete' && Array.isArray(selectedHunks) && selectedHunks.length < file.textHunks.length;
       return [file.id, partialDelete ? { ...file.old } : file.next];
     }));
-    if (checkOnly) return { applied: false, checkOnly: true, files: files.map((file) => file.id) };
+    const checkedFingerprints = new Map();
+    const skipped = [];
+    const pending = [];
+    for (const file of files) {
+      const targetPath = file.old?.path ?? file.next?.path;
+      if (!targetPath) fail('Workspace export operation has no target path');
+      const target = path.join(root, targetPath);
+      const actual = await fingerprint(target);
+      if (sameBaseline(actual, file.old)) {
+        checkedFingerprints.set(targetPath, actual);
+        if (file.kind === 'rename') {
+          const renameTarget = await fingerprint(path.join(root, file.next.path));
+          if (renameTarget) fail(`Workspace rename target already exists: ${file.next.path}`, 409);
+          checkedFingerprints.set(file.next.path, null);
+        }
+        pending.push(file);
+        continue;
+      }
+      if (await alreadyOnHost(root, file, nextEntries.get(file.id), results.get(file.id), actual, parsed.blobs)) {
+        skipped.push(file.id);
+        continue;
+      }
+      fail(`Workspace export conflicts with the current project entry: ${targetPath}`, 409);
+    }
+    if (checkOnly) return { applied: false, checkOnly: true, files: pending.map((file) => file.id), skipped };
+    if (pending.length === 0) return { applied: true, checkOnly: false, files: [], skipped };
+    const paths = [...new Set(pending.flatMap((file) => [file.oldPath, file.newPath]).filter(Boolean))];
 
     const operationDirectory = await fs.promises.mkdtemp(path.join(projectTransactionRoot, 'txn-'));
     await syncDirectory(projectTransactionRoot);
@@ -658,7 +728,7 @@ export async function applyWorkspaceArtifact({ parsed, directory, selections, ch
     await fs.promises.mkdir(staging, { recursive: true, mode: 0o700 });
     await fs.promises.mkdir(backups, { recursive: true, mode: 0o700 });
     const stagedFingerprints = new Map();
-    for (const file of files) {
+    for (const file of pending) {
       const nextEntry = nextEntries.get(file.id);
       const result = results.get(file.id);
       await materialize(staging, nextEntry, result, file.resultBlob, parsed.blobs);
@@ -689,14 +759,14 @@ export async function applyWorkspaceArtifact({ parsed, directory, selections, ch
       records.push({ path: relativePath, existed, backup: String(index), fingerprint: initialFingerprint, finalFingerprint: null, touched: false });
     }
     for (const record of records) {
-      const nextEntry = files.map((file) => nextEntries.get(file.id)).find((entry) => entry?.path === record.path);
+      const nextEntry = pending.map((file) => nextEntries.get(file.id)).find((entry) => entry?.path === record.path);
       record.finalFingerprint = nextEntry ? stagedFingerprints.get(record.path) : null;
     }
     const journal = { version: 2, state: 'applying', directory: root, backupDirectory: backups, records };
     const journalPath = path.join(operationDirectory, 'journal.json');
     await writeJournal(journalPath, journal);
     try {
-      for (const [index, file] of files.entries()) {
+      for (const [index, file] of pending.entries()) {
         if (beforeReplace) await beforeReplace({ index, file });
         const nextEntry = nextEntries.get(file.id);
         const mutationPaths = [...new Set([file.old?.path, nextEntry?.path].filter(Boolean))];
@@ -734,6 +804,6 @@ export async function applyWorkspaceArtifact({ parsed, directory, selections, ch
     }
     await fs.promises.rm(operationDirectory, { recursive: true, force: true }).catch(() => undefined);
     await syncDirectory(projectTransactionRoot);
-    return { applied: true, checkOnly: false, files: files.map((file) => file.id) };
+    return { applied: true, checkOnly: false, files: pending.map((file) => file.id), skipped };
   } finally { await release(); }
 }

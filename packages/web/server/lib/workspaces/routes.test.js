@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { registerWorkspaceRoutes, resolveWorkspacePluginSpec } from './routes.js';
 import { buildPluginOptions, readWorkspaceSettings, sanitizeWorkspaceSettingsUpdate } from './policy.js';
@@ -245,7 +246,7 @@ describe('workspace provider operation routes', () => {
       kubernetes: { connectivity: 'port-forward', networkPolicy: 'default-deny', storage: '8Gi', cpuRequest: '250m', memoryRequest: '512Mi', cpuLimit: '2', memoryLimit: '4Gi' },
       appleContainer: { networkMode: 'per-workspace-host-only' },
       retention: { preserveOnDelete: false },
-      credentials: { modelAuth: 'none' },
+      credentials: { modelAuth: 'explicit-opencode-auth-content' },
     });
   });
 
@@ -402,6 +403,66 @@ describe('workspace provider operation routes', () => {
     expect(deps.remove).not.toHaveBeenCalled();
   });
 
+  it('binds session-start reauthentication to the raw submitted directory, not the canonical form', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies();
+    const rawDirectory = deps.directory.replaceAll('\\', '/');
+    deps.validateDirectoryPath = vi.fn(async (candidate) => ({ ok: true, directory: candidate === rawDirectory ? deps.directory : candidate }));
+    deps.list.mockResolvedValue({ data: [] });
+    deps.workspaceStatus.mockResolvedValue({ data: [] });
+    deps.uiAuthController.consumeReauthProof = vi.fn(async () => false);
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('POST', '/api/workspaces/sessions/start')({ headers: {}, body: { operationID: 'op-12345678', directory: rawDirectory, title: '' } }, res);
+
+    expect(res.statusCode).toBe(428);
+    expect(res.body).toMatchObject({ code: 'WORKSPACE_SESSION_REAUTH_REQUIRED', retryable: true });
+    expect(deps.uiAuthController.consumeReauthProof).toHaveBeenCalledWith(expect.anything(), {
+      operation: 'workspace.session.start',
+      project: rawDirectory,
+      bodyHash: hash(canonical({ directory: rawDirectory, operationID: 'op-12345678', title: '' })),
+    });
+  });
+
+  it('reports environment readiness without a step-up prompt and without leaking provider output', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({
+      operations: {
+        validateProvider: vi.fn(async (provider) => {
+          if (provider === 'docker') throw Object.assign(new Error('Docker daemon is not reachable: connect ENOENT //./pipe/docker_engine'), { code: 'WORKSPACE_PROVIDER_DAEMON_UNAVAILABLE' });
+          return { available: true, diagnostics: [] };
+        }),
+      },
+    });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('GET', '/api/workspaces/readiness')({ query: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ enabled: true, defaultProvider: 'docker' });
+    expect(res.body.providers).toContainEqual({ provider: 'docker', available: false, code: 'WORKSPACE_PROVIDER_DAEMON_UNAVAILABLE' });
+    expect(res.body.providers.every((entry) => !('message' in entry) && !('error' in entry))).toBe(true);
+    expect(deps.uiAuthController.consumeReauthProof).not.toHaveBeenCalled();
+  });
+
+  it('reports readiness as policy-incomplete instead of failing when settings are unusable', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({
+      dependencies: { readSettingsFromDiskMigrated: vi.fn(async () => ({ activeProjectId: 'host-project', projects: [], secureWorkspacesEnabled: false })) },
+    });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('GET', '/api/workspaces/readiness')({ query: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.enabled).toBe(false);
+    expect(res.body.providers.every((entry) => entry.available === false && entry.code === 'WORKSPACE_POLICY_INCOMPLETE')).toBe(true);
+    expect(typeof res.body.policyError).toBe('string');
+  });
+
   it('reconciles provider resources separately from OpenCode sync-list', async () => {
     const registry = routeRegistry();
     const deps = dependencies();
@@ -438,19 +499,70 @@ describe('workspace provider operation routes', () => {
     expect(deps.operations.exportWorkspace).toHaveBeenCalledWith(expect.objectContaining({ id: 'recovered-id', extra: expect.objectContaining({ controlPlaneWorkspaceID: 'recovered-id', originalControlPlaneWorkspaceID: 'original-id' }) }));
   });
 
-  it('does not accept a recovered ID mismatch without verified operations adoption', async () => {
+  it('delegates drifted-identity cleanup verification to plugin operations', async () => {
     const recovered = workspace('/unused');
-    recovered.id = 'forged-id';
+    recovered.id = 'recovered-id';
     recovered.extra.controlPlaneWorkspaceID = 'original-id';
     const registry = routeRegistry();
     const deps = dependencies({ workspace: recovered });
     registerWorkspaceRoutes(registry.app, deps);
     const res = response();
 
+    await registry.route('DELETE', '/api/workspaces/:id')({ params: { id: 'recovered-id' }, body: { directory: deps.directory }, query: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(deps.operations.cleanupWorkspace).toHaveBeenCalledWith(expect.objectContaining({ id: 'recovered-id', extra: expect.objectContaining({ controlPlaneWorkspaceID: 'original-id', providerResourceID: 'resource-1' }) }));
+    expect(deps.calls).toEqual(['cleanup', 'remove']);
+  });
+
+  it('returns a retryable failure when plugin operations reject a drifted cleanup identity', async () => {
+    const recovered = workspace('/unused');
+    recovered.id = 'forged-id';
+    recovered.extra.controlPlaneWorkspaceID = 'original-id';
+    const registry = routeRegistry();
+    const deps = dependencies({
+      workspace: recovered,
+      operations: { cleanupWorkspace: vi.fn(async () => { throw new Error('Workspace recovery state identity mismatch'); }) },
+    });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
     await registry.route('DELETE', '/api/workspaces/:id')({ params: { id: 'forged-id' }, body: { directory: deps.directory }, query: {} }, res);
 
     expect(res.statusCode).toBe(409);
-    expect(deps.operations.cleanupWorkspace).not.toHaveBeenCalled();
+    expect(res.body).toMatchObject({ cleaned: false, retryable: true, error: 'Workspace recovery state identity mismatch' });
+    expect(deps.remove).not.toHaveBeenCalled();
+  });
+
+  it('treats policy-retained storage as successful cleanup and removes the SDK record', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({
+      operations: {
+        cleanupWorkspace: vi.fn(async () => ({ ok: true, remainingResources: [], retainedResources: ['volume:data', 'volume:baseline'], diagnostics: ['Workspace storage was retained by policy'] })),
+      },
+    });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('DELETE', '/api/workspaces/:id')({ params: { id: 'workspace-1' }, body: { directory: deps.directory }, query: {} }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ cleaned: true, retainedResources: ['volume:data', 'volume:baseline'], diagnostics: ['Workspace storage was retained by policy'] });
+    expect(deps.remove).toHaveBeenCalled();
+  });
+
+  it('surfaces the structured error code when cleanup fails with one', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({
+      operations: { cleanupWorkspace: vi.fn(async () => { throw Object.assign(new Error('Workspace policy fingerprint does not match the active policy'), { code: 'WORKSPACE_POLICY_MISMATCH' }); }) },
+    });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('DELETE', '/api/workspaces/:id')({ params: { id: 'workspace-1' }, body: { directory: deps.directory }, query: {} }, res);
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({ cleaned: false, retryable: true, code: 'WORKSPACE_POLICY_MISMATCH' });
     expect(deps.remove).not.toHaveBeenCalled();
   });
 
@@ -627,6 +739,7 @@ describe('workspace provider operation routes', () => {
     const plugin = path.join(resources, 'opencode-container-workspace', 'src', 'plugin.js');
     fs.mkdirSync(path.dirname(plugin), { recursive: true });
     fs.writeFileSync(plugin, 'export default {}\n');
-    expect(resolveWorkspacePluginSpec({ env: {}, resourcesPath: resources, resolvedSpecUrl: 'file:///Applications/OpenChamber.app/Contents/Resources/app.asar/node_modules/plugin.js' })).toBe(plugin);
+    const packagedPlugin = path.join(resources, 'app.asar', 'node_modules', 'plugin.js');
+    expect(resolveWorkspacePluginSpec({ env: {}, resourcesPath: resources, resolvedSpecUrl: pathToFileURL(packagedPlugin).href })).toBe(plugin);
   });
 });

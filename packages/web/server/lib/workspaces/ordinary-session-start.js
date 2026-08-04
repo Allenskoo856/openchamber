@@ -79,7 +79,9 @@ export class OrdinarySessionJournal {
         await fs.promises.rename(temporary, file);
         await fs.promises.chmod(file, 0o600);
         const directoryHandle = await fs.promises.open(directory, 'r');
-        try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
+        try { await directoryHandle.sync(); } catch (error) {
+          if (!['EINVAL', 'ENOTSUP', 'EISDIR', 'EBADF', 'EPERM'].includes(error?.code)) throw error;
+        } finally { await directoryHandle.close(); }
       } finally {
         if (handle) await handle.close().catch(() => {});
         await fs.promises.rm(temporary, { force: true }).catch(() => {});
@@ -131,27 +133,40 @@ async function startOrdinaryWorkspaceSessionUnlocked({
   const statusSnapshot = await client.experimental.workspace.status({ directory });
   if (statusSnapshot?.error || !Array.isArray(statusSnapshot?.data)) fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, 'Authoritative workspace status is unavailable', 503, { retryable: true });
   const usableIDs = new Set(statusSnapshot.data.filter((item) => item?.status === 'connected' || item?.status === 'connecting').map((item) => item.workspaceID));
+  // The list and create calls are both scoped by the same directory, so OpenCode has
+  // already bound every row to that directory's project. Its projectID values live in
+  // OpenCode's own ID space (e.g. `global` for non-Git directories) and must not be
+  // compared against the OpenChamber project ID this journal is keyed by.
   let workspace = operation.workspaceID
-    ? listed.data.find((item) => item?.id === operation.workspaceID && item?.projectID === projectID && item?.type === provider)
-    : listed.data.filter((item) => item?.projectID === projectID && item?.type === provider && usableIDs.has(item.id)).sort((a, b) => String(a.id).localeCompare(String(b.id)))[0];
+    ? listed.data.find((item) => item?.id === operation.workspaceID && item?.type === provider)
+    : listed.data.filter((item) => item?.type === provider && usableIDs.has(item.id)).sort((a, b) => String(a.id).localeCompare(String(b.id)))[0];
   if (operation.workspaceID && !workspace) fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, 'The journaled workspace is no longer authoritative', 409, { retryable: true, operationID, workspaceID: operation.workspaceID });
   if (!workspace) {
     if (typeof authorizeCreation !== 'function') fail(ORDINARY_SESSION_ERRORS.UNAUTHORIZED, 'Workspace creation authorization is required', 403);
     await authorizeCreation();
     const created = await client.experimental.workspace.create({ id: `wrk_${crypto.randomUUID().replaceAll('-', '')}`, type: provider, directory, branch: null });
-    if (created?.error || !created?.data) fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, 'Workspace creation failed', 409, { retryable: true });
+    if (created?.error || !created?.data) {
+      const detail = created?.error
+        ? (typeof created.error === 'string' ? created.error : JSON.stringify(created.error)).slice(0, 400)
+        : created?.response?.status
+          ? `HTTP ${created.response.status}`
+          : 'no authoritative workspace data';
+      fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, `Workspace creation failed: ${detail}`, 409, { retryable: true });
+    }
     workspace = created.data;
     operation.workspaceID = workspace.id;
     operation.state = 'workspace-created';
     await journal.write(principal, operationID, operation);
   }
-  if (!workspace?.id || workspace.projectID !== projectID || workspace.type !== provider) fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, 'Workspace identity is invalid', 409, { retryable: true });
+  if (!workspace?.id || workspace.type !== provider) fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, 'Workspace identity is invalid', 409, { retryable: true });
   operation.workspaceID = workspace.id;
   operation.state = 'connecting';
   await journal.write(principal, operationID, operation);
-  const sync = client.experimental.workspace.sync;
+  // The v2 SDK exposes sync start as a top-level `sync.start`; the older
+  // experimental.workspace shapes are kept as fallbacks for test doubles.
+  const sync = client.sync ?? client.experimental.workspace.sync;
   if (typeof sync?.start === 'function') {
-    const started = await sync.start({ directory });
+    const started = await sync.start({ directory, workspace: workspace.id });
     if (started?.error) fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, 'Workspace synchronization could not be started', 503, { retryable: true });
   } else if (typeof client.experimental.workspace.syncStart === 'function') {
     const started = await client.experimental.workspace.syncStart({ directory });
