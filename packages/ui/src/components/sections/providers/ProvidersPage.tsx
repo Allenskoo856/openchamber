@@ -25,7 +25,11 @@ import type { ModelMetadata } from '@/types';
 import { getCurrentIntlLocale, useI18n } from '@/lib/i18n';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { opencodeClient } from '@/lib/opencode/client';
-import { shouldLoadAvailableProviders } from './providerAvailability';
+import {
+  listConnectableProviders,
+  shouldLoadAvailableProviders,
+  type ConnectableProvider,
+} from './providerAvailability';
 import { deriveProviderAuthView, type ProviderAuthMethod } from './providerAuth';
 import { ProviderAuthPanel, type ProviderOAuthDetails } from './ProviderAuthPanel';
 import { CustomProviderForm } from './CustomProviderForm';
@@ -63,11 +67,6 @@ const ADD_PROVIDER_ID = '__add_provider__';
 
 const EMPTY_AUTH_METHODS: ProviderAuthMethod[] = [];
 
-interface ProviderOption {
-  id: string;
-  name?: string;
-}
-
 interface ProviderSourceInfo {
   exists: boolean;
   path?: string | null;
@@ -96,7 +95,7 @@ const parseAuthPayload = (payload: unknown): Record<string, ProviderAuthMethod[]
   return result;
 };
 
-const normalizeProviderEntry = (entry: unknown): ProviderOption | null => {
+const normalizeProviderEntry = (entry: unknown): ConnectableProvider | null => {
   if (typeof entry === 'string') {
     return { id: entry };
   }
@@ -115,7 +114,7 @@ const normalizeProviderEntry = (entry: unknown): ProviderOption | null => {
   return { id: idCandidate, name: nameCandidate };
 };
 
-const parseProvidersPayload = (payload: unknown): ProviderOption[] => {
+const parseProvidersPayload = (payload: unknown): ConnectableProvider[] => {
   let entries: unknown[] = [];
 
   if (Array.isArray(payload)) {
@@ -130,7 +129,7 @@ const parseProvidersPayload = (payload: unknown): ProviderOption[] => {
 
   const mapped = entries
     .map((entry) => normalizeProviderEntry(entry))
-    .filter((entry): entry is ProviderOption => Boolean(entry));
+    .filter((entry): entry is ConnectableProvider => Boolean(entry));
 
   const seen = new Set<string>();
   return mapped.filter((entry) => {
@@ -161,7 +160,7 @@ export const ProvidersPage: React.FC = () => {
   const [pendingOAuth, setPendingOAuth] = React.useState<{ providerId: string; methodIndex: number } | null>(null);
   const [oauthCodes, setOauthCodes] = React.useState<Record<string, string>>({});
   const [oauthDetails, setOauthDetails] = React.useState<Record<string, ProviderOAuthDetails>>({});
-  const [availableProviders, setAvailableProviders] = React.useState<ProviderOption[]>([]);
+  const [availableProviders, setAvailableProviders] = React.useState<ConnectableProvider[]>([]);
   const [availableLoading, setAvailableLoading] = React.useState(false);
   const [availableError, setAvailableError] = React.useState<string | null>(null);
   const [candidateProviderId, setCandidateProviderId] = React.useState('');
@@ -261,15 +260,12 @@ export const ProvidersPage: React.FC = () => {
   );
 
   const unconnectedProviders = React.useMemo(
-    () =>
-      availableProviders
-        .filter((provider) => !connectedProviderIds.has(provider.id))
-        .sort((a, b) => {
-          const labelA = (a.name || a.id).toLowerCase();
-          const labelB = (b.name || b.id).toLowerCase();
-          return labelA.localeCompare(labelB);
-        }),
-    [availableProviders, connectedProviderIds]
+    () => listConnectableProviders({
+      catalog: availableProviders,
+      authProviderIds: Object.keys(authMethodsByProvider),
+      connectedIds: connectedProviderIds,
+    }),
+    [availableProviders, authMethodsByProvider, connectedProviderIds]
   );
 
   React.useEffect(() => {
