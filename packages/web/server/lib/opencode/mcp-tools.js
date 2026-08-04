@@ -4,6 +4,13 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_TOOLS = 500;
 const CLIENT_INFO = { name: 'openchamber', version: '1.0.0' };
 const PROTOCOL_VERSION = '2024-11-05';
+// Newline framing is the modern default (current MCP SDK), so it gets the larger
+// share of the overall local-probe timeout; Content-Length is a fallback for
+// older servers. Both floors keep a real, if short, chance for the fallback
+// attempt even when the caller configures a very small overall timeout.
+const NEWLINE_ATTEMPT_SHARE = 0.65;
+const NEWLINE_ATTEMPT_MIN_MS = 3_000;
+const CONTENT_LENGTH_ATTEMPT_MIN_MS = 2_000;
 
 /**
  * @typedef {{
@@ -32,6 +39,7 @@ const PROTOCOL_VERSION = '2024-11-05';
  * @typedef {{
  *   tools: McpToolInfo[],
  *   serverInfo?: { name?: string, title?: string, version?: string },
+ *   truncated?: boolean,
  * }} McpToolsListResult
  */
 
@@ -76,15 +84,21 @@ function normalizeTool(raw) {
   return tool;
 }
 
+/**
+ * @param {unknown} rawTools
+ * @returns {{ tools: McpToolInfo[], truncated: boolean }}
+ */
 function normalizeTools(rawTools) {
-  if (!Array.isArray(rawTools)) return [];
+  if (!Array.isArray(rawTools)) return { tools: [], truncated: false };
   const tools = [];
   for (const entry of rawTools) {
-    if (tools.length >= MAX_TOOLS) break;
+    if (tools.length >= MAX_TOOLS) {
+      return { tools, truncated: true };
+    }
     const tool = normalizeTool(entry);
     if (tool) tools.push(tool);
   }
-  return tools;
+  return { tools, truncated: false };
 }
 
 function createDeadline(timeoutMs) {
@@ -103,11 +117,16 @@ function createDeadline(timeoutMs) {
  * @param {string[]} command
  * @param {Record<string, string>} env
  * @param {string | undefined} cwd
- * @param {number} timeoutMs
+ * @param {{ remaining: () => number, expired: () => boolean }} deadline Shared across both
+ *   framing attempts so a stalling server cannot double the worst-case wait.
  * @param {'content-length' | 'newline'} framing
  * @returns {Promise<McpToolsListResult>}
  */
-async function listLocalMcpToolsWithFraming(command, env, cwd, timeoutMs, framing) {
+async function listLocalMcpToolsWithFraming(command, env, cwd, deadline, framing) {
+  if (deadline.expired()) {
+    throw new Error('Timed out listing local MCP tools');
+  }
+
   const [cmd, ...args] = command;
   const child = spawn(cmd, args, {
     cwd,
@@ -196,12 +215,26 @@ async function listLocalMcpToolsWithFraming(command, env, cwd, timeoutMs, framin
     stdoutBuffer = Buffer.concat([stdoutBuffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
     consumeStdout();
   });
+  // Without an error listener, a stream failure (e.g. the process exiting mid-read)
+  // throws unhandled and can crash the whole server/extension-host process.
+  child.stdout.on('error', () => {
+    // Surfaced via 'exit'/'error' on the child itself; nothing actionable here.
+  });
+  child.stdin.on('error', () => {
+    // Writing after the child has exited raises EPIPE; the pending request timers
+    // and the 'exit'/'error' handlers below already fail the in-flight requests.
+  });
 
   child.stderr.on('data', (chunk) => {
     const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
     stderrTail = `${stderrTail}${text}`.slice(-2_000);
   });
+  child.stderr.on('error', () => {
+    // Best-effort diagnostics only.
+  });
 
+  /** @type {NodeJS.Timeout | null} */
+  let killTimer = null;
   const cleanup = () => {
     if (settled) return;
     settled = true;
@@ -213,13 +246,14 @@ async function listLocalMcpToolsWithFraming(command, env, cwd, timeoutMs, framin
     } catch {
       // ignore
     }
-    setTimeout(() => {
+    killTimer = setTimeout(() => {
       try {
         if (!child.killed) child.kill('SIGKILL');
       } catch {
         // ignore
       }
-    }, 1_000).unref?.();
+    }, 1_000);
+    killTimer.unref?.();
   };
 
   child.on('error', (error) => {
@@ -227,6 +261,8 @@ async function listLocalMcpToolsWithFraming(command, env, cwd, timeoutMs, framin
     cleanup();
   });
   child.on('exit', () => {
+    // The process has already exited; the pending SIGKILL escalation is moot.
+    if (killTimer) clearTimeout(killTimer);
     cleanup();
   });
 
@@ -235,11 +271,15 @@ async function listLocalMcpToolsWithFraming(command, env, cwd, timeoutMs, framin
   const request = (method, params) => {
     const id = nextId++;
     const message = { jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) };
+    const budgetMs = deadline.remaining();
+    if (budgetMs <= 0) {
+      return Promise.reject(new Error(`Timed out waiting for MCP ${method}`));
+    }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`Timed out waiting for MCP ${method}`));
-      }, Math.max(1_000, timeoutMs));
+      }, budgetMs);
       pending.set(id, { resolve, reject, timer });
       try {
         child.stdin.write(encode(message));
@@ -252,7 +292,11 @@ async function listLocalMcpToolsWithFraming(command, env, cwd, timeoutMs, framin
   };
 
   const notify = (method) => {
-    child.stdin.write(encode({ jsonrpc: '2.0', method }));
+    try {
+      child.stdin.write(encode({ jsonrpc: '2.0', method }));
+    } catch {
+      // Best-effort notification; a write failure here surfaces via the next request.
+    }
   };
 
   try {
@@ -263,8 +307,10 @@ async function listLocalMcpToolsWithFraming(command, env, cwd, timeoutMs, framin
     });
     notify('notifications/initialized');
     const toolsResult = await request('tools/list', {});
+    const { tools, truncated } = normalizeTools(toolsResult?.tools);
     return {
-      tools: normalizeTools(toolsResult?.tools),
+      tools,
+      truncated,
       serverInfo: initResult?.serverInfo && typeof initResult.serverInfo === 'object'
         ? {
             name: asTrimmedString(initResult.serverInfo.name) || undefined,
@@ -313,12 +359,17 @@ export async function listLocalMcpTools(config, options = {}) {
 
   // Current MCP SDK stdio transport uses newline-delimited JSON; some older
   // servers still speak Content-Length frames. Fresh process per attempt.
-  const firstAttemptMs = Math.min(8_000, timeoutMs);
+  // The overall configured timeout is split between the two attempts (instead
+  // of each attempt getting its own full timeout) so a server that never
+  // responds cannot hold the request for roughly 2x the configured timeout.
+  const newlineBudgetMs = Math.max(NEWLINE_ATTEMPT_MIN_MS, Math.round(timeoutMs * NEWLINE_ATTEMPT_SHARE));
+  const contentLengthBudgetMs = Math.max(CONTENT_LENGTH_ATTEMPT_MIN_MS, timeoutMs - newlineBudgetMs);
+
   try {
-    return await listLocalMcpToolsWithFraming(command, env, cwd, timeoutMs, 'newline');
+    return await listLocalMcpToolsWithFraming(command, env, cwd, createDeadline(newlineBudgetMs), 'newline');
   } catch (newlineError) {
     try {
-      return await listLocalMcpToolsWithFraming(command, env, cwd, firstAttemptMs, 'content-length');
+      return await listLocalMcpToolsWithFraming(command, env, cwd, createDeadline(contentLengthBudgetMs), 'content-length');
     } catch (contentLengthError) {
       const detail = (newlineError instanceof Error ? newlineError.message : String(newlineError))
         || (contentLengthError instanceof Error ? contentLengthError.message : String(contentLengthError));
@@ -465,8 +516,10 @@ export async function listRemoteMcpTools(config, options = {}) {
       : 'Remote MCP tools/list failed');
   }
 
+  const { tools, truncated } = normalizeTools(toolsResponse?.result?.tools ?? toolsResponse?.tools);
   return {
-    tools: normalizeTools(toolsResponse?.result?.tools ?? toolsResponse?.tools),
+    tools,
+    truncated,
     serverInfo: initResponse?.result?.serverInfo && typeof initResponse.result.serverInfo === 'object'
       ? {
           name: asTrimmedString(initResponse.result.serverInfo.name) || undefined,

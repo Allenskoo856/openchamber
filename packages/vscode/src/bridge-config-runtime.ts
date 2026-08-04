@@ -561,6 +561,7 @@ export async function handleConfigBridgeMessage(
             name: requestedName || probeConfig.name || null,
             tools: result.tools,
             serverInfo: result.serverInfo ?? null,
+            truncated: result.truncated === true,
           },
         };
       } catch (error) {

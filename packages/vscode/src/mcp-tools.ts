@@ -4,6 +4,13 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_TOOLS = 500;
 const CLIENT_INFO = { name: 'openchamber', version: '1.0.0' };
 const PROTOCOL_VERSION = '2024-11-05';
+// Newline framing is the modern default (current MCP SDK), so it gets the larger
+// share of the overall local-probe timeout; Content-Length is a fallback for
+// older servers. Both floors keep a real, if short, chance for the fallback
+// attempt even when the caller configures a very small overall timeout.
+const NEWLINE_ATTEMPT_SHARE = 0.65;
+const NEWLINE_ATTEMPT_MIN_MS = 3_000;
+const CONTENT_LENGTH_ATTEMPT_MIN_MS = 2_000;
 
 export type McpToolsProbeConfig = {
   name?: string;
@@ -27,6 +34,7 @@ export type McpToolInfo = {
 export type McpToolsListResult = {
   tools: McpToolInfo[];
   serverInfo?: { name?: string; title?: string; version?: string };
+  truncated?: boolean;
 };
 
 const asTrimmedString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
@@ -56,18 +64,22 @@ const normalizeTool = (raw: any): McpToolInfo | null => {
   return tool;
 };
 
-const normalizeTools = (rawTools: unknown): McpToolInfo[] => {
-  if (!Array.isArray(rawTools)) return [];
+const normalizeTools = (rawTools: unknown): { tools: McpToolInfo[]; truncated: boolean } => {
+  if (!Array.isArray(rawTools)) return { tools: [], truncated: false };
   const tools: McpToolInfo[] = [];
   for (const entry of rawTools) {
-    if (tools.length >= MAX_TOOLS) break;
+    if (tools.length >= MAX_TOOLS) {
+      return { tools, truncated: true };
+    }
     const tool = normalizeTool(entry);
     if (tool) tools.push(tool);
   }
-  return tools;
+  return { tools, truncated: false };
 };
 
-const createDeadline = (timeoutMs: number) => {
+type Deadline = { remaining: () => number; expired: () => boolean };
+
+const createDeadline = (timeoutMs: number): Deadline => {
   const deadline = Date.now() + timeoutMs;
   return {
     remaining: () => Math.max(0, deadline - Date.now()),
@@ -79,9 +91,15 @@ async function listLocalMcpToolsWithFraming(
   command: string[],
   env: NodeJS.ProcessEnv,
   cwd: string | undefined,
-  timeoutMs: number,
+  // Shared across both framing attempts so a stalling server cannot double the
+  // worst-case wait for the caller.
+  deadline: Deadline,
   framing: 'content-length' | 'newline',
 ): Promise<McpToolsListResult> {
+  if (deadline.expired()) {
+    throw new Error('Timed out listing local MCP tools');
+  }
+
   const [cmd, ...args] = command;
   const child = spawn(cmd, args, {
     cwd,
@@ -167,11 +185,24 @@ async function listLocalMcpToolsWithFraming(
     stdoutBuffer = Buffer.concat([stdoutBuffer, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)]);
     consumeStdout();
   });
+  // Without an error listener, a stream failure (e.g. the process exiting mid-read)
+  // throws unhandled and can crash the whole extension host.
+  child.stdout?.on('error', () => {
+    // Surfaced via 'exit'/'error' on the child itself; nothing actionable here.
+  });
+  child.stdin?.on('error', () => {
+    // Writing after the child has exited raises EPIPE; pending request timers and
+    // the 'exit'/'error' handlers below already fail the in-flight requests.
+  });
   child.stderr?.on('data', (chunk) => {
     const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
     stderrTail = `${stderrTail}${text}`.slice(-2_000);
   });
+  child.stderr?.on('error', () => {
+    // Best-effort diagnostics only.
+  });
 
+  let killTimer: NodeJS.Timeout | null = null;
   const cleanup = () => {
     if (settled) return;
     settled = true;
@@ -181,30 +212,39 @@ async function listLocalMcpToolsWithFraming(
     } catch {
       // ignore
     }
-    setTimeout(() => {
+    killTimer = setTimeout(() => {
       try {
         if (!child.killed) child.kill('SIGKILL');
       } catch {
         // ignore
       }
-    }, 1_000).unref?.();
+    }, 1_000);
+    killTimer.unref?.();
   };
 
   child.on('error', (error) => {
     failPending(error instanceof Error ? error : new Error(String(error)));
     cleanup();
   });
-  child.on('exit', () => cleanup());
+  child.on('exit', () => {
+    // The process has already exited; the pending SIGKILL escalation is moot.
+    if (killTimer) clearTimeout(killTimer);
+    cleanup();
+  });
 
   const encode = framing === 'newline' ? encodeNewline : encodeContentLength;
   const request = (method: string, params?: unknown) => {
     const id = nextId++;
     const message = { jsonrpc: '2.0', id, method, ...(params === undefined ? {} : { params }) };
+    const budgetMs = deadline.remaining();
+    if (budgetMs <= 0) {
+      return Promise.reject(new Error(`Timed out waiting for MCP ${method}`));
+    }
     return new Promise<any>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`Timed out waiting for MCP ${method}`));
-      }, Math.max(1_000, timeoutMs));
+      }, budgetMs);
       pending.set(id, { resolve, reject, timer });
       try {
         child.stdin?.write(encode(message));
@@ -216,16 +256,26 @@ async function listLocalMcpToolsWithFraming(
     });
   };
 
+  const notify = (method: string) => {
+    try {
+      child.stdin?.write(encode({ jsonrpc: '2.0', method }));
+    } catch {
+      // Best-effort notification; a write failure here surfaces via the next request.
+    }
+  };
+
   try {
     const initResult = await request('initialize', {
       protocolVersion: PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: CLIENT_INFO,
     });
-    child.stdin?.write(encode({ jsonrpc: '2.0', method: 'notifications/initialized' }));
+    notify('notifications/initialized');
     const toolsResult = await request('tools/list', {});
+    const { tools, truncated } = normalizeTools(toolsResult?.tools);
     return {
-      tools: normalizeTools(toolsResult?.tools),
+      tools,
+      truncated,
       serverInfo: initResult?.serverInfo && typeof initResult.serverInfo === 'object'
         ? {
             name: asTrimmedString(initResult.serverInfo.name) || undefined,
@@ -265,12 +315,19 @@ export async function listLocalMcpTools(
       : {}),
   };
 
-  const firstAttemptMs = Math.min(8_000, timeoutMs);
+  // Current MCP SDK stdio transport uses newline-delimited JSON; some older
+  // servers still speak Content-Length frames. Fresh process per attempt.
+  // The overall configured timeout is split between the two attempts (instead
+  // of each attempt getting its own full timeout) so a server that never
+  // responds cannot hold the request for roughly 2x the configured timeout.
+  const newlineBudgetMs = Math.max(NEWLINE_ATTEMPT_MIN_MS, Math.round(timeoutMs * NEWLINE_ATTEMPT_SHARE));
+  const contentLengthBudgetMs = Math.max(CONTENT_LENGTH_ATTEMPT_MIN_MS, timeoutMs - newlineBudgetMs);
+
   try {
-    return await listLocalMcpToolsWithFraming(command, env, cwd, timeoutMs, 'newline');
+    return await listLocalMcpToolsWithFraming(command, env, cwd, createDeadline(newlineBudgetMs), 'newline');
   } catch (newlineError) {
     try {
-      return await listLocalMcpToolsWithFraming(command, env, cwd, firstAttemptMs, 'content-length');
+      return await listLocalMcpToolsWithFraming(command, env, cwd, createDeadline(contentLengthBudgetMs), 'content-length');
     } catch (contentLengthError) {
       const detail = (newlineError instanceof Error ? newlineError.message : String(newlineError))
         || (contentLengthError instanceof Error ? contentLengthError.message : String(contentLengthError));
@@ -399,8 +456,10 @@ export async function listRemoteMcpTools(
     throw new Error(typeof toolsResponse.error?.message === 'string' ? toolsResponse.error.message : 'Remote MCP tools/list failed');
   }
 
+  const { tools, truncated } = normalizeTools(toolsResponse?.result?.tools ?? toolsResponse?.tools);
   return {
-    tools: normalizeTools(toolsResponse?.result?.tools ?? toolsResponse?.tools),
+    tools,
+    truncated,
     serverInfo: initResponse?.result?.serverInfo && typeof initResponse.result.serverInfo === 'object'
       ? {
           name: asTrimmedString(initResponse.result.serverInfo.name) || undefined,

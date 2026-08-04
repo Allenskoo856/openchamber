@@ -650,7 +650,10 @@ const handleLocalApiRequest = async (input: RequestInfo | URL, url: URL, init: R
     }
   }
 
-  if (pathname === '/api/config/mcp/tools') {
+  // Deliberately kept outside the `/api/config/mcp/:name` namespace: any single
+  // static segment there (e.g. "tools") would collide with a legally-named MCP
+  // server and silently hijack that server's create/get/update/delete request.
+  if (pathname === '/api/config/mcp-tools/probe') {
     const body = await extractJsonBody(input, init, method);
     const directory = getRequestDirectoryHint(url, input, init);
     try {

@@ -682,6 +682,7 @@ export const McpPage: React.FC = () => {
     title?: string;
     version?: string;
   } | null>(null);
+  const [toolsTruncated, setToolsTruncated] = React.useState(false);
   const [expandedToolSchemas, setExpandedToolSchemas] = React.useState<Record<string, boolean>>({});
   const runtimeActionKey = React.useMemo(
     () => buildMcpRuntimeActionKey(selectedMcpName, currentDirectory),
@@ -1331,12 +1332,13 @@ export const McpPage: React.FC = () => {
     setToolsError(null);
     setMcpTools([]);
     setToolsServerInfo(null);
+    setToolsTruncated(false);
     setExpandedToolSchemas({});
 
     try {
       const directory = currentDirectory?.trim() || undefined;
       const query = directory ? `?directory=${encodeURIComponent(directory)}` : '';
-      const response = await runtimeFetch(`/api/config/mcp/tools${query}`, {
+      const response = await runtimeFetch(`/api/config/mcp-tools/probe${query}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1351,6 +1353,7 @@ export const McpPage: React.FC = () => {
       const tools = Array.isArray(payload?.tools) ? payload.tools : [];
       setMcpTools(tools.filter((tool: { name?: unknown }) => typeof tool?.name === 'string' && tool.name.trim()));
       setToolsServerInfo(payload?.serverInfo && typeof payload.serverInfo === 'object' ? payload.serverInfo : null);
+      setToolsTruncated(payload?.truncated === true);
     } catch (err) {
       setToolsError(err instanceof Error ? err.message : t('settings.mcp.page.toast.listToolsFailed'));
     } finally {
@@ -2029,6 +2032,11 @@ export const McpPage: React.FC = () => {
             )}
             {!isLoadingTools && !toolsError && mcpTools.length === 0 && (
               <p className="typography-meta text-muted-foreground">{t('settings.mcp.page.toolsDialog.empty')}</p>
+            )}
+            {!isLoadingTools && !toolsError && toolsTruncated && (
+              <p className="typography-meta text-[var(--status-warning)]">
+                {t('settings.mcp.page.toolsDialog.truncated', { count: mcpTools.length })}
+              </p>
             )}
             {!isLoadingTools && !toolsError && mcpTools.map((tool) => {
               const expanded = Boolean(expandedToolSchemas[tool.name]);

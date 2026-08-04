@@ -210,7 +210,10 @@ export const registerConfigEntityRoutes = (app, dependencies) => {
 
   // Probe tools exposed by an MCP server without going through OpenCode's tool registry.
   // Accepts either a saved server `name` and/or a draft config body for add/edit flows.
-  app.post('/api/config/mcp/tools', async (req, res) => {
+  // Deliberately kept outside the `/api/config/mcp/:name` namespace: any single static
+  // segment there (e.g. "tools") would collide with a legally-named MCP server and
+  // silently hijack that server's create/get/update/delete request instead.
+  app.post('/api/config/mcp-tools/probe', async (req, res) => {
     try {
       const { directory, error } = await resolveOptionalProjectDirectory(req);
       if (error) {
@@ -256,9 +259,10 @@ export const registerConfigEntityRoutes = (app, dependencies) => {
         name: requestedName || probeConfig.name || null,
         tools: result.tools,
         serverInfo: result.serverInfo ?? null,
+        truncated: result.truncated === true,
       });
     } catch (error) {
-      console.error('[API:POST /api/config/mcp/tools] Failed:', error);
+      console.error('[API:POST /api/config/mcp-tools/probe] Failed:', error);
       const message = error instanceof Error ? error.message : 'Failed to list MCP tools';
       const status = /not found/i.test(message) ? 404
         : /required|invalid|disabled|not supported|must be/i.test(message) ? 400
