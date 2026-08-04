@@ -1462,6 +1462,7 @@ export const settingsDict = {
   "settings.mcp.page.toolsDialog.descriptionWithServer": "Інструменти, які зараз оголошує {server}.",
   "settings.mcp.page.toolsDialog.loading": "Запит списку інструментів у MCP-сервера…",
   "settings.mcp.page.toolsDialog.empty": "Цей MCP-сервер не оголосив жодного інструмента.",
+  "settings.mcp.page.toolsDialog.truncated": "Показано перші {count} інструментів. Цей сервер надає більше; список скорочено.",
   "settings.mcp.page.toolsDialog.showSchema": "Схема",
   "settings.mcp.page.toolsDialog.hideSchema": "Сховати схему",
   "settings.mcp.page.auth.authorizationUrl": "URL авторизації",

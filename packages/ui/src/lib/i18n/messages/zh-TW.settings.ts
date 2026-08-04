@@ -1368,6 +1368,7 @@
   'settings.mcp.page.toolsDialog.descriptionWithServer': '{server} 目前公開的工具。',
   'settings.mcp.page.toolsDialog.loading': '正在向 MCP 伺服器請求工具清單…',
   'settings.mcp.page.toolsDialog.empty': '此 MCP 伺服器未公開任何工具。',
+  'settings.mcp.page.toolsDialog.truncated': '正在顯示前 {count} 個工具。此伺服器公開了更多工具，清單已被截斷。',
   'settings.mcp.page.toolsDialog.showSchema': '結構',
   'settings.mcp.page.toolsDialog.hideSchema': '隱藏結構',
   'settings.mcp.page.auth.authorizationUrl': '授權 URL',

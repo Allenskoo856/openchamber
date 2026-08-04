@@ -1495,6 +1495,7 @@ export const settingsDict = {
   'settings.mcp.page.toolsDialog.descriptionWithServer': '{server} が現在公開しているツールです。',
   'settings.mcp.page.toolsDialog.loading': 'MCP サーバーにツール一覧を問い合わせています…',
   'settings.mcp.page.toolsDialog.empty': 'この MCP サーバーはツールを公開していません。',
+  'settings.mcp.page.toolsDialog.truncated': '最初の{count}件のツールを表示しています。このサーバーはさらに多くのツールを公開しており、一覧は省略されています。',
   'settings.mcp.page.toolsDialog.showSchema': 'スキーマ',
   'settings.mcp.page.toolsDialog.hideSchema': 'スキーマを隠す',
   'settings.mcp.page.auth.authorizationUrl': '認可 URL',

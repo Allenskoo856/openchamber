@@ -430,6 +430,7 @@ export const settingsDict = {
   'settings.mcp.page.toolsDialog.descriptionWithServer': 'Narzędzia aktualnie udostępniane przez {server}.',
   'settings.mcp.page.toolsDialog.loading': 'Pobieranie listy narzędzi z serwera MCP…',
   'settings.mcp.page.toolsDialog.empty': 'Ten serwer MCP nie udostępnił żadnych narzędzi.',
+  'settings.mcp.page.toolsDialog.truncated': 'Wyświetlono pierwsze {count} narzędzi. Ten serwer udostępnia więcej; lista została skrócona.',
   'settings.mcp.page.toolsDialog.showSchema': 'Schemat',
   'settings.mcp.page.toolsDialog.hideSchema': 'Ukryj schemat',
   'settings.mcp.page.actions.disconnect': 'Odłącz',

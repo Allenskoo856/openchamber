@@ -1462,6 +1462,7 @@ export const settingsDict = {
   'settings.mcp.page.toolsDialog.descriptionWithServer': '{server}가 현재 노출하는 도구입니다.',
   'settings.mcp.page.toolsDialog.loading': 'MCP 서버에 도구 목록을 요청하는 중…',
   'settings.mcp.page.toolsDialog.empty': '이 MCP 서버가 노출한 도구가 없습니다.',
+  'settings.mcp.page.toolsDialog.truncated': '처음 {count}개의 도구를 표시합니다. 이 서버는 더 많은 도구를 노출하며 목록이 잘렸습니다.',
   'settings.mcp.page.toolsDialog.showSchema': '스키마',
   'settings.mcp.page.toolsDialog.hideSchema': '스키마 숨기기',
   'settings.mcp.page.auth.authorizationUrl': 'Authorization URL',

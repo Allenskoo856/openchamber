@@ -1421,6 +1421,7 @@ export const settingsDict = {
   'settings.mcp.page.toolsDialog.descriptionWithServer': 'Tools, die {server} derzeit bereitstellt.',
   'settings.mcp.page.toolsDialog.loading': 'Tool-Liste wird vom MCP-Server abgefragt…',
   'settings.mcp.page.toolsDialog.empty': 'Dieser MCP-Server hat keine Tools bereitgestellt.',
+'settings.mcp.page.toolsDialog.truncated': 'Es werden die ersten {count} Tools angezeigt. Dieser Server bietet mehr an; die Liste wurde gekürzt.',
   'settings.mcp.page.toolsDialog.showSchema': 'Schema',
   'settings.mcp.page.toolsDialog.hideSchema': 'Schema ausblenden',
   'settings.mcp.page.auth.authorizationUrl': 'Autorisierungs-URL',

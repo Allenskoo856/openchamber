@@ -1462,6 +1462,7 @@ export const settingsDict = {
   'settings.mcp.page.toolsDialog.descriptionWithServer': '{server} 当前公开的工具。',
   'settings.mcp.page.toolsDialog.loading': '正在向 MCP 服务器请求工具列表…',
   'settings.mcp.page.toolsDialog.empty': '此 MCP 服务器未公开任何工具。',
+  'settings.mcp.page.toolsDialog.truncated': '正在显示前 {count} 个工具。此服务器公开了更多工具，列表已被截断。',
   'settings.mcp.page.toolsDialog.showSchema': '架构',
   'settings.mcp.page.toolsDialog.hideSchema': '隐藏架构',
   'settings.mcp.page.auth.authorizationUrl': '授权 URL',
