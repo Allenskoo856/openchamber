@@ -52,6 +52,14 @@ describe('workspace surface state', () => {
     expect(workspaceStatusSnapshot(current, null)).toBe(current);
   });
 
+  test('keeps the last known status for workspaces missing from a partial payload', () => {
+    const current = { workspace1: 'connected' as const, workspace2: 'connecting' as const };
+    expect(workspaceStatusSnapshot(current, [{ workspaceID: 'workspace2', status: 'connected' }])).toEqual({
+      workspace1: 'connected',
+      workspace2: 'connected',
+    });
+  });
+
   test('clears workspace and export identity for a new runtime or project scope', () => {
     const reset = emptyWorkspaceScopeState();
     expect(reset).toEqual({

@@ -39,11 +39,12 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['locale', 'translation', 'ui language'],
   },
   {
-    id: 'workspaces.enable',
+    // Enablement, activation, and runtime readiness are one guided block now.
+    id: 'workspaces.setup',
     page: 'workspaces',
-    titleKey: 'settings.workspaces.enable',
-    descriptionKey: 'settings.workspaces.enableHint',
-    keywords: ['workspace', 'sandbox', 'isolation', 'secure', 'docker', 'kubernetes'],
+    titleKey: 'settings.workspaces.setup.title',
+    descriptionKey: 'settings.workspaces.setup.notReadyHint',
+    keywords: ['workspace', 'sandbox', 'isolation', 'secure', 'docker', 'kubernetes', 'enable', 'activate', 'setup', 'ready'],
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
@@ -63,11 +64,27 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
-    id: 'workspaces.compatibility',
+    id: 'workspaces.safety',
     page: 'workspaces',
-    titleKey: 'settings.workspaces.compatibility.title',
-    descriptionKey: 'settings.workspaces.compatibility.configuredInactive',
-    keywords: ['opencode', 'plugin', 'adapter', 'activate', 'support'],
+    titleKey: 'settings.workspaces.safety.title',
+    descriptionKey: 'settings.workspaces.safety.description',
+    keywords: ['isolation', 'files', 'internet', 'protection', 'sandbox'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'workspaces.retention',
+    page: 'workspaces',
+    titleKey: 'settings.workspaces.retention.preserve',
+    descriptionKey: 'settings.workspaces.retention.warning',
+    keywords: ['retention', 'preserve storage', 'delete', 'volumes'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'workspaces.advanced',
+    page: 'workspaces',
+    titleKey: 'settings.workspaces.advanced.title',
+    descriptionKey: 'settings.workspaces.advanced.description',
+    keywords: ['advanced', 'images', 'limits', 'cluster', 'ingress', 'infrastructure'],
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {

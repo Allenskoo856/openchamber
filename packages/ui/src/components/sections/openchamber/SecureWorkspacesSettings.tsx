@@ -1,19 +1,25 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useI18n } from '@/lib/i18n';
 import { opencodeClient } from '@/lib/opencode/client';
 import { reportSettingsSaveState } from '@/lib/persistence';
-import type { WorkspaceCompatibilityResult, WorkspacePrivilegedOperation, WorkspaceProviderKind, WorkspaceProviderValidationResult, WorkspaceReauthProofResult } from '@/lib/api/types';
-import { cn } from '@/lib/utils';
+import { useWorkspaceReauth } from '@/components/workspaces/WorkspaceReauth';
+import type { WorkspaceProviderKind, WorkspaceReadinessResult, WorkspaceReauthProofResult } from '@/lib/api/types';
+import { Icon } from '@/components/icon/Icon';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
-  SETTINGS_CONTROL_CLUSTER_CLASS,
   SETTINGS_FIELDS_STACK_CLASS,
+  SETTINGS_HELPER_CLASS,
+  SETTINGS_SECTION_TITLE_CLASS,
   SettingsCheckboxRow,
+  SettingsChipGroup,
+  SettingsControlGroup,
   SettingsFieldRow,
+  SettingsRadioGroup,
+  SettingsRadioOption,
   SettingsSection,
   SettingsStackedField,
   SettingsTwoColumn,
@@ -68,20 +74,12 @@ export const SecureWorkspacesSettings: React.FC = () => {
   const runtimeAPIs = useRuntimeAPIs();
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
-  const [validating, setValidating] = React.useState<WorkspaceProviderKind | null>(null);
-  const [providerStatus, setProviderStatus] = React.useState<Partial<Record<WorkspaceProviderKind, WorkspaceProviderValidationResult>>>({});
-  const [providerErrors, setProviderErrors] = React.useState<Partial<Record<WorkspaceProviderKind, string>>>({});
-  const [compatibility, setCompatibility] = React.useState<WorkspaceCompatibilityResult | null>(null);
+  const [readiness, setReadiness] = React.useState<WorkspaceReadinessResult | null>(null);
+  const [checking, setChecking] = React.useState(false);
   const [activationMessage, setActivationMessage] = React.useState('');
-  const [reauthRequest, setReauthRequest] = React.useState<{
-    operation: WorkspacePrivilegedOperation;
-    project: string;
-    payload: Record<string, unknown>;
-    resolve: (proof: WorkspaceReauthProofResult | null) => void;
-  } | null>(null);
-  const [reauthPassword, setReauthPassword] = React.useState('');
-  const [reauthBusy, setReauthBusy] = React.useState(false);
-  const [reauthError, setReauthError] = React.useState('');
+  const reauth = useWorkspaceReauth();
+  const dirtyRef = React.useRef(false);
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [settings, setSettings] = React.useState<Required<SecureWorkspaceSettingsPayload>>({
     secureWorkspacesEnabled: false,
     secureWorkspacesDefaultProvider: 'docker',
@@ -120,16 +118,22 @@ export const SecureWorkspacesSettings: React.FC = () => {
     secureWorkspacesAppleMemoryLimit: '',
     secureWorkspacesAppleCpuLimit: '',
     secureWorkspacesRetentionPreserveOnDelete: false,
-    secureWorkspacesModelAuth: 'none',
+    secureWorkspacesModelAuth: 'explicit-opencode-auth-content',
   });
 
+  // Readiness is the primary signal for this page: it answers "does this machine have
+  // what it needs" without a step-up prompt, so the state is visible on arrival.
   const refreshCompatibility = React.useCallback(async (directory?: string) => {
     const workspaces = runtimeAPIs.workspaces;
     if (!workspaces) return;
+    setChecking(true);
     try {
-      setCompatibility(await workspaces.compatibility({ directory: directory || undefined }));
+      const result = await workspaces.readiness({ directory: directory || undefined });
+      setReadiness(result);
     } catch (error) {
       setActivationMessage(error instanceof Error ? error.message : t('settings.workspaces.compatibility.failed'));
+    } finally {
+      setChecking(false);
     }
   }, [runtimeAPIs.workspaces, t]);
 
@@ -140,6 +144,9 @@ export const SecureWorkspacesSettings: React.FC = () => {
         const result = await runtimeAPIs.settings.load();
         const loaded = (result.settings ?? {}) as SecureWorkspaceSettingsPayload;
         if (cancelled) return;
+        // The disk load resolves asynchronously after mount; if the user has already
+        // started editing, merging disk values here would silently wipe their input.
+        if (dirtyRef.current) return;
         setSettings((current) => ({
           ...current,
           secureWorkspacesEnabled: loaded.secureWorkspacesEnabled === true,
@@ -160,66 +167,39 @@ export const SecureWorkspacesSettings: React.FC = () => {
     return () => { cancelled = true; };
   }, [refreshCompatibility, runtimeAPIs.settings]);
 
-  async function reauthenticate(operation: WorkspacePrivilegedOperation, project: string, payload: Record<string, unknown>) {
-    if (!runtimeAPIs.workspaces) return null;
-    return new Promise<WorkspaceReauthProofResult | null>((resolve) => {
-      setReauthPassword('');
-      setReauthError('');
-      setReauthRequest({ operation, project, payload, resolve });
-    });
+  const reauthenticate = reauth.requestProof;
+
+  function save(changes: Partial<SecureWorkspaceSettingsPayload>) {
+    dirtyRef.current = true;
+    setSettings((current) => ({ ...current, ...changes }));
   }
 
-  function cancelReauthentication() {
-    if (reauthBusy) return;
-    reauthRequest?.resolve(null);
-    setReauthRequest(null);
-    setReauthPassword('');
-    setReauthError('');
+  function editSettings(updater: (current: Required<SecureWorkspaceSettingsPayload>) => Required<SecureWorkspaceSettingsPayload>) {
+    dirtyRef.current = true;
+    setSettings(updater);
   }
 
-  async function confirmReauthentication() {
-    if (!reauthRequest || !runtimeAPIs.workspaces || reauthBusy) return;
-    setReauthBusy(true);
-    setReauthError('');
-    try {
-      const result = await runtimeAPIs.workspaces.reauthenticate({
-        operation: reauthRequest.operation,
-        project: reauthRequest.project,
-        payload: reauthRequest.payload,
-        password: reauthPassword || undefined,
-      });
-      reauthRequest.resolve(result);
-      setReauthRequest(null);
-      setReauthPassword('');
-    } catch (error) {
-      setReauthError(error instanceof Error ? error.message : t('settings.workspaces.reauth.failed'));
-    } finally {
-      setReauthBusy(false);
-    }
-  }
-
-  async function save(changes: Partial<SecureWorkspaceSettingsPayload>) {
+  async function applySettings() {
+    const changes = settings;
     const configurePayload = { activate: false, changes };
-    let reauth: WorkspaceReauthProofResult | null;
+    let proof: WorkspaceReauthProofResult | null;
     try {
-      reauth = await reauthenticate('workspace.configure', 'host', configurePayload);
+      proof = await reauthenticate('workspace.configure', 'host', configurePayload);
     } catch (error) {
       setActivationMessage(error instanceof Error ? error.message : t('settings.workspaces.reauth.failed'));
       return;
     }
-    if (!reauth) return;
-    const previous = settings;
-    setSettings((current) => ({ ...current, ...changes }));
+    if (!proof) return;
     setSaving(true);
     reportSettingsSaveState('saving');
     try {
-      const configured = await runtimeAPIs.workspaces?.updateSettings({ changes, activate: false, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
+      const configured = await runtimeAPIs.workspaces?.updateSettings({ changes, activate: false, reauthProof: proof.proof, reauthNonce: proof.nonce });
       if (!configured) throw new Error(t('settings.workspaces.compatibility.failed'));
       reportSettingsSaveState('saved');
-      if (configured.compatibility) setCompatibility(configured.compatibility);
-    } catch {
-      setSettings(previous);
+      if (configured.compatibility) setReadiness((current) => (current ? { ...current, ...configured.compatibility } : current));
+    } catch (error) {
       reportSettingsSaveState('error');
+      setActivationMessage(error instanceof Error ? error.message : t('settings.workspaces.compatibility.failed'));
     } finally {
       setSaving(false);
     }
@@ -231,10 +211,10 @@ export const SecureWorkspacesSettings: React.FC = () => {
     setActivationMessage('');
     try {
       const payload = { activate: true, changes: {} };
-      const reauth = await reauthenticate('workspace.configure', 'host', payload);
-      if (!reauth) return;
-      const result = await runtimeAPIs.workspaces.updateSettings({ changes: {}, activate: true, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
-      if (result.compatibility) setCompatibility(result.compatibility);
+      const proof = await reauthenticate('workspace.configure', 'host', payload);
+      if (!proof) return;
+      const result = await runtimeAPIs.workspaces.updateSettings({ changes: {}, activate: true, reauthProof: proof.proof, reauthNonce: proof.nonce });
+      if (result.compatibility) setReadiness((current) => (current ? { ...current, ...result.compatibility } : current));
       setActivationMessage(result.manualRestartRequired
         ? t('settings.workspaces.compatibility.manualRestart')
         : result.active || result.compatibility?.active
@@ -247,186 +227,313 @@ export const SecureWorkspacesSettings: React.FC = () => {
     }
   }
 
-  async function validate(provider: WorkspaceProviderKind) {
-    if (!runtimeAPIs.workspaces) return;
-    setValidating(provider);
-    setProviderErrors((current) => ({ ...current, [provider]: undefined }));
-    try {
-      const reauth = await reauthenticate('workspace.validate', 'host', { provider });
-      if (!reauth) return;
-      const result = await runtimeAPIs.workspaces.validateProvider({
-        provider,
-        context: provider === 'kubernetes' ? settings.secureWorkspacesKubernetesContext : undefined,
-        namespace: provider === 'kubernetes' ? settings.secureWorkspacesKubernetesNamespace : undefined,
-        egressHttpProxy: settings.secureWorkspacesEgressProxyUrl,
-        egressProxyCIDR: settings.secureWorkspacesEgressProxyCIDR,
-        egressDnsCIDRs: settings.secureWorkspacesEgressDnsCIDRs,
-        egressNoProxy: settings.secureWorkspacesEgressNoProxy,
-        reauthProof: reauth.proof,
-        reauthNonce: reauth.nonce,
-      });
-      setProviderStatus((current) => ({ ...current, [provider]: result }));
-    } catch (error) {
-      setProviderErrors((current) => ({ ...current, [provider]: error instanceof Error ? error.message : t('settings.workspaces.status.unavailable') }));
-    } finally {
-      setValidating(null);
-    }
-  }
 
   if (loading) return null;
 
-  const compatibilityText = compatibility?.active
-    ? t('settings.workspaces.compatibility.active')
-    : compatibility?.configured
-      ? compatibility.supported ? t('settings.workspaces.compatibility.configuredInactive') : t('settings.workspaces.compatibility.unsupported')
-      : t('settings.workspaces.compatibility.notConfigured');
+  const providerReadiness = new Map((readiness?.providers ?? []).map((entry) => [entry.provider, entry]));
+  const availableProviders = (['docker', 'apple-container', 'kubernetes'] as const)
+    .filter((provider) => !readiness?.platformProviders || readiness.platformProviders.includes(provider));
+  const selectedProvider = settings.secureWorkspacesDefaultProvider;
+  const runtimeReady = providerReadiness.get(selectedProvider)?.available === true;
+  const activated = readiness?.active === true;
+  const ready = runtimeReady && settings.secureWorkspacesEnabled && activated;
+  const runtimeRemediation = providerRemediation(selectedProvider, providerReadiness.get(selectedProvider)?.code);
+  const providerLabel = (provider: WorkspaceProviderKind) => provider === 'apple-container'
+    ? t('settings.workspaces.provider.appleContainer')
+    : provider === 'kubernetes' ? t('settings.workspaces.provider.kubernetes') : t('settings.workspaces.provider.docker');
+  const doneMark = <span className={SETTINGS_HELPER_CLASS} style={{ color: 'var(--status-success)' }}>{t('settings.workspaces.setup.done')}</span>;
 
   return (
     <>
-    <SettingsPageLayout title={t('settings.page.workspaces.title')} description={t('settings.workspaces.description')} showSaveStatus>
-      <SettingsSection title={t('settings.workspaces.compatibility.title')} divider={false} settingsItem="workspaces.compatibility">
+    <SettingsPageLayout
+      title={t('settings.page.workspaces.title')}
+      description={t('settings.workspaces.description')}
+      headerEnd={<Button size="sm" onClick={() => void applySettings()} disabled={saving}>{t('settings.common.actions.saveChanges')}</Button>}
+      showSaveStatus
+    >
+      <SettingsSection
+        title={t('settings.workspaces.setup.title')}
+        description={ready ? t('settings.workspaces.setup.readyHint') : t('settings.workspaces.setup.notReadyHint')}
+        divider={false}
+        settingsItem="workspaces.setup"
+      >
         <div className={SETTINGS_FIELDS_STACK_CLASS}>
-          <SettingsCheckboxRow
-            checked={settings.secureWorkspacesEnabled}
-            onChange={(checked) => void save({ secureWorkspacesEnabled: checked })}
-            label={t('settings.workspaces.enable')}
-            info={t('settings.workspaces.enableHint')}
-            ariaLabel={t('settings.workspaces.enable')}
-            settingsItem="workspaces.enable"
-          />
-          <SettingsFieldRow label={compatibilityText} description={compatibility?.error || activationMessage || undefined}>
-            <Button size="sm" variant="outline" onClick={() => void refreshCompatibility(opencodeClient.getDirectory() ?? undefined)} disabled={saving}>{t('settings.workspaces.compatibility.recheck')}</Button>
-            <Button size="sm" onClick={() => void activateWorkspaces()} disabled={saving || !settings.secureWorkspacesEnabled}>{t('settings.workspaces.compatibility.activate')}</Button>
+          <SettingsFieldRow
+            label={t('settings.workspaces.setup.stepRuntime')}
+            description={runtimeReady ? undefined : (runtimeRemediation ? t(runtimeRemediation) : t('settings.workspaces.status.unavailable'))}
+          >
+            {runtimeReady ? doneMark : (
+              <Button size="sm" variant="outline" onClick={() => void refreshCompatibility(opencodeClient.getDirectory() ?? undefined)} disabled={checking}>
+                {checking ? t('settings.workspaces.setup.checking') : t('settings.workspaces.setup.recheck')}
+              </Button>
+            )}
+          </SettingsFieldRow>
+          <SettingsFieldRow
+            label={t('settings.workspaces.setup.stepEnable')}
+            description={settings.secureWorkspacesEnabled ? undefined : t('settings.workspaces.setup.stepEnableHint')}
+          >
+            {settings.secureWorkspacesEnabled ? doneMark : (
+              <Button size="sm" onClick={() => void save({ secureWorkspacesEnabled: true })}>{t('settings.workspaces.setup.turnOn')}</Button>
+            )}
+          </SettingsFieldRow>
+          <SettingsFieldRow
+            label={t('settings.workspaces.setup.stepActivate')}
+            description={activated ? undefined : (activationMessage || t('settings.workspaces.setup.stepActivateHint'))}
+          >
+            {activated ? doneMark : (
+              <Button size="sm" onClick={() => void activateWorkspaces()} disabled={saving || !settings.secureWorkspacesEnabled}>{t('settings.workspaces.compatibility.activate')}</Button>
+            )}
           </SettingsFieldRow>
         </div>
       </SettingsSection>
 
-      <SettingsSection title={t('settings.workspaces.title')} settingsItem="workspaces.providers">
+      <SettingsSection
+        title={t('settings.workspaces.where.title')}
+        info={t('settings.workspaces.where.description')}
+        settingsItem="workspaces.providers"
+      >
+        <SettingsRadioGroup aria-label={t('settings.workspaces.where.title')}>
+          {availableProviders.map((provider) => {
+            const entry = providerReadiness.get(provider);
+            const remediation = entry && !entry.available ? providerRemediation(provider, entry.code) : null;
+            return (
+              <SettingsRadioOption
+                key={provider}
+                selected={selectedProvider === provider}
+                onSelect={() => void save({ secureWorkspacesDefaultProvider: provider })}
+                label={providerLabel(provider)}
+                ariaLabel={providerLabel(provider)}
+                description={entry === undefined
+                  ? undefined
+                  : entry.available ? t('settings.workspaces.status.available') : remediation ? t(remediation) : t('settings.workspaces.status.unavailable')}
+              />
+            );
+          })}
+        </SettingsRadioGroup>
+      </SettingsSection>
+
+      <SettingsSection
+        title={t('settings.workspaces.safety.title')}
+        info={t('settings.workspaces.safety.description')}
+        settingsItem="workspaces.safety"
+      >
         <div className={SETTINGS_FIELDS_STACK_CLASS}>
-          <SettingsStackedField label={t('settings.workspaces.image')} settingsItem="workspaces.image">
-            <Input className="h-8" value={settings.secureWorkspacesImage} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesImage: event.target.value }))} onBlur={() => void save({ secureWorkspacesImage: settings.secureWorkspacesImage.trim() })} />
-          </SettingsStackedField>
-          <SettingsStackedField label={t('settings.workspaces.allowedImages')} info={t('settings.workspaces.allowedImagesHint')}>
-            <Input className="h-8" value={settings.secureWorkspacesAllowedImages} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesAllowedImages: event.target.value }))} onBlur={() => void save({ secureWorkspacesAllowedImages: settings.secureWorkspacesAllowedImages.trim() })} />
-          </SettingsStackedField>
-          {(['docker', 'apple-container', 'kubernetes'] as const).map((provider) => (
-            <ProviderRow
-              key={provider}
-              provider={provider}
-              selected={settings.secureWorkspacesDefaultProvider === provider}
-              status={providerStatus[provider]}
-              error={providerErrors[provider]}
-              validating={validating === provider}
-              onSelect={() => void save({ secureWorkspacesDefaultProvider: provider })}
-              onValidate={() => void validate(provider)}
-            />
-          ))}
-          {settings.secureWorkspacesDefaultProvider === 'kubernetes' && (
-            <div className={SETTINGS_FIELDS_STACK_CLASS}>
-            <SettingsTwoColumn>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.context')} settingsItem="workspaces.kubernetes">
-                <Input className="h-8" value={settings.secureWorkspacesKubernetesContext} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesContext: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesContext: settings.secureWorkspacesKubernetesContext.trim() })} />
-              </SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.namespace')}>
-                <Input className="h-8" value={settings.secureWorkspacesKubernetesNamespace} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesNamespace: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesNamespace: settings.secureWorkspacesKubernetesNamespace.trim() || DEFAULT_NAMESPACE })} />
-              </SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.storage')}><Input className="h-8" value={settings.secureWorkspacesKubernetesStorage} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesStorage: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesStorage: settings.secureWorkspacesKubernetesStorage.trim() })} /></SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.cpuRequest')}><Input className="h-8" value={settings.secureWorkspacesKubernetesCpuRequest} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesCpuRequest: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesCpuRequest: settings.secureWorkspacesKubernetesCpuRequest.trim() })} /></SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.memoryRequest')}><Input className="h-8" value={settings.secureWorkspacesKubernetesMemoryRequest} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesMemoryRequest: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesMemoryRequest: settings.secureWorkspacesKubernetesMemoryRequest.trim() })} /></SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.cpuLimit')}><Input className="h-8" value={settings.secureWorkspacesKubernetesCpuLimit} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesCpuLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesCpuLimit: settings.secureWorkspacesKubernetesCpuLimit.trim() })} /></SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.memoryLimit')}><Input className="h-8" value={settings.secureWorkspacesKubernetesMemoryLimit} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesMemoryLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesMemoryLimit: settings.secureWorkspacesKubernetesMemoryLimit.trim() })} /></SettingsStackedField>
-            </SettingsTwoColumn>
-            <SettingsFieldRow label={t('settings.workspaces.kubernetes.connectivity')}><Button size="sm" variant={settings.secureWorkspacesKubernetesConnectivity === 'port-forward' ? 'chip' : 'ghost'} onClick={() => void save({ secureWorkspacesKubernetesConnectivity: 'port-forward' })}>{t('settings.workspaces.kubernetes.portForward')}</Button><Button size="sm" variant={settings.secureWorkspacesKubernetesConnectivity === 'ingress' ? 'chip' : 'ghost'} onClick={() => void save({ secureWorkspacesKubernetesConnectivity: 'ingress' })}>{t('settings.workspaces.kubernetes.ingress')}</Button></SettingsFieldRow>
-            {settings.secureWorkspacesKubernetesConnectivity === 'ingress' && <SettingsTwoColumn>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.ingressClass')}><Input className="h-8" value={settings.secureWorkspacesKubernetesIngressClassName} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressClassName: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressClassName: settings.secureWorkspacesKubernetesIngressClassName.trim() })} /></SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.hostTemplate')}><Input className="h-8" value={settings.secureWorkspacesKubernetesIngressHostTemplate} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressHostTemplate: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressHostTemplate: settings.secureWorkspacesKubernetesIngressHostTemplate.trim() })} /></SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.pathTemplate')}><Input className="h-8" value={settings.secureWorkspacesKubernetesIngressPathTemplate} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressPathTemplate: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressPathTemplate: settings.secureWorkspacesKubernetesIngressPathTemplate.trim() })} /></SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.namespaceSelector')}><Input className="h-8 font-mono" value={settings.secureWorkspacesKubernetesIngressNamespaceSelector} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressNamespaceSelector: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressNamespaceSelector: settings.secureWorkspacesKubernetesIngressNamespaceSelector.trim() })} /></SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.podSelector')}><Input className="h-8 font-mono" value={settings.secureWorkspacesKubernetesIngressPodSelector} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressPodSelector: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressPodSelector: settings.secureWorkspacesKubernetesIngressPodSelector.trim() })} /></SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.annotations')}><Input className="h-8 font-mono" value={settings.secureWorkspacesKubernetesIngressAnnotations} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressAnnotations: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressAnnotations: settings.secureWorkspacesKubernetesIngressAnnotations.trim() })} /></SettingsStackedField>
-              <SettingsStackedField label={t('settings.workspaces.kubernetes.tlsMode')}><div className="flex flex-wrap gap-1.5"><Button size="sm" variant={settings.secureWorkspacesKubernetesIngressTlsMode === 'existing-secret' ? 'chip' : 'ghost'} onClick={() => void save({ secureWorkspacesKubernetesIngressTlsMode: 'existing-secret' })}>{t('settings.workspaces.kubernetes.existingSecret')}</Button><Button size="sm" variant={settings.secureWorkspacesKubernetesIngressTlsMode === 'cert-manager' ? 'chip' : 'ghost'} onClick={() => void save({ secureWorkspacesKubernetesIngressTlsMode: 'cert-manager' })}>{t('settings.workspaces.kubernetes.certManager')}</Button></div></SettingsStackedField>
-              {settings.secureWorkspacesKubernetesIngressTlsMode === 'existing-secret' ? <SettingsStackedField label={t('settings.workspaces.kubernetes.tlsSecret')}><Input className="h-8" value={settings.secureWorkspacesKubernetesIngressTlsSecretName} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressTlsSecretName: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressTlsSecretName: settings.secureWorkspacesKubernetesIngressTlsSecretName.trim() })} /></SettingsStackedField> : <SettingsStackedField label={t('settings.workspaces.kubernetes.clusterIssuer')}><Input className="h-8" value={settings.secureWorkspacesKubernetesIngressClusterIssuer} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressClusterIssuer: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressClusterIssuer: settings.secureWorkspacesKubernetesIngressClusterIssuer.trim() })} /></SettingsStackedField>}
-            </SettingsTwoColumn>}
-            </div>
+          <SettingsFieldRow label={t('settings.workspaces.safety.filesLabel')} info={t('settings.workspaces.safety.filesText')}>
+            <span className={SETTINGS_HELPER_CLASS}>{t('settings.workspaces.safety.filesValue')}</span>
+          </SettingsFieldRow>
+          <SettingsFieldRow
+            label={t('settings.workspaces.safety.internetLabel')}
+            info={settings.secureWorkspacesEgressMode === 'managed' ? t('settings.workspaces.safety.internetRestricted') : t('settings.workspaces.safety.internetProxy')}
+          >
+            <span className={SETTINGS_HELPER_CLASS}>
+              {settings.secureWorkspacesEgressMode === 'managed' ? t('settings.workspaces.safety.internetValueRestricted') : t('settings.workspaces.safety.internetValueProxy')}
+            </span>
+          </SettingsFieldRow>
+          <SettingsCheckboxRow
+            checked={settings.secureWorkspacesRetentionPreserveOnDelete}
+            onChange={(checked) => void save({ secureWorkspacesRetentionPreserveOnDelete: checked })}
+            label={t('settings.workspaces.retention.preserve')}
+            ariaLabel={t('settings.workspaces.retention.preserve')}
+            description={settings.secureWorkspacesRetentionPreserveOnDelete ? t('settings.workspaces.retention.warning') : undefined}
+            settingsItem="workspaces.retention"
+          />
+        </div>
+      </SettingsSection>
+
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <SettingsSection
+          // The heading itself is the disclosure: the chevron sits with the words it
+          // acts on, and the whole title is the hit target instead of a distant icon.
+          title={(
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="group flex items-center gap-1.5 text-left"
+                aria-expanded={advancedOpen}
+                aria-label={advancedOpen ? t('settings.workspaces.advanced.hide') : t('settings.workspaces.advanced.reveal')}
+              >
+                <span className={SETTINGS_SECTION_TITLE_CLASS}>{t('settings.workspaces.advanced.title')}</span>
+                <Icon
+                  name={advancedOpen ? 'arrow-up-s' : 'arrow-down-s'}
+                  className="size-4 text-muted-foreground transition-colors group-hover:text-foreground"
+                />
+              </button>
+            </CollapsibleTrigger>
           )}
-          {settings.secureWorkspacesDefaultProvider === 'docker' && <SettingsTwoColumn><SettingsStackedField label={t('settings.workspaces.docker.memory')}><Input className="h-8" value={settings.secureWorkspacesDockerMemoryLimit} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesDockerMemoryLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesDockerMemoryLimit: settings.secureWorkspacesDockerMemoryLimit.trim() })} /></SettingsStackedField><SettingsStackedField label={t('settings.workspaces.docker.cpu')}><Input className="h-8" value={settings.secureWorkspacesDockerCpuLimit} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesDockerCpuLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesDockerCpuLimit: settings.secureWorkspacesDockerCpuLimit.trim() })} /></SettingsStackedField><SettingsStackedField label={t('settings.workspaces.docker.pids')}><Input className="h-8" type="number" min={1} value={settings.secureWorkspacesDockerPidsLimit} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesDockerPidsLimit: Number(event.target.value) }))} onBlur={() => void save({ secureWorkspacesDockerPidsLimit: settings.secureWorkspacesDockerPidsLimit })} /></SettingsStackedField></SettingsTwoColumn>}
-          {settings.secureWorkspacesDefaultProvider === 'apple-container' && <SettingsTwoColumn><SettingsStackedField label={t('settings.workspaces.apple.memory')}><Input className="h-8" value={settings.secureWorkspacesAppleMemoryLimit} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesAppleMemoryLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesAppleMemoryLimit: settings.secureWorkspacesAppleMemoryLimit.trim() })} /></SettingsStackedField><SettingsStackedField label={t('settings.workspaces.apple.cpu')}><Input className="h-8" value={settings.secureWorkspacesAppleCpuLimit} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesAppleCpuLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesAppleCpuLimit: settings.secureWorkspacesAppleCpuLimit.trim() })} /></SettingsStackedField></SettingsTwoColumn>}
-        </div>
-      </SettingsSection>
+          info={t('settings.workspaces.advanced.description')}
+          settingsItem="workspaces.advanced"
+          contentClassName={advancedOpen ? undefined : 'hidden'}
+        >
+          <CollapsibleContent className="space-y-6">
+            <SettingsControlGroup title={t('settings.workspaces.advanced.credentialsGroup')} info={t('settings.workspaces.safety.credentialsHint')} settingsItem="workspaces.policy">
+              <SettingsRadioGroup aria-label={t('settings.workspaces.advanced.credentialsGroup')}>
+                <SettingsRadioOption
+                  selected={settings.secureWorkspacesModelAuth === 'explicit-opencode-auth-content'}
+                  onSelect={() => void save({ secureWorkspacesModelAuth: 'explicit-opencode-auth-content' })}
+                  label={t('settings.workspaces.credentials.explicit')}
+                  ariaLabel={t('settings.workspaces.credentials.explicit')}
+                  description={t('settings.workspaces.credentials.explicitHint')}
+                />
+                <SettingsRadioOption
+                  selected={settings.secureWorkspacesModelAuth === 'none'}
+                  onSelect={() => void save({ secureWorkspacesModelAuth: 'none' })}
+                  label={t('settings.workspaces.credentials.none')}
+                  ariaLabel={t('settings.workspaces.credentials.none')}
+                  description={t('settings.workspaces.credentials.noneHint')}
+                />
+              </SettingsRadioGroup>
+            </SettingsControlGroup>
 
-      <SettingsSection title={t('settings.workspaces.egress.title')} info={t('settings.workspaces.egress.description')} settingsItem="workspaces.egress">
-        <div className={SETTINGS_FIELDS_STACK_CLASS}>
-        <SettingsFieldRow label={t('settings.workspaces.egress.mode')}><Button size="sm" variant={settings.secureWorkspacesEgressMode === 'managed' ? 'chip' : 'ghost'} onClick={() => void save({ secureWorkspacesEgressMode: 'managed' })}>{t('settings.workspaces.egress.managed')}</Button><Button size="sm" variant={settings.secureWorkspacesEgressMode === 'external' ? 'chip' : 'ghost'} onClick={() => void save({ secureWorkspacesEgressMode: 'external' })}>{t('settings.workspaces.egress.external')}</Button></SettingsFieldRow>
-        <SettingsTwoColumn>
-          {settings.secureWorkspacesEgressMode === 'managed' ? <>
-          <SettingsStackedField label={t('settings.workspaces.egress.gatewayImage')}><Input className="h-8" value={settings.secureWorkspacesGatewayImage} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesGatewayImage: event.target.value }))} onBlur={() => void save({ secureWorkspacesGatewayImage: settings.secureWorkspacesGatewayImage.trim() })} /></SettingsStackedField>
-          <SettingsStackedField label={t('settings.workspaces.egress.preset')}><div className="flex flex-wrap gap-1.5"><Button size="sm" variant={settings.secureWorkspacesEgressPreset === 'restricted' ? 'chip' : 'ghost'} onClick={() => void save({ secureWorkspacesEgressPreset: 'restricted' })}>{t('settings.workspaces.egress.restricted')}</Button><Button size="sm" variant={settings.secureWorkspacesEgressPreset === 'custom' ? 'chip' : 'ghost'} onClick={() => void save({ secureWorkspacesEgressPreset: 'custom' })}>{t('settings.workspaces.egress.custom')}</Button></div></SettingsStackedField>
-          <SettingsStackedField label={t('settings.workspaces.egress.allowedDomains')}><Input className="h-8" value={settings.secureWorkspacesEgressAllowedDomains} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesEgressAllowedDomains: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressAllowedDomains: settings.secureWorkspacesEgressAllowedDomains.trim() })} /></SettingsStackedField>
-          <SettingsStackedField label={t('settings.workspaces.egress.allowedCIDRs')}><Input className="h-8" value={settings.secureWorkspacesEgressAllowedCIDRs} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesEgressAllowedCIDRs: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressAllowedCIDRs: settings.secureWorkspacesEgressAllowedCIDRs.trim() })} /></SettingsStackedField>
-          <SettingsStackedField label={t('settings.workspaces.egress.allowedPorts')}><Input className="h-8" value={settings.secureWorkspacesEgressAllowedPorts} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesEgressAllowedPorts: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressAllowedPorts: settings.secureWorkspacesEgressAllowedPorts.trim() })} /></SettingsStackedField>
-          </> : <>
-          <SettingsStackedField label={t('settings.workspaces.egress.httpProxy')}><Input className="h-8" value={settings.secureWorkspacesEgressProxyUrl} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesEgressProxyUrl: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressProxyUrl: settings.secureWorkspacesEgressProxyUrl.trim() })} /></SettingsStackedField>
-          <SettingsStackedField label={t('settings.workspaces.egress.proxyCIDR')}><Input className="h-8" value={settings.secureWorkspacesEgressProxyCIDR} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesEgressProxyCIDR: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressProxyCIDR: settings.secureWorkspacesEgressProxyCIDR.trim() })} /></SettingsStackedField>
-          </>}
-          <SettingsStackedField label={t('settings.workspaces.egress.noProxy')}><Input className="h-8" value={settings.secureWorkspacesEgressNoProxy} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesEgressNoProxy: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressNoProxy: settings.secureWorkspacesEgressNoProxy.trim() || DEFAULT_NO_PROXY })} /></SettingsStackedField>
-          <SettingsStackedField label={t('settings.workspaces.egress.dnsCIDRs')}><Input className="h-8" value={settings.secureWorkspacesEgressDnsCIDRs} onChange={(event) => setSettings((current) => ({ ...current, secureWorkspacesEgressDnsCIDRs: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressDnsCIDRs: settings.secureWorkspacesEgressDnsCIDRs.trim() })} /></SettingsStackedField>
-        </SettingsTwoColumn>
-        </div>
-      </SettingsSection>
+            <SettingsControlGroup title={t('settings.workspaces.advanced.imagesGroup')} info={t('settings.workspaces.advanced.imagesHint')}>
+              <SettingsTwoColumn>
+                <SettingsStackedField label={t('settings.workspaces.image')} settingsItem="workspaces.image">
+                  <Input className="h-8" value={settings.secureWorkspacesImage} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesImage: event.target.value }))} onBlur={() => void save({ secureWorkspacesImage: settings.secureWorkspacesImage.trim() })} />
+                </SettingsStackedField>
+                <SettingsStackedField label={t('settings.workspaces.allowedImages')} info={t('settings.workspaces.allowedImagesHint')}>
+                  <Input className="h-8" value={settings.secureWorkspacesAllowedImages} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesAllowedImages: event.target.value }))} onBlur={() => void save({ secureWorkspacesAllowedImages: settings.secureWorkspacesAllowedImages.trim() })} />
+                </SettingsStackedField>
+              </SettingsTwoColumn>
+            </SettingsControlGroup>
 
-      <SettingsSection title={t('settings.workspaces.policy.title')} settingsItem="workspaces.policy">
-        <div className={SETTINGS_FIELDS_STACK_CLASS}>
-          <SettingsFieldRow label={t('settings.workspaces.credentials.modelAuth')} info={t('settings.workspaces.credentials.modelAuthHint')}><Button size="sm" variant={settings.secureWorkspacesModelAuth === 'none' ? 'chip' : 'ghost'} onClick={() => void save({ secureWorkspacesModelAuth: 'none' })}>{t('settings.workspaces.credentials.none')}</Button><Button size="sm" variant={settings.secureWorkspacesModelAuth === 'explicit-opencode-auth-content' ? 'chip' : 'ghost'} onClick={() => void save({ secureWorkspacesModelAuth: 'explicit-opencode-auth-content' })}>{t('settings.workspaces.credentials.explicit')}</Button></SettingsFieldRow>
-          <SettingsCheckboxRow checked={settings.secureWorkspacesRetentionPreserveOnDelete} onChange={(checked) => void save({ secureWorkspacesRetentionPreserveOnDelete: checked })} label={t('settings.workspaces.retention.preserve')} ariaLabel={t('settings.workspaces.retention.preserve')} description={settings.secureWorkspacesRetentionPreserveOnDelete ? t('settings.workspaces.retention.warning') : undefined} />
-        </div>
-      </SettingsSection>
+            <SettingsControlGroup title={t('settings.workspaces.advanced.limitsGroup')} info={t('settings.workspaces.advanced.limitsHint')}>
+              <SettingsTwoColumn>
+                {selectedProvider === 'docker' ? (
+                  <>
+                    <SettingsStackedField label={t('settings.workspaces.docker.memory')}><Input className="h-8" value={settings.secureWorkspacesDockerMemoryLimit} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesDockerMemoryLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesDockerMemoryLimit: settings.secureWorkspacesDockerMemoryLimit.trim() })} /></SettingsStackedField>
+                    <SettingsStackedField label={t('settings.workspaces.docker.cpu')}><Input className="h-8" value={settings.secureWorkspacesDockerCpuLimit} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesDockerCpuLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesDockerCpuLimit: settings.secureWorkspacesDockerCpuLimit.trim() })} /></SettingsStackedField>
+                    <SettingsStackedField label={t('settings.workspaces.docker.pids')}><Input className="h-8" type="number" min={1} value={settings.secureWorkspacesDockerPidsLimit} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesDockerPidsLimit: Number(event.target.value) }))} onBlur={() => void save({ secureWorkspacesDockerPidsLimit: settings.secureWorkspacesDockerPidsLimit })} /></SettingsStackedField>
+                  </>
+                ) : null}
+                {selectedProvider === 'apple-container' ? (
+                  <>
+                    <SettingsStackedField label={t('settings.workspaces.apple.memory')}><Input className="h-8" value={settings.secureWorkspacesAppleMemoryLimit} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesAppleMemoryLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesAppleMemoryLimit: settings.secureWorkspacesAppleMemoryLimit.trim() })} /></SettingsStackedField>
+                    <SettingsStackedField label={t('settings.workspaces.apple.cpu')}><Input className="h-8" value={settings.secureWorkspacesAppleCpuLimit} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesAppleCpuLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesAppleCpuLimit: settings.secureWorkspacesAppleCpuLimit.trim() })} /></SettingsStackedField>
+                  </>
+                ) : null}
+                {selectedProvider === 'kubernetes' ? (
+                  <>
+                    <SettingsStackedField label={t('settings.workspaces.kubernetes.storage')}><Input className="h-8" value={settings.secureWorkspacesKubernetesStorage} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesStorage: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesStorage: settings.secureWorkspacesKubernetesStorage.trim() })} /></SettingsStackedField>
+                    <SettingsStackedField label={t('settings.workspaces.kubernetes.cpuRequest')}><Input className="h-8" value={settings.secureWorkspacesKubernetesCpuRequest} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesCpuRequest: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesCpuRequest: settings.secureWorkspacesKubernetesCpuRequest.trim() })} /></SettingsStackedField>
+                    <SettingsStackedField label={t('settings.workspaces.kubernetes.memoryRequest')}><Input className="h-8" value={settings.secureWorkspacesKubernetesMemoryRequest} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesMemoryRequest: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesMemoryRequest: settings.secureWorkspacesKubernetesMemoryRequest.trim() })} /></SettingsStackedField>
+                    <SettingsStackedField label={t('settings.workspaces.kubernetes.cpuLimit')}><Input className="h-8" value={settings.secureWorkspacesKubernetesCpuLimit} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesCpuLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesCpuLimit: settings.secureWorkspacesKubernetesCpuLimit.trim() })} /></SettingsStackedField>
+                    <SettingsStackedField label={t('settings.workspaces.kubernetes.memoryLimit')}><Input className="h-8" value={settings.secureWorkspacesKubernetesMemoryLimit} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesMemoryLimit: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesMemoryLimit: settings.secureWorkspacesKubernetesMemoryLimit.trim() })} /></SettingsStackedField>
+                  </>
+                ) : null}
+              </SettingsTwoColumn>
+            </SettingsControlGroup>
+
+            <SettingsControlGroup title={t('settings.workspaces.advanced.networkGroup')} info={t('settings.workspaces.advanced.egressHint')} settingsItem="workspaces.egress">
+              <div className={SETTINGS_FIELDS_STACK_CLASS}>
+                <SettingsChipGroup
+                  aria-label={t('settings.workspaces.egress.mode')}
+                  value={settings.secureWorkspacesEgressMode}
+                  onChange={(value) => void save({ secureWorkspacesEgressMode: value })}
+                  options={[
+                    { value: 'managed' as const, label: t('settings.workspaces.egress.managed') },
+                    { value: 'external' as const, label: t('settings.workspaces.egress.external') },
+                  ]}
+                />
+                <SettingsTwoColumn>
+                  {settings.secureWorkspacesEgressMode === 'managed' ? (
+                    <>
+                      <SettingsStackedField label={t('settings.workspaces.egress.allowedDomains')} info={t('settings.workspaces.advanced.domainsHint')}><Input className="h-8" value={settings.secureWorkspacesEgressAllowedDomains} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesEgressAllowedDomains: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressAllowedDomains: settings.secureWorkspacesEgressAllowedDomains.trim() })} /></SettingsStackedField>
+                      <SettingsStackedField label={t('settings.workspaces.egress.allowedCIDRs')}><Input className="h-8" value={settings.secureWorkspacesEgressAllowedCIDRs} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesEgressAllowedCIDRs: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressAllowedCIDRs: settings.secureWorkspacesEgressAllowedCIDRs.trim() })} /></SettingsStackedField>
+                      <SettingsStackedField label={t('settings.workspaces.egress.allowedPorts')}><Input className="h-8" value={settings.secureWorkspacesEgressAllowedPorts} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesEgressAllowedPorts: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressAllowedPorts: settings.secureWorkspacesEgressAllowedPorts.trim() })} /></SettingsStackedField>
+                      <SettingsStackedField label={t('settings.workspaces.egress.gatewayImage')}><Input className="h-8" value={settings.secureWorkspacesGatewayImage} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesGatewayImage: event.target.value }))} onBlur={() => void save({ secureWorkspacesGatewayImage: settings.secureWorkspacesGatewayImage.trim() })} /></SettingsStackedField>
+                    </>
+                  ) : (
+                    <>
+                      <SettingsStackedField label={t('settings.workspaces.egress.httpProxy')}><Input className="h-8" value={settings.secureWorkspacesEgressProxyUrl} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesEgressProxyUrl: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressProxyUrl: settings.secureWorkspacesEgressProxyUrl.trim() })} /></SettingsStackedField>
+                      <SettingsStackedField label={t('settings.workspaces.egress.proxyCIDR')}><Input className="h-8" value={settings.secureWorkspacesEgressProxyCIDR} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesEgressProxyCIDR: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressProxyCIDR: settings.secureWorkspacesEgressProxyCIDR.trim() })} /></SettingsStackedField>
+                    </>
+                  )}
+                  <SettingsStackedField label={t('settings.workspaces.egress.noProxy')}><Input className="h-8" value={settings.secureWorkspacesEgressNoProxy} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesEgressNoProxy: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressNoProxy: settings.secureWorkspacesEgressNoProxy.trim() || DEFAULT_NO_PROXY })} /></SettingsStackedField>
+                  <SettingsStackedField label={t('settings.workspaces.egress.dnsCIDRs')}><Input className="h-8" value={settings.secureWorkspacesEgressDnsCIDRs} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesEgressDnsCIDRs: event.target.value }))} onBlur={() => void save({ secureWorkspacesEgressDnsCIDRs: settings.secureWorkspacesEgressDnsCIDRs.trim() })} /></SettingsStackedField>
+                </SettingsTwoColumn>
+              </div>
+            </SettingsControlGroup>
+
+            {selectedProvider === 'kubernetes' ? (
+              <SettingsControlGroup title={t('settings.workspaces.advanced.clusterGroup')} info={t('settings.workspaces.advanced.clusterHint')}>
+                <div className={SETTINGS_FIELDS_STACK_CLASS}>
+                  <SettingsTwoColumn>
+                    <SettingsStackedField label={t('settings.workspaces.kubernetes.context')} settingsItem="workspaces.kubernetes">
+                      <Input className="h-8" value={settings.secureWorkspacesKubernetesContext} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesContext: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesContext: settings.secureWorkspacesKubernetesContext.trim() })} />
+                    </SettingsStackedField>
+                    <SettingsStackedField label={t('settings.workspaces.kubernetes.namespace')}>
+                      <Input className="h-8" value={settings.secureWorkspacesKubernetesNamespace} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesNamespace: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesNamespace: settings.secureWorkspacesKubernetesNamespace.trim() || DEFAULT_NAMESPACE })} />
+                    </SettingsStackedField>
+                  </SettingsTwoColumn>
+                  <SettingsChipGroup
+                    aria-label={t('settings.workspaces.kubernetes.connectivity')}
+                    value={settings.secureWorkspacesKubernetesConnectivity}
+                    onChange={(value) => void save({ secureWorkspacesKubernetesConnectivity: value })}
+                    options={[
+                      { value: 'port-forward' as const, label: t('settings.workspaces.kubernetes.portForward') },
+                      { value: 'ingress' as const, label: t('settings.workspaces.kubernetes.ingress') },
+                    ]}
+                  />
+                  {settings.secureWorkspacesKubernetesConnectivity === 'ingress' ? (
+                    <SettingsTwoColumn>
+                      <SettingsStackedField label={t('settings.workspaces.kubernetes.ingressClass')}><Input className="h-8" value={settings.secureWorkspacesKubernetesIngressClassName} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressClassName: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressClassName: settings.secureWorkspacesKubernetesIngressClassName.trim() })} /></SettingsStackedField>
+                      <SettingsStackedField label={t('settings.workspaces.kubernetes.hostTemplate')}><Input className="h-8" value={settings.secureWorkspacesKubernetesIngressHostTemplate} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressHostTemplate: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressHostTemplate: settings.secureWorkspacesKubernetesIngressHostTemplate.trim() })} /></SettingsStackedField>
+                      <SettingsStackedField label={t('settings.workspaces.kubernetes.pathTemplate')}><Input className="h-8" value={settings.secureWorkspacesKubernetesIngressPathTemplate} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressPathTemplate: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressPathTemplate: settings.secureWorkspacesKubernetesIngressPathTemplate.trim() })} /></SettingsStackedField>
+                      <SettingsStackedField label={t('settings.workspaces.kubernetes.namespaceSelector')}><Input className="h-8 font-mono" value={settings.secureWorkspacesKubernetesIngressNamespaceSelector} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressNamespaceSelector: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressNamespaceSelector: settings.secureWorkspacesKubernetesIngressNamespaceSelector.trim() })} /></SettingsStackedField>
+                      <SettingsStackedField label={t('settings.workspaces.kubernetes.podSelector')}><Input className="h-8 font-mono" value={settings.secureWorkspacesKubernetesIngressPodSelector} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressPodSelector: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressPodSelector: settings.secureWorkspacesKubernetesIngressPodSelector.trim() })} /></SettingsStackedField>
+                      <SettingsStackedField label={t('settings.workspaces.kubernetes.annotations')}><Input className="h-8 font-mono" value={settings.secureWorkspacesKubernetesIngressAnnotations} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressAnnotations: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressAnnotations: settings.secureWorkspacesKubernetesIngressAnnotations.trim() })} /></SettingsStackedField>
+                      <SettingsStackedField label={t('settings.workspaces.kubernetes.tlsMode')}>
+                        <SettingsChipGroup
+                          aria-label={t('settings.workspaces.kubernetes.tlsMode')}
+                          value={settings.secureWorkspacesKubernetesIngressTlsMode}
+                          onChange={(value) => void save({ secureWorkspacesKubernetesIngressTlsMode: value })}
+                          options={[
+                            { value: 'existing-secret' as const, label: t('settings.workspaces.kubernetes.existingSecret') },
+                            { value: 'cert-manager' as const, label: t('settings.workspaces.kubernetes.certManager') },
+                          ]}
+                        />
+                      </SettingsStackedField>
+                      {settings.secureWorkspacesKubernetesIngressTlsMode === 'existing-secret'
+                        ? <SettingsStackedField label={t('settings.workspaces.kubernetes.tlsSecret')}><Input className="h-8" value={settings.secureWorkspacesKubernetesIngressTlsSecretName} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressTlsSecretName: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressTlsSecretName: settings.secureWorkspacesKubernetesIngressTlsSecretName.trim() })} /></SettingsStackedField>
+                        : <SettingsStackedField label={t('settings.workspaces.kubernetes.clusterIssuer')}><Input className="h-8" value={settings.secureWorkspacesKubernetesIngressClusterIssuer} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesKubernetesIngressClusterIssuer: event.target.value }))} onBlur={() => void save({ secureWorkspacesKubernetesIngressClusterIssuer: settings.secureWorkspacesKubernetesIngressClusterIssuer.trim() })} /></SettingsStackedField>}
+                    </SettingsTwoColumn>
+                  ) : null}
+                </div>
+              </SettingsControlGroup>
+            ) : null}
+          </CollapsibleContent>
+        </SettingsSection>
+      </Collapsible>
 
     </SettingsPageLayout>
-    <Dialog open={reauthRequest !== null} onOpenChange={(open) => { if (!open) cancelReauthentication(); }}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t('settings.workspaces.reauth.title')}</DialogTitle>
-          <DialogDescription>{t('settings.workspaces.reauth.prompt')}</DialogDescription>
-        </DialogHeader>
-        <Input
-          type="password"
-          autoComplete="current-password"
-          value={reauthPassword}
-          onChange={(event) => setReauthPassword(event.target.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter') void confirmReauthentication(); }}
-          placeholder={t('sessionAuth.password.placeholder')}
-          aria-label={t('sessionAuth.password.placeholder')}
-          disabled={reauthBusy}
-          autoFocus
-        />
-        {reauthError && <p className="typography-meta text-[var(--status-error)]" role="alert">{reauthError}</p>}
-        <DialogFooter>
-          <Button variant="ghost" onClick={cancelReauthentication} disabled={reauthBusy}>{t('settings.common.actions.cancel')}</Button>
-          <Button size="sm" onClick={() => void confirmReauthentication()} disabled={reauthBusy}>{t('settings.workspaces.reauth.confirm')}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    {reauth.dialog}
     </>
   );
 };
 
-function ProviderRow({ provider, selected, status, error, validating, onSelect, onValidate }: {
-  provider: WorkspaceProviderKind;
-  selected: boolean;
-  status?: WorkspaceProviderValidationResult;
-  error?: string;
-  validating: boolean;
-  onSelect: () => void;
-  onValidate: () => void;
-}) {
-  const { t } = useI18n();
-  const title = provider === 'apple-container' ? t('settings.workspaces.provider.appleContainer') : provider === 'kubernetes' ? t('settings.workspaces.provider.kubernetes') : t('settings.workspaces.provider.docker');
-  const hint = provider === 'apple-container' ? t('settings.workspaces.provider.appleContainerHint') : provider === 'kubernetes' ? t('settings.workspaces.provider.kubernetesHint') : t('settings.workspaces.provider.dockerHint');
-  return (
-    <SettingsFieldRow label={title} info={hint} controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}>
-      <span className={cn('typography-meta', error || status?.available === false ? 'text-[var(--status-error)]' : status?.available ? 'text-[var(--status-success)]' : 'text-muted-foreground')}>{error || status?.error || (status ? status.available ? t('settings.workspaces.status.available') : t('settings.workspaces.status.unavailable') : t('settings.workspaces.status.notChecked'))}</span>
-      <Button size="sm" variant={selected ? 'chip' : 'ghost'} aria-pressed={selected} onClick={onSelect}>{selected ? t('settings.workspaces.default') : t('settings.workspaces.actions.use')}</Button>
-      <Button size="sm" variant="outline" onClick={onValidate} disabled={validating}>{validating ? t('settings.workspaces.actions.validating') : t('settings.workspaces.actions.validate')}</Button>
-    </SettingsFieldRow>
-  );
+function providerRemediation(provider: WorkspaceProviderKind, code?: string) {
+  switch (code) {
+    case 'WORKSPACE_PROVIDER_CLI_MISSING':
+      return provider === 'docker' ? 'settings.workspaces.remediation.docker.cliMissing' as const
+        : provider === 'kubernetes' ? 'settings.workspaces.remediation.kubernetes.cliMissing' as const
+        : 'settings.workspaces.remediation.apple.cliMissing' as const;
+    case 'WORKSPACE_PROVIDER_DAEMON_UNAVAILABLE':
+      return provider === 'docker' ? 'settings.workspaces.remediation.docker.daemonUnavailable' as const
+        : provider === 'apple-container' ? 'settings.workspaces.remediation.apple.daemonUnavailable' as const
+        : null;
+    case 'WORKSPACE_PROVIDER_NOT_CONFIGURED':
+      return provider === 'kubernetes' ? 'settings.workspaces.remediation.kubernetes.notConfigured' as const : null;
+    case 'WORKSPACE_PROVIDER_CLUSTER_UNREACHABLE':
+      return provider === 'kubernetes' ? 'settings.workspaces.remediation.kubernetes.clusterUnreachable' as const : null;
+    case 'WORKSPACE_PROVIDER_NAMESPACE_MISSING':
+      return provider === 'kubernetes' ? 'settings.workspaces.remediation.kubernetes.namespaceMissing' as const : null;
+    case 'WORKSPACE_PROVIDER_UNSUPPORTED':
+      return provider === 'apple-container' ? 'settings.workspaces.remediation.apple.unsupportedPlatform' as const : null;
+    case 'WORKSPACE_POLICY_ERROR':
+    case 'WORKSPACE_POLICY_INCOMPLETE':
+      return 'settings.workspaces.remediation.policyIncomplete' as const;
+    case 'WORKSPACE_PROVIDER_CAPABILITY_UNAVAILABLE':
+      return provider === 'apple-container' ? 'settings.workspaces.remediation.apple.managedEgress' as const : null;
+    default:
+      return null;
+  }
 }

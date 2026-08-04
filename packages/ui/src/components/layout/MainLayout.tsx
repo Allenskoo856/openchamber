@@ -270,7 +270,7 @@ export const MainLayout: React.FC = () => {
             case 'diagram':
                 return <React.Suspense fallback={null}><DiagramView /></React.Suspense>;
             case 'workspaces':
-                return <WorkspaceLifecycleView />;
+                return <WorkspaceLifecycleView onClose={() => useUIStore.getState().setActiveMainTab('chat')} />;
             default:
                 return null;
         }

@@ -760,6 +760,9 @@ export interface WorkspaceProviderValidationResult {
   context?: string | null;
   namespace?: string | null;
   error?: string;
+  /** Structured reason (e.g. WORKSPACE_PROVIDER_CLI_MISSING) used for localized remediation guidance. */
+  code?: string;
+  diagnostics?: string[];
 }
 
 interface WorkspaceArtifactTextHunk {
@@ -781,6 +784,12 @@ export interface WorkspaceArtifactFileReview {
   entryType: 'file' | 'symlink' | 'directory';
   oldMode: number | null;
   newMode: number | null;
+  /**
+   * How this change relates to the host right now: `pending` can be applied cleanly,
+   * `applied` is already on the host from an earlier apply, `conflict` means the host
+   * entry matches neither the baseline nor the result. Absent when unknown.
+   */
+  hostState?: 'pending' | 'applied' | 'conflict';
   beforeText?: string;
   afterText?: string;
   textHunks: WorkspaceArtifactTextHunk[];
@@ -820,6 +829,25 @@ export interface WorkspaceCompatibilityResult {
   error?: string | null;
   diagnostics?: string[];
   handoffSupported?: boolean;
+  /** Server host platform (Node process.platform), e.g. win32, darwin, linux. */
+  platform?: string;
+  /** Providers meaningful on the server host platform; others are hidden from provider pickers. */
+  platformProviders?: WorkspaceProviderKind[];
+}
+
+export interface WorkspaceProviderReadiness {
+  provider: WorkspaceProviderKind;
+  available: boolean;
+  /** Structured reason when unavailable; never carries provider output or credentials. */
+  code?: string;
+}
+
+/** Environment readiness, answerable without any step-up authentication. */
+export interface WorkspaceReadinessResult extends WorkspaceCompatibilityResult {
+  enabled: boolean;
+  defaultProvider: WorkspaceProviderKind;
+  providers: WorkspaceProviderReadiness[];
+  policyError?: string;
 }
 
 export interface WorkspaceHandoffBinding {
@@ -863,7 +891,10 @@ export interface WorkspaceLifecycleResult {
   status?: string;
   diagnostics: string[];
   remainingResources?: string[];
+  retainedResources?: string[];
   error?: string;
+  /** Structured failure reason (e.g. WORKSPACE_POLICY_MISMATCH) used for localized guidance. */
+  code?: string;
 }
 
 export type WorkspaceSessionStartErrorCode =
@@ -927,12 +958,15 @@ export interface WorkspaceReauthProofResult {
   proof: string;
   nonce: string;
   expiresAt: number;
+  /** End of the step-up window during which adjacent privileged actions skip the password prompt. */
+  windowExpiresAt?: number;
 }
 
 export interface WorkspaceSecurityAPI {
   reauthenticate(input: WorkspaceReauthProofRequest): Promise<WorkspaceReauthProofResult>;
   validateProvider(input: WorkspaceProviderValidationInput & { reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceProviderValidationResult>;
   compatibility(input?: { directory?: string | null }): Promise<WorkspaceCompatibilityResult>;
+  readiness(input?: { directory?: string | null }): Promise<WorkspaceReadinessResult>;
   updateSettings(input: { changes: Partial<SettingsPayload>; activate?: boolean; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceConfigureResult>;
   create(input: { type: WorkspaceProviderKind; directory?: string | null; extra?: Record<string, unknown> | null; reauthProof?: string; reauthNonce?: string }): Promise<{ id: string; type: string; name: string; directory?: string | null; status: 'connected' | 'connecting'; provisional: boolean; retryable: boolean; diagnostics: string[] }>;
   cleanup(input: { id: string; directory?: string | null; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceLifecycleResult>;

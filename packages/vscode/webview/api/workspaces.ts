@@ -4,6 +4,7 @@ import type {
   WorkspaceConfigureResult,
   WorkspaceExportResult,
   WorkspaceProviderValidationResult,
+  WorkspaceReadinessResult,
   WorkspaceSecurityAPI,
 } from '@openchamber/ui/lib/api/types';
 
@@ -29,6 +30,9 @@ export const createVSCodeWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
   },
   async compatibility(): Promise<WorkspaceCompatibilityResult> {
     return unsupportedCompatibility;
+  },
+  async readiness(): Promise<WorkspaceReadinessResult> {
+    return { ...unsupportedCompatibility, enabled: false, defaultProvider: 'docker', providers: [] };
   },
   async updateSettings(): Promise<WorkspaceConfigureResult> {
     return { configured: false, enabled: false, active: false, compatibility: unsupportedCompatibility };

@@ -45,7 +45,9 @@ export function workspaceStatusSnapshot(
   result: Array<{ workspaceID: string; status: WorkspaceStatus }> | null,
 ): Record<string, WorkspaceStatus> {
   if (result === null) return current;
-  return Object.fromEntries(result.map((item) => [item.workspaceID, item.status]));
+  // Merge instead of replacing: a workspace missing from one status payload keeps its
+  // last known status rather than flipping to a permanent "Unknown status".
+  return { ...current, ...Object.fromEntries(result.map((item) => [item.workspaceID, item.status])) };
 }
 
 export function emptyWorkspaceScopeState() {

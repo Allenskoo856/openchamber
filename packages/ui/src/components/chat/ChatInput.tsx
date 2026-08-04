@@ -51,8 +51,6 @@ import { MobileModelButton } from './MobileModelButton';
 import { MobileSessionStatusBar } from './MobileSessionStatusBar';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { toast } from '@/components/ui';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 // useMessageStore removed — messages now come from sync system
 import { isVSCodeRuntime } from '@/lib/desktop';
@@ -71,7 +69,8 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useCommandsStore } from '@/stores/useCommandsStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
-import type { WorkspaceReauthProofResult } from '@/lib/api/types';
+import { useWorkspaceReauth } from '@/components/workspaces/WorkspaceReauth';
+import type { WorkspaceCompatibilityResult } from '@/lib/api/types';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { usePermissionStore } from '@/stores/permissionStore';
 import { togglePermissionAutoAccept } from './permissionAutoAccept';
@@ -339,16 +338,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const currentManagementSessionId = currentSessionId;
     const [reviewDialogOpen, setReviewDialogOpen] = React.useState(false);
     const [reviewFlowSubmitting, setReviewFlowSubmitting] = React.useState(false);
-    const [workspaceReauth, setWorkspaceReauth] = React.useState<{
-        project: string;
-        payload: Record<string, unknown>;
-        resolve: (proof: WorkspaceReauthProofResult | null) => void;
-    } | null>(null);
-    const [workspaceReauthPassword, setWorkspaceReauthPassword] = React.useState('');
-    const [workspaceReauthBusy, setWorkspaceReauthBusy] = React.useState(false);
-    const [workspaceReauthError, setWorkspaceReauthError] = React.useState('');
+    const workspaceReauth = useWorkspaceReauth();
     const [workspaceProgress, setWorkspaceProgress] = React.useState<'preparing' | 'connecting' | 'creating' | 'opening' | null>(null);
     const [workspaceRecovery, setWorkspaceRecovery] = React.useState<{ code: string; message: string } | null>(null);
+    const [workspaceCompat, setWorkspaceCompat] = React.useState<WorkspaceCompatibilityResult | null>(null);
+    const [secureBlocked, setSecureBlocked] = React.useState<'project' | 'setup' | null>(null);
     const workspaceSubmitInFlightRef = React.useRef(false);
 
     const currentProviderId = useConfigStore((state) => state.currentProviderId);
@@ -374,6 +368,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const setExpandedInput = useUIStore((state) => state.setExpandedInput);
     const setTimelineDialogOpen = useUIStore((state) => state.setTimelineDialogOpen);
     const runtimeAPIs = useRuntimeAPIs();
+
+    React.useEffect(() => {
+        const workspaces = runtimeAPIs.workspaces;
+        if (!newSessionDraftOpen || !workspaces || isVSCodeRuntime()) {
+            setSecureBlocked(null);
+            return;
+        }
+        let cancelled = false;
+        workspaces.compatibility().then((result) => {
+            if (!cancelled) setWorkspaceCompat(result);
+        }).catch(() => {});
+        return () => { cancelled = true; };
+    }, [newSessionDraftOpen, runtimeAPIs.workspaces]);
     const { git: runtimeGit, vscode: vscodeApi } = runtimeAPIs;
     const cycleAgentShortcutOverride = useUIStore((state) => state.shortcutOverrides.cycle_agent);
     const cycleAgentShortcut = React.useMemo(() => (
@@ -1014,18 +1021,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             }
         }
 
-        const requestWorkspaceReauth = async (input: { operation: 'workspace.session.start'; project: string; payload: Record<string, unknown> }) => {
-            if (!runtimeAPIs.workspaces) return null;
-            try {
-                return await runtimeAPIs.workspaces.reauthenticate(input);
-            } catch {
-                return new Promise<WorkspaceReauthProofResult | null>((resolve) => {
-                    setWorkspaceReauthPassword('');
-                    setWorkspaceReauthError('');
-                    setWorkspaceReauth({ project: input.project, payload: input.payload, resolve });
-                });
-            }
-        };
+        const requestWorkspaceReauth = async (input: { operation: 'workspace.session.start'; project: string; payload: Record<string, unknown> }) =>
+            workspaceReauth.requestProof(input.operation, input.project, input.payload);
         const secureWorkspaceDraft = newSessionDraft?.workspaceMode === 'secure';
         const sendMessageOptions = delivery || secureWorkspaceDraft
             ? { delivery, workspaceReauthenticate: requestWorkspaceReauth, workspaceProgress: setWorkspaceProgress }
@@ -2416,22 +2413,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
         };
     }, []);
 
-    const confirmWorkspaceReauth = async () => {
-        if (!workspaceReauth || !runtimeAPIs.workspaces || workspaceReauthBusy) return;
-        setWorkspaceReauthBusy(true);
-        setWorkspaceReauthError('');
-        try {
-            const proof = await runtimeAPIs.workspaces.reauthenticate({ operation: 'workspace.session.start', project: workspaceReauth.project, payload: workspaceReauth.payload, password: workspaceReauthPassword });
-            workspaceReauth.resolve(proof);
-            setWorkspaceReauth(null);
-            setWorkspaceReauthPassword('');
-        } catch (error) {
-            setWorkspaceReauthError(error instanceof Error ? error.message : t('settings.workspaces.reauth.failed'));
-        } finally {
-            setWorkspaceReauthBusy(false);
-        }
-    };
-
     return (
         <>
         <form
@@ -2457,36 +2438,74 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     </h1>
                 </div>
             ) : null}
-            {newSessionDraftOpen && newSessionDraft?.workspaceMode === 'secure' && !selectedDraftDirectory ? (
-                <p className="chat-input-column mb-2 text-center typography-meta text-muted-foreground" role="status">{t('settings.workspaces.newSession.chooseProject')}</p>
-            ) : null}
             {newSessionDraftOpen && !isVSCode ? (
-                <div className="chat-input-column mb-3 flex flex-wrap items-center justify-center gap-2" role="group" aria-label={t('settings.workspaces.title')}>
-                    <Button type="button" size="sm" variant="chip" data-testid="workspace-mode-host" aria-pressed={newSessionDraft?.workspaceMode !== 'secure'} onClick={() => setNewSessionWorkspaceMode('host')}>
-                        {t('settings.workspaces.newSession.host')}
-                    </Button>
-                    <Button type="button" size="sm" variant="chip" data-testid="workspace-mode-secure" aria-pressed={newSessionDraft?.workspaceMode === 'secure'} onClick={() => setNewSessionWorkspaceMode('secure')} disabled={!selectedDraftDirectory}>
-                        {t('settings.workspaces.newSession.secure')}
-                    </Button>
-                </div>
-            ) : null}
-            {workspaceProgress ? (
-                <div className="chat-input-column mb-2 text-center typography-meta text-muted-foreground" role="status">
-                    {workspaceProgress === 'preparing'
-                        ? t('settings.workspaces.newSession.phasePreparing')
-                        : workspaceProgress === 'connecting'
-                            ? t('settings.workspaces.newSession.phaseConnecting')
-                            : workspaceProgress === 'creating'
-                                ? t('settings.workspaces.newSession.phaseCreating')
-                                : t('settings.workspaces.newSession.phaseOpening')}
-                </div>
-            ) : null}
-            {workspaceRecovery ? (
-                <div className="chat-input-column mb-3 flex flex-wrap items-center justify-center gap-2" role="alert">
-                    <span className="typography-meta text-[var(--status-warning)]">{t('settings.workspaces.newSession.partial')}</span>
-                    <Button type="submit" size="sm" variant="outline" data-testid="workspace-session-retry" disabled={workspaceProgress !== null}>
-                        {t('settings.workspaces.newSession.retry')}
-                    </Button>
+                <div className="chat-input-column mb-3 space-y-1.5">
+                    <div className="flex flex-wrap items-center justify-center gap-2" role="group" aria-label={t('settings.workspaces.newSession.groupLabel')}>
+                        <span className="typography-meta text-muted-foreground">{t('settings.workspaces.newSession.groupLabel')}</span>
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="chip"
+                            data-testid="workspace-mode-host"
+                            aria-pressed={newSessionDraft?.workspaceMode !== 'secure'}
+                            onClick={() => { setSecureBlocked(null); setNewSessionWorkspaceMode('host'); }}
+                        >
+                            {t('settings.workspaces.newSession.host')}
+                        </Button>
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="chip"
+                            data-testid="workspace-mode-secure"
+                            aria-pressed={newSessionDraft?.workspaceMode === 'secure'}
+                            onClick={() => {
+                                // Never a dead end: an unusable option explains itself instead of
+                                // sitting disabled with the reason somewhere else on screen.
+                                if (!selectedDraftDirectory) { setSecureBlocked('project'); return; }
+                                if (workspaceCompat && !workspaceCompat.active) { setSecureBlocked('setup'); return; }
+                                setSecureBlocked(null);
+                                setNewSessionWorkspaceMode('secure');
+                            }}
+                        >
+                            {t('settings.workspaces.newSession.secure')}
+                        </Button>
+                    </div>
+                    {workspaceProgress ? (
+                        <div className="flex items-center justify-center gap-2 typography-ui text-foreground" role="status">
+                            <Icon name="loader-4" className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
+                            <span>
+                                {workspaceProgress === 'preparing'
+                                    ? t('settings.workspaces.newSession.phasePreparing')
+                                    : workspaceProgress === 'connecting'
+                                        ? t('settings.workspaces.newSession.phaseConnecting')
+                                        : workspaceProgress === 'creating'
+                                            ? t('settings.workspaces.newSession.phaseCreating')
+                                            : t('settings.workspaces.newSession.phaseOpening')}
+                            </span>
+                        </div>
+                    ) : workspaceRecovery ? (
+                        <div className="flex flex-wrap items-center justify-center gap-2" role="alert">
+                            <span className="typography-meta text-[var(--status-warning)]">{t('settings.workspaces.newSession.partial')}</span>
+                            <Button type="submit" size="sm" variant="outline" data-testid="workspace-session-retry" disabled={workspaceProgress !== null}>
+                                {t('settings.workspaces.newSession.retry')}
+                            </Button>
+                        </div>
+                    ) : secureBlocked === 'setup' ? (
+                        <div className="flex flex-wrap items-center justify-center gap-2" role="status">
+                            <span className="typography-meta text-muted-foreground">{t('settings.workspaces.newSession.notConfigured')}</span>
+                            <Button type="button" size="sm" variant="outline" onClick={() => {
+                                setSecureBlocked(null);
+                                useUIStore.getState().setSettingsPage('workspaces');
+                                useUIStore.getState().setSettingsDialogOpen(true);
+                            }}>
+                                {t('gitView.pr.actions.openSettings')}
+                            </Button>
+                        </div>
+                    ) : secureBlocked === 'project' ? (
+                        <p className="text-center typography-meta text-muted-foreground" role="status">{t('settings.workspaces.newSession.chooseProject')}</p>
+                    ) : newSessionDraft?.workspaceMode === 'secure' ? (
+                        <p className="text-center typography-meta text-muted-foreground">{t('settings.workspaces.newSession.secureHint')}</p>
+                    ) : null}
                 </div>
             ) : null}
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
@@ -2833,25 +2852,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                 />
             ) : null}
         </form>
-        <Dialog open={workspaceReauth !== null} onOpenChange={(open) => {
-            if (!open && !workspaceReauthBusy) {
-                workspaceReauth?.resolve(null);
-                setWorkspaceReauth(null);
-            }
-        }}>
-            <DialogContent className="max-w-md">
-                <DialogHeader>
-                    <DialogTitle>{t('settings.workspaces.reauth.title')}</DialogTitle>
-                    <DialogDescription>{t('settings.workspaces.reauth.prompt')}</DialogDescription>
-                </DialogHeader>
-                <Input type="password" autoComplete="current-password" value={workspaceReauthPassword} onChange={(event) => setWorkspaceReauthPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void confirmWorkspaceReauth(); }} placeholder={t('sessionAuth.password.placeholder')} aria-label={t('sessionAuth.password.placeholder')} disabled={workspaceReauthBusy} autoFocus />
-                {workspaceReauthError ? <p className="typography-meta text-[var(--status-error)]" role="alert">{workspaceReauthError}</p> : null}
-                <DialogFooter>
-                    <Button variant="ghost" onClick={() => { workspaceReauth?.resolve(null); setWorkspaceReauth(null); }} disabled={workspaceReauthBusy}>{t('settings.common.actions.cancel')}</Button>
-                    <Button size="sm" onClick={() => void confirmWorkspaceReauth()} disabled={workspaceReauthBusy}>{t('settings.workspaces.reauth.confirm')}</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+        {workspaceReauth.dialog}
 
         {/* Issue Picker Dialog */}
         <GitHubIssuePickerDialog

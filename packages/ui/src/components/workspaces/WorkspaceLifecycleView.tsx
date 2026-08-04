@@ -2,20 +2,21 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
-import type { WorkspaceApplySelection, WorkspaceArtifactReview, WorkspaceCompatibilityResult, WorkspaceHandoffOperation, WorkspacePrivilegedOperation, WorkspaceProviderKind, WorkspaceReauthProofResult } from '@/lib/api/types';
+import type { WorkspaceApplySelection, WorkspaceArtifactReview, WorkspaceCompatibilityResult, WorkspaceHandoffOperation, WorkspaceProviderKind } from '@/lib/api/types';
 import { useI18n } from '@/lib/i18n';
 import { opencodeClient } from '@/lib/opencode/client';
 import { subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { sessionEvents } from '@/lib/sessionEvents';
+import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { createSessionInWorkspace } from '@/sync/session-actions';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { emptyWorkspaceScopeState, requiredCapabilityForWorkspaceOperation, requiredWorkspaceCapability, workspaceProjectDirectory, workspaceStatusSnapshot, type WorkspaceRequiredCapability, type WorkspaceStatus } from './workspaceSurfaceState';
+import { useWorkspaceReauth } from './WorkspaceReauth';
 
 type WorkspaceListItem = {
   id: string;
@@ -36,7 +37,7 @@ const EMPTY_POLICY: WorkspacePolicy = {
   preserveOnDelete: false,
 };
 
-export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onSessionStarted?: () => void }> = ({ onOpenSettings, onSessionStarted }) => {
+export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onSessionStarted?: () => void; onClose?: () => void }> = ({ onOpenSettings, onSessionStarted, onClose }) => {
   const { t } = useI18n();
   const runtimeAPIs = useRuntimeAPIs();
   const currentSessionID = useSessionUIStore((state) => state.currentSessionId);
@@ -44,8 +45,12 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
   const newSessionDraft = useSessionUIStore((state) => state.newSessionDraft);
   const projects = useProjectsStore((state) => state.projects);
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
-  const directory = workspaceProjectDirectory(projects, activeProjectId, newSessionDraft, currentSessionDirectory);
+  const [manualDirectory, setManualDirectory] = React.useState('');
+  const scopedDirectory = workspaceProjectDirectory(projects, activeProjectId, newSessionDraft, currentSessionDirectory);
+  const directory = scopedDirectory || manualDirectory;
   const generationRef = React.useRef(0);
+  const directoryRef = React.useRef(directory);
+  directoryRef.current = directory;
   const pendingCreatedWorkspaceRef = React.useRef<string | null>(null);
   const [initialLoading, setInitialLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
@@ -65,20 +70,13 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
   const [selections, setSelections] = React.useState<WorkspaceApplySelection[]>([]);
   const [artifactReview, setArtifactReview] = React.useState<WorkspaceArtifactReview | null>(null);
   const [applyMessage, setApplyMessage] = React.useState('');
+  const [applyFailed, setApplyFailed] = React.useState(false);
   const [missingCapabilities, setMissingCapabilities] = React.useState<WorkspaceRequiredCapability[]>([]);
-  const [reauthRequest, setReauthRequest] = React.useState<{
-    operation: WorkspacePrivilegedOperation;
-    project: string;
-    payload: Record<string, unknown>;
-    resolve: (proof: WorkspaceReauthProofResult | null) => void;
-  } | null>(null);
-  const [reauthPassword, setReauthPassword] = React.useState('');
-  const [reauthBusy, setReauthBusy] = React.useState(false);
-  const [reauthError, setReauthError] = React.useState('');
   const [handoff, setHandoff] = React.useState<WorkspaceHandoffOperation | null>(null);
   const [handoffText, setHandoffText] = React.useState('');
   const [handoffBusy, setHandoffBusy] = React.useState(false);
   const [handoffError, setHandoffError] = React.useState('');
+  const [operation, setOperation] = React.useState<'creating' | 'deleting' | 'repairing' | 'exporting' | 'checking' | 'applying' | null>(null);
 
   const clearExportArtifact = React.useCallback(() => {
     setExportID('');
@@ -92,6 +90,8 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     generationRef.current += 1;
     const empty = emptyWorkspaceScopeState();
     pendingCreatedWorkspaceRef.current = null;
+    setManualDirectory('');
+    setApplyFailed(false);
     setWorkspaceList(empty.workspaces);
     setWorkspaceStatuses(empty.statuses);
     setSelectedWorkspaceID(empty.selectedWorkspaceID);
@@ -118,15 +118,27 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     return true;
   }, []);
 
+  const missingCapabilitiesRef = React.useRef(missingCapabilities);
+  missingCapabilitiesRef.current = missingCapabilities;
+  const reauth = useWorkspaceReauth({
+    shouldSkip: (operation) => {
+      const required = requiredCapabilityForWorkspaceOperation(operation);
+      return Boolean(required && missingCapabilitiesRef.current.includes(required));
+    },
+    onError: noteCapabilityError,
+  });
+  const reauthenticate = reauth.requestProof;
+
   const refreshStatuses = React.useCallback(async (expectedGeneration = generationRef.current) => {
+    const requestedDirectory = directory;
     try {
-      const statuses = await opencodeClient.experimentalWorkspaces.status(directory || undefined);
-      if (expectedGeneration !== generationRef.current) return null;
+      const statuses = await opencodeClient.experimentalWorkspaces.status(requestedDirectory || undefined);
+      if (expectedGeneration !== generationRef.current || requestedDirectory !== directoryRef.current) return null;
       setWorkspaceStatuses((current) => workspaceStatusSnapshot(current, statuses));
       setWorkspaceStatusError('');
       return statuses;
     } catch (error) {
-      if (expectedGeneration === generationRef.current) {
+      if (expectedGeneration === generationRef.current && requestedDirectory === directoryRef.current) {
         setWorkspaceStatusError(error instanceof Error ? error.message : t('settings.workspaces.status.refreshFailed'));
       }
       return null;
@@ -134,27 +146,27 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
   }, [directory, t]);
 
   const loadWorkspaces = React.useCallback(async (sync = true, expectedGeneration = generationRef.current) => {
+    const requestedDirectory = directory;
     setBusy(true);
-    setWorkspaceError('');
     try {
       if (sync) {
         try {
-          await opencodeClient.experimentalWorkspaces.syncList(directory || undefined);
+          await opencodeClient.experimentalWorkspaces.syncList(requestedDirectory || undefined);
         } catch (error) {
-          if (expectedGeneration === generationRef.current) {
+          if (expectedGeneration === generationRef.current && requestedDirectory === directoryRef.current) {
             setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.status.refreshFailed'));
           }
         }
         try {
-          await opencodeClient.experimentalWorkspaces.startSync(directory || undefined);
+          await opencodeClient.experimentalWorkspaces.startSync(requestedDirectory || undefined);
         } catch (error) {
-          if (expectedGeneration === generationRef.current) {
+          if (expectedGeneration === generationRef.current && requestedDirectory === directoryRef.current) {
             setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.status.refreshFailed'));
           }
         }
       }
-      const list = await opencodeClient.experimentalWorkspaces.list(directory || undefined);
-      if (expectedGeneration !== generationRef.current) return;
+      const list = await opencodeClient.experimentalWorkspaces.list(requestedDirectory || undefined);
+      if (expectedGeneration !== generationRef.current || requestedDirectory !== directoryRef.current) return;
       setWorkspaceList(list);
       setSelectedWorkspaceID((current) => current && list.some((item) => item.id === current) ? current : list[0]?.id ?? '');
       let statuses = await refreshStatuses(expectedGeneration);
@@ -169,17 +181,18 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
         }
       }
     } catch (error) {
-      if (expectedGeneration === generationRef.current) {
+      if (expectedGeneration === generationRef.current && requestedDirectory === directoryRef.current) {
         setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.export.failed'));
       }
     } finally {
-      if (expectedGeneration === generationRef.current) setBusy(false);
+      if (expectedGeneration === generationRef.current && requestedDirectory === directoryRef.current) setBusy(false);
     }
   }, [directory, refreshStatuses, t]);
 
   React.useEffect(() => {
     resetScope();
     const generation = generationRef.current;
+    const requestedDirectory = directory;
     setInitialLoading(true);
     void (async () => {
       try {
@@ -187,7 +200,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
           runtimeAPIs.settings.load(),
           runtimeAPIs.workspaces?.compatibility({ directory: directory || undefined }).catch(() => null) ?? Promise.resolve(null),
         ]);
-        if (generation !== generationRef.current) return;
+        if (generation !== generationRef.current || requestedDirectory !== directoryRef.current) return;
         const settings = settingsResult.settings;
         setPolicy({
           enabled: settings.secureWorkspacesEnabled === true,
@@ -199,11 +212,11 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
         setCompatibility(compatibilityResult);
         await loadWorkspaces(true, generation);
       } catch (error) {
-        if (generation === generationRef.current) {
+        if (generation === generationRef.current && requestedDirectory === directoryRef.current) {
           setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.export.failed'));
         }
       } finally {
-        if (generation === generationRef.current) setInitialLoading(false);
+        if (generation === generationRef.current && requestedDirectory === directoryRef.current) setInitialLoading(false);
       }
     })();
   }, [directory, loadWorkspaces, resetScope, runtimeAPIs.settings, runtimeAPIs.workspaces, t]);
@@ -226,55 +239,10 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     return () => window.clearInterval(timer);
   }, [refreshStatuses, workspaceList.length]);
 
-  function reauthenticate(operation: WorkspacePrivilegedOperation, project: string, payload: Record<string, unknown>) {
-    if (!runtimeAPIs.workspaces) return Promise.resolve(null);
-    const required = requiredCapabilityForWorkspaceOperation(operation);
-    if (required && missingCapabilities.includes(required)) return Promise.resolve(null);
-    return new Promise<WorkspaceReauthProofResult | null>((resolve) => {
-      setReauthPassword('');
-      setReauthError('');
-      setReauthRequest({ operation, project, payload, resolve });
-    });
-  }
-
-  function cancelReauthentication() {
-    if (reauthBusy) return;
-    reauthRequest?.resolve(null);
-    setReauthRequest(null);
-    setReauthPassword('');
-    setReauthError('');
-  }
-
-  async function confirmReauthentication() {
-    if (!reauthRequest || !runtimeAPIs.workspaces || reauthBusy) return;
-    setReauthBusy(true);
-    setReauthError('');
-    try {
-      const result = await runtimeAPIs.workspaces.reauthenticate({
-        operation: reauthRequest.operation,
-        project: reauthRequest.project,
-        payload: reauthRequest.payload,
-        password: reauthPassword || undefined,
-      });
-      reauthRequest.resolve(result);
-      setReauthRequest(null);
-      setReauthPassword('');
-    } catch (error) {
-      if (noteCapabilityError(error)) {
-        reauthRequest.resolve(null);
-        setReauthRequest(null);
-        setReauthPassword('');
-      } else {
-        setReauthError(error instanceof Error ? error.message : t('settings.workspaces.reauth.failed'));
-      }
-    } finally {
-      setReauthBusy(false);
-    }
-  }
-
   async function createWorkspace() {
     if (!runtimeAPIs.workspaces) return;
     setBusy(true);
+    setOperation('creating');
     setWorkspaceError('');
     setWorkspaceMessage('');
     try {
@@ -292,6 +260,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       if (!noteCapabilityError(error)) setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.lifecycle.createFailed'));
     } finally {
       setBusy(false);
+      setOperation(null);
     }
   }
 
@@ -307,6 +276,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.lifecycle.startFailed'));
     } finally {
       setBusy(false);
+      setOperation(null);
     }
   }
 
@@ -383,6 +353,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
   async function reconcileSelectedWorkspace() {
     if (!selectedWorkspaceID || !runtimeAPIs.workspaces) return;
     setBusy(true);
+    setOperation('repairing');
     setWorkspaceError('');
     setWorkspaceDiagnostics([]);
     const payload = { id: selectedWorkspaceID, directory };
@@ -398,6 +369,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       if (!noteCapabilityError(error)) setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.lifecycle.reconcileFailed'));
     } finally {
       setBusy(false);
+      setOperation(null);
     }
   }
 
@@ -405,15 +377,21 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     const id = removeWorkspaceID;
     if (!id || !runtimeAPIs.workspaces) return;
     setBusy(true);
+    setOperation('deleting');
     setWorkspaceError('');
     setWorkspaceDiagnostics([]);
-    const payload = { id, directory };
-    try {
-      const reauth = await reauthenticate('workspace.cleanup', directory || 'host', payload);
-      if (!reauth) return;
-      const result = await runtimeAPIs.workspaces.cleanup({ ...payload, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
+      const payload = { id, directory };
+      try {
+        const reauth = await reauthenticate('workspace.cleanup', directory || 'host', payload);
+        if (!reauth) {
+          setRemoveWorkspaceID(null);
+          setWorkspaceError(t('settings.workspaces.reauth.failed'));
+          return;
+        }
+        const result = await runtimeAPIs.workspaces.cleanup({ ...payload, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
       setWorkspaceDiagnostics([...(result.diagnostics ?? []), ...(result.remainingResources ?? [])]);
       if (!result.cleaned) {
+        setRemoveWorkspaceID(null);
         setWorkspaceError(result.error || t('settings.workspaces.lifecycle.cleanupIncomplete'));
         return;
       }
@@ -422,15 +400,18 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       clearExportArtifact();
       await loadWorkspaces(false);
     } catch (error) {
+      setRemoveWorkspaceID(null);
       if (!noteCapabilityError(error)) setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.lifecycle.deleteFailed'));
     } finally {
       setBusy(false);
+      setOperation(null);
     }
   }
 
   async function exportSelectedWorkspace() {
     if (!selectedWorkspaceID || !runtimeAPIs.workspaces) return;
     setBusy(true);
+    setOperation('exporting');
     setWorkspaceError('');
     try {
       const payload = { id: selectedWorkspaceID, directory };
@@ -440,11 +421,16 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       setExportID(exported.exportID);
       setExportExpiresAt(exported.expiresAt);
       setArtifactReview(exported.review);
-      setSelections(exported.review.files.map((file) => ({ fileID: file.id, ...(file.textHunks.length ? { hunkIDs: file.textHunks.map((hunk) => hunk.id) } : {}) })));
+      // Preselect only what will actually change the host: entries already applied
+      // earlier, or conflicting with an external edit, stay visible but unchecked.
+      setSelections(exported.review.files
+        .filter((file) => (file.hostState ?? 'pending') === 'pending')
+        .map((file) => ({ fileID: file.id, ...(file.textHunks.length ? { hunkIDs: file.textHunks.map((hunk) => hunk.id) } : {}) })));
     } catch (error) {
       if (!noteCapabilityError(error)) setWorkspaceError(error instanceof Error ? error.message : t('settings.workspaces.export.failed'));
     } finally {
       setBusy(false);
+      setOperation(null);
     }
   }
 
@@ -452,18 +438,22 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     if (!runtimeAPIs.workspaces || !exportID || !directory || !selectedWorkspaceID) return;
     if (!checkOnly && !window.confirm(t('settings.workspaces.export.confirmApply'))) return;
     setApplyBusy(true);
+    setOperation(checkOnly ? 'checking' : 'applying');
     setApplyMessage('');
     try {
       const payload = { directory, exportID, selections, workspaceID: selectedWorkspaceID, checkOnly };
       const reauth = await reauthenticate('host.apply', directory, payload);
       if (!reauth) return;
       const result = await runtimeAPIs.workspaces.applyExport({ ...payload, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
+      setApplyFailed(Boolean(result.error));
       setApplyMessage(result.error || (checkOnly ? t('settings.workspaces.export.checkPassed') : t('settings.workspaces.export.applied')));
       if (result.error) noteCapabilityError(result.error);
     } catch (error) {
+      setApplyFailed(true);
       if (!noteCapabilityError(error)) setApplyMessage(error instanceof Error ? error.message : t('settings.workspaces.export.failed'));
     } finally {
       setApplyBusy(false);
+      setOperation(null);
     }
   }
 
@@ -479,9 +469,11 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (error) {
+      setApplyFailed(true);
       if (!noteCapabilityError(error)) setApplyMessage(error instanceof Error ? error.message : t('settings.workspaces.export.downloadFailed'));
     } finally {
       setApplyBusy(false);
+      setOperation(null);
     }
   }
 
@@ -493,9 +485,11 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       await runtimeAPIs.workspaces.discardArtifact({ exportID, workspaceID: selectedWorkspaceID });
       clearExportArtifact();
     } catch (error) {
+      setApplyFailed(true);
       if (!noteCapabilityError(error)) setApplyMessage(error instanceof Error ? error.message : t('settings.workspaces.export.discardFailed'));
     } finally {
       setApplyBusy(false);
+      setOperation(null);
     }
   }
 
@@ -514,6 +508,12 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
   const adminBlocked = missingCapabilities.includes('workspace.admin');
   const applyBlocked = missingCapabilities.includes('host.apply');
   const configured = policy.enabled && compatibility?.configured !== false;
+  const projectLabel = projects.find((project) => project.path.trim() === directory)?.label
+    ?? (directory ? directory.split(/[\\/]/).filter(Boolean).pop() ?? directory : t('settings.workspaces.lifecycle.noProject'));
+  const isPolicyMismatch = (message: string) => /policy fingerprint/i.test(message);
+  const policyMismatch = isPolicyMismatch(workspaceError) || isPolicyMismatch(workspaceStatusError) || workspaceDiagnostics.some(isPolicyMismatch);
+  const displayWorkspaceError = workspaceError && isPolicyMismatch(workspaceError) ? '' : workspaceError;
+  const displayStatusError = workspaceStatusError && isPolicyMismatch(workspaceStatusError) ? '' : workspaceStatusError;
   const toggleFile = (fileID: string, hunkIDs: string[], checked: boolean) => setSelections((current) => checked
     ? [...current.filter((selection) => selection.fileID !== fileID), { fileID, ...(hunkIDs.length ? { hunkIDs } : {}) }]
     : current.filter((selection) => selection.fileID !== fileID));
@@ -528,31 +528,65 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border/50 px-4 py-3 md:px-6">
         <div className="min-w-0">
           <h1 className="typography-ui-header text-lg font-semibold text-foreground">{t('settings.workspaces.title')}</h1>
-          <p className="truncate typography-meta text-muted-foreground">{directory || t('settings.workspaces.export.directory')}</p>
+          <p className="truncate typography-meta text-muted-foreground">{projectLabel}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <ProviderBadge provider={selectedWorkspace?.type ?? policy.provider} />
-          {selectedWorkspace ? <StatusBadge status={selectedStatus} /> : null}
-          <Button size="sm" variant="outline" data-testid="workspace-load" onClick={() => void loadWorkspaces()} disabled={busy}>{t('settings.workspaces.export.load')}</Button>
+        {/* Only navigation and refresh live here; workspace actions belong to the
+            workspace they act on, not to a toolbar shared by all of them. */}
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            size="icon"
+            variant="ghost"
+            data-testid="workspace-load"
+            onClick={() => void loadWorkspaces()}
+            disabled={busy}
+            aria-label={t('settings.workspaces.export.load')}
+            title={t('settings.workspaces.export.load')}
+          >
+            <Icon name="refresh" className={cn('size-4', busy && 'animate-spin')} />
+          </Button>
           <Button size="sm" variant="ghost" onClick={openSettings}>{t('gitView.pr.actions.openSettings')}</Button>
+          {onClose ? <Button size="sm" variant="ghost" data-testid="workspace-close" onClick={onClose}>{t('settings.workspaces.actions.close')}</Button> : null}
         </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
-        <div className="mx-auto grid w-full max-w-6xl gap-5 lg:grid-cols-[minmax(15rem,0.72fr)_minmax(0,1.28fr)]">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+          {operation ? (
+            <div className="flex items-center gap-2 rounded-md bg-[var(--surface-muted)] px-3 py-2.5" role="status" data-testid="workspace-operation">
+              <Icon name="loader-4" className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+              <span className="typography-ui text-foreground">{t(`settings.workspaces.progress.${operation}` as const)}</span>
+            </div>
+          ) : null}
           <section className="min-w-0 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="typography-ui-label font-semibold text-foreground">{t('settings.workspaces.lifecycle.title')}</h2>
-              <Button size="sm" data-testid="workspace-create" onClick={() => void createWorkspace()} disabled={busy || adminBlocked || !configured || !directory}>{t('settings.workspaces.lifecycle.create')}</Button>
+              <Button size="sm" data-testid="workspace-create" onClick={() => void createWorkspace()} disabled={busy || adminBlocked || !configured || !directory}>{t('settings.workspaces.lifecycle.createWith', { provider: providerDisplayName(t, policy.provider) })}</Button>
             </div>
             {initialLoading ? <p className="typography-meta text-muted-foreground">{t('common.loading')}</p> : null}
+            {!initialLoading && !directory && projects.length > 0 ? (
+              <div className="space-y-2 rounded-lg border border-border bg-[var(--surface-muted)] p-4">
+                <p className="typography-ui text-foreground">{t('settings.workspaces.lifecycle.chooseProject')}</p>
+                <div className="flex flex-col gap-1.5">
+                  {projects.map((project) => (
+                    <Button key={project.id} size="sm" variant="outline" className="justify-start" onClick={() => setManualDirectory(project.path.trim())}>
+                      <span className="truncate">{project.path}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {!initialLoading && !configured ? (
               <div className="space-y-2 rounded-lg border border-border bg-[var(--surface-muted)] p-4">
                 <p className="typography-ui text-foreground">{t('settings.workspaces.compatibility.notConfigured')}</p>
                 <Button size="sm" onClick={openSettings}>{t('gitView.pr.actions.openSettings')}</Button>
               </div>
             ) : null}
-            {!initialLoading && configured && workspaceList.length === 0 ? <p className="rounded-lg border border-dashed border-border p-5 text-center typography-meta text-muted-foreground">{t('settings.workspaces.lifecycle.empty')}</p> : null}
+            {!initialLoading && configured && directory && workspaceList.length === 0 ? (
+              <div className="space-y-1 rounded-lg border border-dashed border-border p-5 text-center">
+                <p className="typography-meta text-muted-foreground">{t('settings.workspaces.lifecycle.empty')}</p>
+                <p className="typography-meta text-muted-foreground">{t('settings.workspaces.lifecycle.emptyHint')}</p>
+              </div>
+            ) : null}
             <div className="space-y-2">
               {workspaceList.map((workspace) => {
                 const selected = workspace.id === selectedWorkspaceID;
@@ -576,10 +610,15 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
                 {t(applyBlocked ? 'settings.workspaces.capability.hostApplyRequired' : 'settings.workspaces.capability.adminRequired')}
               </p>
             ) : null}
-            {workspaceError ? <p className="typography-meta text-[var(--status-error)]" role="alert">{workspaceError}</p> : null}
-            {workspaceStatusError ? <p className="typography-meta text-[var(--status-error)]" role="alert">{workspaceStatusError}</p> : null}
+            {policyMismatch ? (
+              <div className="space-y-1 rounded-md bg-[var(--status-warning-background)] px-3 py-2" role="alert">
+                <p className="typography-meta text-[var(--status-warning-foreground)]">{t('settings.workspaces.errors.policyMismatch')}</p>
+              </div>
+            ) : null}
+            {displayWorkspaceError ? <p className="typography-meta text-[var(--status-error)]" role="alert">{displayWorkspaceError}</p> : null}
+            {displayStatusError ? <p className="typography-meta text-[var(--status-error)]" role="alert">{displayStatusError}</p> : null}
             {workspaceMessage ? <p className="typography-meta text-muted-foreground" role="status">{workspaceMessage}</p> : null}
-            {workspaceDiagnostics.length > 0 ? <div className="space-y-1 typography-meta text-muted-foreground">{workspaceDiagnostics.map((diagnostic) => <p key={diagnostic}>{diagnostic}</p>)}</div> : null}
+            {workspaceDiagnostics.length > 0 ? <div className="space-y-1 typography-meta text-muted-foreground">{workspaceDiagnostics.filter((diagnostic) => !isPolicyMismatch(diagnostic)).map((diagnostic) => <p key={diagnostic}>{diagnostic}</p>)}</div> : null}
           </section>
 
           <section className="min-w-0 space-y-5">
@@ -588,12 +627,23 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="mr-auto typography-ui-label font-semibold text-foreground">{selectedWorkspace.name || selectedWorkspace.id}</h2>
                   <Button size="sm" data-testid="workspace-start-session" onClick={() => void startSession()} disabled={busy || selectedStatus !== 'connected'}>{t('settings.workspaces.lifecycle.startSession')}</Button>
-                   <Button size="sm" variant="outline" onClick={() => void createHandoffDraft(selectedWorkspace.id)} disabled={busy || handoffBusy || !currentSessionID || selectedStatus !== 'connected'}>{t('settings.workspaces.handoff.continueWorkspace')}</Button>
-                   <Button size="sm" variant="outline" onClick={() => void createHandoffDraft(null)} disabled={busy || handoffBusy || !currentSessionID}>{t('settings.workspaces.handoff.continueHost')}</Button>
-                  <Button size="sm" variant="outline" onClick={() => void reconcileSelectedWorkspace()} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.reconcile')}</Button>
-                   <Button size="sm" variant="destructive" data-testid="workspace-delete" onClick={() => setRemoveWorkspaceID(selectedWorkspace.id)} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.delete')}</Button>
+                  <Button size="sm" variant="destructive" data-testid="workspace-delete" onClick={() => setRemoveWorkspaceID(selectedWorkspace.id)} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.delete')}</Button>
                 </div>
-                 {!currentSessionID ? <p className="typography-meta text-muted-foreground">{t('settings.workspaces.handoff.noCurrentSession')}</p> : null}
+                {selectedStatus !== 'connected' ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="typography-meta text-muted-foreground">{t('settings.workspaces.lifecycle.connectHint')}</p>
+                    <Button size="sm" variant="outline" onClick={() => void reconcileSelectedWorkspace()} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.reconcile')}</Button>
+                  </div>
+                ) : null}
+                <details className="rounded-md border border-border/60 px-3 py-2">
+                  <summary className="cursor-pointer select-none typography-meta text-muted-foreground">{t('settings.workspaces.lifecycle.advanced')}</summary>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => void createHandoffDraft(selectedWorkspace.id)} disabled={busy || handoffBusy || !currentSessionID || selectedStatus !== 'connected'}>{t('settings.workspaces.handoff.continueWorkspace')}</Button>
+                    <Button size="sm" variant="outline" onClick={() => void createHandoffDraft(null)} disabled={busy || handoffBusy || !currentSessionID}>{t('settings.workspaces.handoff.continueHost')}</Button>
+                    <Button size="sm" variant="outline" onClick={() => void reconcileSelectedWorkspace()} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.reconcile')}</Button>
+                  </div>
+                  {!currentSessionID ? <p className="mt-2 typography-meta text-muted-foreground">{t('settings.workspaces.handoff.noCurrentSession')}</p> : null}
+                </details>
               </div>
             ) : null}
 
@@ -618,6 +668,8 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
                           <Checkbox checked={Boolean(selected)} onChange={(checked) => toggleFile(file.id, file.textHunks.map((hunk) => hunk.id), checked)} ariaLabel={t('settings.workspaces.export.fileToggle')} />
                           <span className="min-w-0 flex-1 truncate font-mono typography-meta text-foreground">{pathLabel}</span>
                           <span className="typography-micro text-muted-foreground">{file.kind}</span>
+                          {file.hostState === 'applied' ? <span className="rounded-full bg-[var(--surface-elevated)] px-2 py-0.5 typography-micro text-muted-foreground">{t('settings.workspaces.export.alreadyApplied')}</span> : null}
+                          {file.hostState === 'conflict' ? <span className="rounded-full bg-[var(--status-warning-background)] px-2 py-0.5 typography-micro text-[var(--status-warning-foreground)]">{t('settings.workspaces.export.hostChanged')}</span> : null}
                         </label>
                         {file.textHunks.length > 0 ? file.textHunks.map((hunk) => (
                           <div key={hunk.id} className="ml-5 space-y-1 sm:ml-7">
@@ -644,20 +696,21 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
                   <Button size="sm" variant="ghost" data-testid="workspace-export-discard" onClick={() => void discardExport()} disabled={applyBusy || adminBlocked}>{t('settings.workspaces.export.discard')}</Button>
                 </div>
               ) : null}
-              {applyMessage ? <p className="typography-meta text-muted-foreground" role="status" data-testid="workspace-apply-message">{applyMessage}</p> : null}
+              {applyMessage ? (
+                <p
+                  className={cn('typography-meta', applyFailed ? 'text-[var(--status-error)]' : 'text-[var(--status-success)]')}
+                  role={applyFailed ? 'alert' : 'status'}
+                  data-testid="workspace-apply-message"
+                >
+                  {applyMessage}
+                </p>
+              ) : null}
             </div>
           </section>
         </div>
       </div>
 
-      <Dialog open={reauthRequest !== null} onOpenChange={(open) => { if (!open) cancelReauthentication(); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>{t('settings.workspaces.reauth.title')}</DialogTitle><DialogDescription>{t('settings.workspaces.reauth.prompt')}</DialogDescription></DialogHeader>
-          <Input type="password" autoComplete="current-password" value={reauthPassword} onChange={(event) => setReauthPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void confirmReauthentication(); }} placeholder={t('sessionAuth.password.placeholder')} aria-label={t('sessionAuth.password.placeholder')} disabled={reauthBusy} autoFocus />
-          {reauthError ? <p className="typography-meta text-[var(--status-error)]" role="alert">{reauthError}</p> : null}
-          <DialogFooter><Button variant="ghost" onClick={cancelReauthentication} disabled={reauthBusy}>{t('settings.common.actions.cancel')}</Button><Button size="sm" onClick={() => void confirmReauthentication()} disabled={reauthBusy}>{t('settings.workspaces.reauth.confirm')}</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {reauth.dialog}
       <Dialog open={removeWorkspaceID !== null} onOpenChange={(open) => { if (!open && !busy) setRemoveWorkspaceID(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{t('settings.workspaces.lifecycle.confirmDeleteTitle')}</DialogTitle><DialogDescription>{policy.preserveOnDelete ? t('settings.workspaces.lifecycle.confirmDeletePreserve') : t('settings.workspaces.lifecycle.confirmDelete')}</DialogDescription></DialogHeader>
@@ -695,6 +748,12 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     </div>
   );
 };
+
+function providerDisplayName(t: (key: never) => string, provider: string) {
+  if (provider === 'apple-container') return t('settings.workspaces.provider.appleContainer' as never);
+  if (provider === 'kubernetes') return t('settings.workspaces.provider.kubernetes' as never);
+  return t('settings.workspaces.provider.docker' as never);
+}
 
 function ProviderBadge({ provider }: { provider: string }) {
   const { t } = useI18n();
