@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>issue #2627 - draggable click suppression</title>
+<style>
+  body { font-family: sans-serif; }
+  .row { margin-bottom: 8px; }
+  button {
+    display: flex; align-items: center; gap: 6px; width: 240px;
+    padding: 4px 8px; text-align: left; border: 1px solid #ccc;
+    border-radius: 6px; background: #fff; font-size: 14px;
+  }
+</style>
+</head>
+<body>
+  <p id="status">ready</p>
+  <div class="row">
+    <p>Draggable folder button (SidebarFilesTree FileRow):</p>
+    <button id="draggable" type="button" draggable="true"
+      onclick="window.clickCounts.draggable++"
+      ondragstart="window.dragCounts.draggable++; event.dataTransfer.setData('application/x-openchamber-file-path', 'src'); event.dataTransfer.effectAllowed = 'copy';">
+      <span>src</span>
+    </button>
+  </div>
+  <div class="row">
+    <p>Non-draggable folder button (control, FilesView FileRow):</p>
+    <button id="plain" type="button"
+      onclick="window.clickCounts.plain++">
+      <span>src</span>
+    </button>
+  </div>
+  <script>
+    window.clickCounts = { draggable: 0, plain: 0 };
+    window.dragCounts = { draggable: 0, plain: 0 };
+    window.__state = function () {
+      return JSON.stringify({
+        clickCounts: window.clickCounts,
+        dragCounts: window.dragCounts,
+      });
+    };
+  </script>
+</body>
+</html>
