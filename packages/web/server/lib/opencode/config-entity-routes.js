@@ -18,6 +18,7 @@ export const registerConfigEntityRoutes = (app, dependencies) => {
     createMcpConfig,
     updateMcpConfig,
     deleteMcpConfig,
+    listMcpTools,
     listSnippets,
     getSnippet,
     createSnippet,
@@ -204,6 +205,65 @@ export const registerConfigEntityRoutes = (app, dependencies) => {
     } catch (error) {
       console.error('[API:GET /api/config/mcp] Failed:', error);
       res.status(500).json({ error: error.message || 'Failed to list MCP configs' });
+    }
+  });
+
+  // Probe tools exposed by an MCP server without going through OpenCode's tool registry.
+  // Accepts either a saved server `name` and/or a draft config body for add/edit flows.
+  app.post('/api/config/mcp/tools', async (req, res) => {
+    try {
+      const { directory, error } = await resolveOptionalProjectDirectory(req);
+      if (error) {
+        return res.status(400).json({ error });
+      }
+
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+        ? req.body
+        : {};
+      const requestedName = typeof body.name === 'string' ? body.name.trim() : '';
+      const saved = requestedName ? getMcpConfig(requestedName, directory) : null;
+
+      const hasDraftType = body.type === 'local' || body.type === 'remote';
+      const hasDraftCommand = Array.isArray(body.command);
+      const hasDraftUrl = typeof body.url === 'string';
+
+      let probeConfig = null;
+      if (hasDraftType || hasDraftCommand || hasDraftUrl) {
+        probeConfig = {
+          ...(saved || {}),
+          ...body,
+          name: requestedName || saved?.name,
+          type: hasDraftType ? body.type : (saved?.type || (hasDraftUrl ? 'remote' : 'local')),
+        };
+      } else if (saved) {
+        probeConfig = saved;
+      }
+
+      if (!probeConfig) {
+        return res.status(400).json({
+          error: requestedName
+            ? `MCP server "${requestedName}" not found`
+            : 'Provide a saved MCP server name or a draft MCP configuration',
+        });
+      }
+
+      if (probeConfig.enabled === false) {
+        return res.status(400).json({ error: 'MCP server is disabled' });
+      }
+
+      const result = await listMcpTools(probeConfig, { cwd: directory });
+      res.json({
+        name: requestedName || probeConfig.name || null,
+        tools: result.tools,
+        serverInfo: result.serverInfo ?? null,
+      });
+    } catch (error) {
+      console.error('[API:POST /api/config/mcp/tools] Failed:', error);
+      const message = error instanceof Error ? error.message : 'Failed to list MCP tools';
+      const status = /not found/i.test(message) ? 404
+        : /required|invalid|disabled|not supported|must be/i.test(message) ? 400
+          : 502;
+      res.status(status).json({ error: message });
     }
   });
 

@@ -240,7 +240,7 @@ Transport-triggered health checks share the periodic monitor's failure accountin
 - `registerConfigEntityRoutes(app, dependencies)`: registers configuration entity routes:
   - Agents: `/api/config/agents/:name` and `/api/config/agents/:name/config`
   - Commands: `/api/config/commands/:name`
-  - MCP servers: `/api/config/mcp` and `/api/config/mcp/:name`
+  - MCP servers: `/api/config/mcp`, `/api/config/mcp/:name`, and `POST /api/config/mcp/tools` (one-shot tools/list probe for Settings)
   - Snippets: `/api/config/snippets`, `/api/config/snippets/:name`, and `/api/config/snippets/expand`
 
 ## Public exports (auth-state-runtime.js)
