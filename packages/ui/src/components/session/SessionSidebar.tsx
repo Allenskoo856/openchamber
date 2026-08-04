@@ -47,7 +47,11 @@ import { SessionNodeItem } from './sidebar/SessionNodeItem';
 import type { SessionNodeRenderExtras } from './sidebar/sessionNodeItemUtils';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useShallow } from 'zustand/react/shallow';
-import { listProjectWorktrees, worktreeMapsEqual } from '@/lib/worktrees/worktreeManager';
+import {
+  listProjectWorktrees,
+  partitionWorktreesByRegisteredProject,
+  worktreeMapsEqual,
+} from '@/lib/worktrees/worktreeManager';
 import { checkIsGitRepository } from '@/lib/gitApi';
 import type { WorktreeMetadata } from '@/types/worktree';
 import type { SortableDragHandleProps } from './sidebar/sortableItems';
@@ -96,6 +100,7 @@ import { buildSessionBootstrapDemands } from './sidebar/sessionBootstrapDemands'
 import { recordWorktreesSeen } from './sidebar/worktreeFirstSeen';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { streamPerfCount, streamPerfMark } from '@/stores/utils/streamDebug';
+import { runBackgroundNetworkTask } from '@/lib/background-network';
 
 const PROJECT_COLLAPSE_STORAGE_KEY = 'oc.sessions.projectCollapse';
 const GROUP_ORDER_STORAGE_KEY = 'oc.sessions.groupOrder';
@@ -563,8 +568,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         return;
       }
 
-      const currentByProject = useSessionUIStore.getState().availableWorktreesByProject;
-      const worktreesByProject = new Map(currentByProject);
+      const knownWorktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
+      const worktreesByProject = new Map(knownWorktreesByProject);
       const unresolvedProjectPaths = new Set<string>();
 
       // Constrain fanout: previously `Promise.all(projects.map(...))` could
@@ -583,17 +588,18 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           const projectPath = normalizePath(project.path);
           if (!projectPath) continue;
           try {
-            // Use store-cached isGitRepo when available; fall back to
-            // a direct check for projects the Git store hasn't seen yet.
-            // Forcing `ensureStatus` here also warms the store so the
-            // PR/render paths downstream can read isGitRepo for free.
-            const cachedIsGitRepo = useGitStore.getState().directories.get(projectPath)?.isGitRepo;
-            const isGitRepo = cachedIsGitRepo ?? await checkIsGitRepository(projectPath);
-            if (!isGitRepo) {
+            const worktrees = await runBackgroundNetworkTask(async () => {
+              // Use store-cached isGitRepo when available; fall back to
+              // a direct check for projects the Git store hasn't seen yet.
+              const cachedIsGitRepo = useGitStore.getState().directories.get(projectPath)?.isGitRepo;
+              const isGitRepo = cachedIsGitRepo ?? await checkIsGitRepository(projectPath);
+              if (!isGitRepo) return null;
+              return listProjectWorktrees({ id: project.id, path: projectPath });
+            });
+            if (worktrees === null) {
               worktreesByProject.delete(projectPath);
               continue;
             }
-            const worktrees = await listProjectWorktrees({ id: project.id, path: projectPath });
             if (cancelled) return;
             if (worktrees.length === 0) {
               worktreesByProject.delete(projectPath);
@@ -616,16 +622,17 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           worktreesByProject.delete(projectPath);
         }
       }
-      const allWorktrees = [...worktreesByProject.values()].flat();
+      const partitionedWorktreesByProject = partitionWorktreesByRegisteredProject(projectEntries, worktreesByProject);
+      const allWorktrees = [...partitionedWorktreesByProject.values()].flat();
       // Newly appearing worktrees sort to the top of their project's
       // worktree list (see worktreeFirstSeen.ts).
       recordWorktreesSeen(allWorktrees.map((worktree) => worktree.path), Date.now());
 
       // Skip update if nothing changed — see worktreeMapsEqual JSDoc.
-      if (!worktreeMapsEqual(worktreesByProject, currentByProject)) {
+      if (!worktreeMapsEqual(partitionedWorktreesByProject, knownWorktreesByProject)) {
         useSessionUIStore.setState({
           availableWorktrees: allWorktrees,
-          availableWorktreesByProject: worktreesByProject,
+          availableWorktreesByProject: partitionedWorktreesByProject,
         });
       }
       setUnresolvedWorktreeProjectPaths(unresolvedProjectPaths);
@@ -830,6 +837,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     handleShareSession,
     handleCopyShareUrl,
     handleCopySessionReference,
+    handleCopySessionId,
     handleUnshareSession,
     handleDeleteSession,
     confirmDeleteSession,
@@ -907,6 +915,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const stableHandleShareSession = useStableRenderCallback(handleShareSession);
   const stableHandleCopyShareUrl = useStableRenderCallback(handleCopyShareUrl);
   const stableHandleCopySessionReference = useStableRenderCallback(handleCopySessionReference);
+  const stableHandleCopySessionId = useStableRenderCallback(handleCopySessionId);
   const stableHandleUnshareSession = useStableRenderCallback(handleUnshareSession);
   const stableHandleDeleteSession = useStableRenderCallback(handleDeleteSession);
   const stableCreateFolderAndStartRename = useStableRenderCallback(createFolderAndStartRename);
@@ -1123,6 +1132,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const showRecentSection = useSessionDisplayStore((state) => state.showRecentSection);
   const showArchivedSessions = useSessionDisplayStore((state) => state.showArchivedSessions);
   const projectSortOrder = useSessionDisplayStore((state) => state.projectSortOrder);
+  const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
   const manualProjectOrder = useProjectsStore((state) => state.manualProjectOrder);
   const projectExpandedParentsRef = React.useRef<Set<string>>(new Set());
   const recentExpandedParentsRef = React.useRef<Set<string>>(new Set());
@@ -1518,7 +1528,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const headerActionButtonClass = mobileVariant ? mobileHeaderActionButtonClass : desktopHeaderActionButtonClass;
   const headerActionIconClass = 'h-4.5 w-4.5';
   const stuckProjectHeaders = useStickyProjectHeaders({
-    enabled: isVisible,
+    enabled: isVisible && stickyZoneHeaders,
     isDesktopShellRuntime,
     projectSections,
     projectHeaderSentinelRefs,
@@ -1560,6 +1570,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         copiedSessionId={copiedSessionId}
         handleCopyShareUrl={stableHandleCopyShareUrl}
         handleCopySessionReference={stableHandleCopySessionReference}
+        handleCopySessionId={stableHandleCopySessionId}
         handleUnshareSession={stableHandleUnshareSession}
         openSidebarMenuKey={openSidebarMenuKey}
         setOpenSidebarMenuKey={setOpenSidebarMenuKey}
@@ -1864,6 +1875,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         hideDirectoryControls={hideDirectoryControls}
         projectRepoStatus={projectRepoStatus}
         isDesktopShellRuntime={isDesktopShellRuntime}
+        stickyZoneHeaders={stickyZoneHeaders}
         stuckProjectHeaders={stuckProjectHeaders}
         mobileVariant={mobileVariant}
         alwaysShowActions={alwaysShowSidebarActions}
