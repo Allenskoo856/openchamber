@@ -6,7 +6,7 @@ import { useI18n } from '@/lib/i18n';
 import { opencodeClient } from '@/lib/opencode/client';
 import { reportSettingsSaveState } from '@/lib/persistence';
 import { useWorkspaceReauth } from '@/components/workspaces/WorkspaceReauth';
-import type { WorkspaceProviderKind, WorkspaceReadinessResult, WorkspaceReauthProofResult } from '@/lib/api/types';
+import type { WorkspaceProviderEnvironment, WorkspaceProviderKind, WorkspaceReadinessResult, WorkspaceReauthProofResult } from '@/lib/api/types';
 import { Icon } from '@/components/icon/Icon';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -69,6 +69,28 @@ type SecureWorkspaceSettingsPayload = {
 const DEFAULT_NAMESPACE = 'openchamber-workspaces';
 const DEFAULT_NO_PROXY = '127.0.0.1,localhost';
 
+/**
+ * What this choice means, followed by what is wrong with it if anything. Guidance leads
+ * because picking a provider is a decision, not a status readout; an unavailable
+ * provider appends its remedy, and an available one needs no announcement.
+ */
+function providerChoiceDescription(
+  t: (key: never) => string,
+  provider: WorkspaceProviderKind,
+  entry: { available: boolean } | undefined,
+  remediation: string | null,
+): string | undefined {
+  const guidance = provider === 'docker'
+    ? t('settings.workspaces.where.dockerRecommended' as never)
+    : provider === 'kubernetes'
+      ? t('settings.workspaces.where.kubernetesWhen' as never)
+      : '';
+  const problem = entry === undefined || entry.available
+    ? ''
+    : remediation ? t(remediation as never) : t('settings.workspaces.status.unavailable' as never);
+  return [guidance, problem].filter(Boolean).join(' ') || undefined;
+}
+
 export const SecureWorkspacesSettings: React.FC = () => {
   const { t } = useI18n();
   const runtimeAPIs = useRuntimeAPIs();
@@ -78,6 +100,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
   const [checking, setChecking] = React.useState(false);
   const [activationMessage, setActivationMessage] = React.useState('');
   const reauth = useWorkspaceReauth();
+  const [clusters, setClusters] = React.useState<WorkspaceProviderEnvironment | null>(null);
   const [setupBusy, setSetupBusy] = React.useState<string>('');
   const [setupMessage, setSetupMessage] = React.useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
   const dirtyRef = React.useRef(false);
@@ -221,7 +244,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
       } else if (result.verdict === 'enforced') {
         setSetupMessage({ tone: 'ok', text: t('settings.workspaces.setup.isolationEnforced') });
       } else if (result.verdict === 'not-enforced') {
-        setSetupMessage({ tone: 'warn', text: t('settings.workspaces.setup.isolationMissing') });
+        setSetupMessage({ tone: 'warn', text: `${t('settings.workspaces.setup.isolationMissing')} ${t('settings.workspaces.setup.isolationDockerDesktop')}` });
       } else {
         setSetupMessage({ tone: 'warn', text: result.diagnostics?.[0] ?? t('settings.workspaces.setup.isolationUnknown') });
       }
@@ -231,6 +254,29 @@ export const SecureWorkspacesSettings: React.FC = () => {
     } finally {
       setSetupBusy('');
     }
+  }
+
+  // kubeconfig already names the clusters this host can reach, so they are offered
+  // rather than typed. Loaded only for the provider that has them.
+  React.useEffect(() => {
+    if (settings.secureWorkspacesDefaultProvider !== 'kubernetes' || !runtimeAPIs.workspaces?.providerEnvironment) {
+      setClusters(null);
+      return;
+    }
+    let cancelled = false;
+    runtimeAPIs.workspaces.providerEnvironment({ provider: 'kubernetes' })
+      .then((result) => { if (!cancelled) setClusters(result); })
+      .catch(() => { if (!cancelled) setClusters(null); });
+    return () => { cancelled = true; };
+  }, [settings.secureWorkspacesDefaultProvider, runtimeAPIs.workspaces]);
+
+  /** Selecting a cluster carries its namespace, because kubeconfig binds the two. */
+  async function selectCluster(name: string) {
+    const chosen = clusters?.contexts.find((entry) => entry.name === name);
+    const changes: Record<string, string> = { secureWorkspacesKubernetesContext: name };
+    if (chosen?.namespace) changes.secureWorkspacesKubernetesNamespace = chosen.namespace;
+    await save(changes);
+    await refreshCompatibility(opencodeClient.getDirectory() ?? undefined);
   }
 
   async function activateWorkspaces() {
@@ -333,7 +379,14 @@ export const SecureWorkspacesSettings: React.FC = () => {
                   info={t(`settings.workspaces.setup.stepInfo.${selectedProvider}.${step.id}` as never)}
                   description={remediation ? t(remediation) : undefined}
                 >
-                  {step.status === 'satisfied' ? doneMark : step.action && step.status !== 'pending' ? (
+                  {step.id === 'cluster' && (clusters?.contexts.length ?? 0) > 0 ? (
+                    <SettingsChipGroup
+                      aria-label={t('settings.workspaces.setup.step.kubernetes.cluster')}
+                      value={settings.secureWorkspacesKubernetesContext || clusters?.currentContext || ''}
+                      options={(clusters?.contexts ?? []).map((entry) => ({ value: entry.name, label: entry.name }))}
+                      onChange={(value) => void selectCluster(value)}
+                    />
+                  ) : step.status === 'satisfied' ? doneMark : step.action && step.status !== 'pending' ? (
                     <Button size="sm" variant="outline" onClick={() => void runSetupAction(selectedProvider, step.action!)} disabled={busy || setupBusy !== ''}>
                       {busy ? t('settings.workspaces.setup.working') : t(`settings.workspaces.setup.action.${step.action}` as never)}
                     </Button>
@@ -364,9 +417,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
                 onSelect={() => void save({ secureWorkspacesDefaultProvider: provider })}
                 label={providerLabel(provider)}
                 ariaLabel={providerLabel(provider)}
-                description={entry === undefined
-                  ? undefined
-                  : entry.available ? t('settings.workspaces.status.available') : remediation ? t(remediation) : t('settings.workspaces.status.unavailable')}
+                description={providerChoiceDescription(t, provider, entry, remediation)}
               />
             );
           })}

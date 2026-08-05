@@ -9,6 +9,7 @@ import type {
   WorkspaceProviderValidationResult,
   WorkspaceReadinessResult,
   WorkspaceSecurityAPI,
+  WorkspaceProviderEnvironment,
   WorkspaceSetupResult,
   WorkspaceHandoffOperation,
   WorkspaceSessionStartError,
@@ -60,6 +61,16 @@ export const createWebWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
     const payload = await readJson<WorkspaceSetupResult | { error?: string }>(response, { error: response.statusText });
     if (!response.ok) throw new Error('error' in payload && payload.error ? payload.error : 'Workspace setup step failed');
     return payload as WorkspaceSetupResult;
+  },
+
+  async providerEnvironment(input: { provider: WorkspaceProviderKind }): Promise<WorkspaceProviderEnvironment> {
+    const response = await runtimeFetch('/api/workspaces/providers/environment', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      query: { provider: input.provider },
+    });
+    const payload = await readJson<WorkspaceProviderEnvironment>(response, { provider: input.provider, contexts: [], currentContext: null });
+    return response.ok ? payload : { provider: input.provider, contexts: [], currentContext: null };
   },
 
   async compatibility(input?: { directory?: string | null }): Promise<WorkspaceCompatibilityResult> {

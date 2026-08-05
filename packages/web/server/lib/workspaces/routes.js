@@ -514,6 +514,22 @@ export function registerWorkspaceRoutes(app, dependencies) {
   app.get('/api/workspaces/providers/validate', handleProviderValidation);
   app.post('/api/workspaces/providers/validate', handleProviderValidation);
 
+  // Reading which clusters the host already knows is not a host change, so it carries the
+  // same capability check as readiness rather than a step-up prompt for a list of names.
+  app.get('/api/workspaces/providers/environment', async (req, res) => {
+    const provider = typeof req.query.provider === 'string' ? req.query.provider : '';
+    if (!await authorizeCapabilityRequest(req, res, 'workspace.read', { allowUnsupported: true })) return;
+    if (!SECURE_WORKSPACE_PROVIDERS.has(provider)) return res.status(400).json({ error: 'Unsupported workspace provider' });
+    try {
+      const context = await persistedContext('', null);
+      return res.json(await (await operationsFor(context)).describeProvider(provider));
+    } catch {
+      // A host that cannot describe its clusters is not an error state: it simply has none
+      // to offer, and the operator can still name one by hand.
+      return res.json({ provider, contexts: [], currentContext: null });
+    }
+  });
+
   const SETUP_ACTIONS = new Set(['create-namespace', 'check-isolation']);
 
   // Setup actions change the cluster, so they carry the same proof as other host-affecting
