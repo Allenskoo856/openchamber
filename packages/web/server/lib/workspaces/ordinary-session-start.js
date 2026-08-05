@@ -108,9 +108,26 @@ function validateJournalBinding(journal, input) {
   }
 }
 
+const safeMessage = (error) => error instanceof Error ? error.message : String(error);
+
+/** Removes the row OpenCode retained for a failed create, reporting what it could not reclaim. */
+async function compensateProvisionalRow(compensateCreate, id) {
+  if (typeof compensateCreate !== 'function') return '';
+  try {
+    const result = await compensateCreate(id);
+    if (result?.completed === true) return '';
+    const remaining = Array.isArray(result?.remainingResources) && result.remainingResources.length > 0
+      ? `: ${result.remainingResources.join(', ')}`
+      : '';
+    return ` (an unused workspace record was left behind and can be removed from the workspaces panel${remaining})`;
+  } catch (error) {
+    return ` (an unused workspace record was left behind: ${safeMessage(error)})`;
+  }
+}
+
 async function startOrdinaryWorkspaceSessionUnlocked({
   operationID, principal, directory, projectID, title, provider, client, journal,
-  maxAttempts = 20, pollIntervalMs = 250, authorizeCreation,
+  maxAttempts = 20, pollIntervalMs = 250, authorizeCreation, compensateCreate,
 }) {
   validateOperationID(operationID);
   if (!principal || !directory || !projectID || !client) fail(ORDINARY_SESSION_ERRORS.INVALID_REQUEST, 'operationID, project, and client are required', 400);
@@ -144,14 +161,25 @@ async function startOrdinaryWorkspaceSessionUnlocked({
   if (!workspace) {
     if (typeof authorizeCreation !== 'function') fail(ORDINARY_SESSION_ERRORS.UNAUTHORIZED, 'Workspace creation authorization is required', 403);
     await authorizeCreation();
-    const created = await client.experimental.workspace.create({ id: `wrk_${crypto.randomUUID().replaceAll('-', '')}`, type: provider, directory, branch: null });
+    // OpenCode writes the control-plane row before invoking the adapter and keeps it when
+    // the adapter fails, so a failed create leaves a phantom workspace behind. The ID is
+    // generated here precisely so the exact row can be compensated (spec section 6.6).
+    const provisionalID = `wrk_${crypto.randomUUID().replaceAll('-', '')}`;
+    let created;
+    try {
+      created = await client.experimental.workspace.create({ id: provisionalID, type: provider, directory, branch: null });
+    } catch (cause) {
+      const compensation = await compensateProvisionalRow(compensateCreate, provisionalID);
+      fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, `Workspace creation failed: ${safeMessage(cause)}${compensation}`, 409, { retryable: true });
+    }
     if (created?.error || !created?.data) {
       const detail = created?.error
         ? (typeof created.error === 'string' ? created.error : JSON.stringify(created.error)).slice(0, 400)
         : created?.response?.status
           ? `HTTP ${created.response.status}`
           : 'no authoritative workspace data';
-      fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, `Workspace creation failed: ${detail}`, 409, { retryable: true });
+      const compensation = await compensateProvisionalRow(compensateCreate, provisionalID);
+      fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, `Workspace creation failed: ${detail}${compensation}`, 409, { retryable: true });
     }
     workspace = created.data;
     operation.workspaceID = workspace.id;

@@ -49,6 +49,41 @@ describe('ordinary workspace session start', () => {
     expect(fx.client.experimental.workspace.create).not.toHaveBeenCalled();
   });
 
+  it('compensates the row OpenCode retains when create fails', async () => {
+    const fx = fixture({ listed: [] });
+    fx.client.experimental.workspace.create.mockResolvedValue({ error: { message: 'adapter refused' } });
+    const compensateCreate = vi.fn(async () => ({ completed: true, remainingResources: [] }));
+
+    await expect(startOrdinaryWorkspaceSession(input(fx, {
+      authorizeCreation: vi.fn(async () => true),
+      compensateCreate,
+    }))).rejects.toMatchObject({ code: ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE });
+
+    // The compensated ID must be the one we generated, so the exact row is reclaimed.
+    const requestedID = fx.client.experimental.workspace.create.mock.calls[0][0].id;
+    expect(compensateCreate).toHaveBeenCalledWith(requestedID);
+  });
+
+  it('reports a record that could not be reclaimed instead of failing silently', async () => {
+    const fx = fixture({ listed: [] });
+    fx.client.experimental.workspace.create.mockResolvedValue({ error: { message: 'adapter refused' } });
+    const compensateCreate = vi.fn(async () => ({ completed: false, remainingResources: ['container:runtime'] }));
+
+    await expect(startOrdinaryWorkspaceSession(input(fx, {
+      authorizeCreation: vi.fn(async () => true),
+      compensateCreate,
+    }))).rejects.toThrow(/unused workspace record was left behind/);
+  });
+
+  it('does not compensate a workspace that was created successfully', async () => {
+    const fx = fixture({ listed: [] });
+    const compensateCreate = vi.fn();
+
+    await startOrdinaryWorkspaceSession(input(fx, { authorizeCreation: vi.fn(async () => true), compensateCreate }));
+
+    expect(compensateCreate).not.toHaveBeenCalled();
+  });
+
   it('creates exactly one workspace and retries idempotently', async () => {
     const fx = fixture({ listed: [] });
     const first = await startOrdinaryWorkspaceSession(input(fx, { authorizeCreation: vi.fn(async () => true) }));

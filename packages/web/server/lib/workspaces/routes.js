@@ -618,7 +618,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
       // authorization; hashing the canonical path here breaks the binding on hosts where
       // the canonical form differs from the client's project string (e.g. Windows).
       const payload = { operationID, directory, title };
-      const result = await startOrdinaryWorkspaceSession({ operationID, principal: authorization.principal, directory: context.directory, projectID: context.project.id, title, provider, client: await sdkClient(context.directory), journal: ordinarySessionJournal, maxAttempts: workspaceCreateStatusMaxAttempts, pollIntervalMs: workspaceCreateStatusPollIntervalMs, authorizeCreation: async () => {
+      const result = await startOrdinaryWorkspaceSession({ operationID, principal: authorization.principal, directory: context.directory, projectID: context.project.id, title, provider, client: await sdkClient(context.directory), journal: ordinarySessionJournal, maxAttempts: workspaceCreateStatusMaxAttempts, pollIntervalMs: workspaceCreateStatusPollIntervalMs, compensateCreate: async (provisionalID) => compensateCreate({ id: provisionalID, context, client: await sdkClient(context.directory) }), authorizeCreation: async () => {
         const capabilities = Array.isArray(authorization.context?.client?.capabilities) ? authorization.context.client.capabilities : [];
         if (authorization.context?.type !== 'session' && !capabilities.includes('workspace.admin')) throw Object.assign(new Error('Client capability required: workspace.admin'), { statusCode: 403, code: 'WORKSPACE_SESSION_UNAUTHORIZED' });
         if (!await uiAuthController.consumeReauthProof(req, { operation: 'workspace.session.start', project: directory, bodyHash: reauthBodyHash(payload) })) {
