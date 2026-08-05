@@ -70,7 +70,7 @@ import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useCommandsStore } from '@/stores/useCommandsStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useWorkspaceReauth } from '@/components/workspaces/WorkspaceReauth';
-import type { WorkspaceCompatibilityResult } from '@/lib/api/types';
+import type { WorkspaceReadinessResult } from '@/lib/api/types';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { usePermissionStore } from '@/stores/permissionStore';
 import { togglePermissionAutoAccept } from './permissionAutoAccept';
@@ -341,7 +341,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
     const workspaceReauth = useWorkspaceReauth();
     const [workspaceProgress, setWorkspaceProgress] = React.useState<'preparing' | 'connecting' | 'creating' | 'opening' | null>(null);
     const [workspaceRecovery, setWorkspaceRecovery] = React.useState<{ code: string; message: string } | null>(null);
-    const [workspaceCompat, setWorkspaceCompat] = React.useState<WorkspaceCompatibilityResult | null>(null);
+    const [workspaceCompat, setWorkspaceCompat] = React.useState<WorkspaceReadinessResult | null>(null);
     const [secureBlocked, setSecureBlocked] = React.useState<'project' | 'setup' | null>(null);
     const workspaceSubmitInFlightRef = React.useRef(false);
 
@@ -376,7 +376,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             return;
         }
         let cancelled = false;
-        workspaces.compatibility().then((result) => {
+        workspaces.readiness().then((result) => {
             if (!cancelled) setWorkspaceCompat(result);
         }).catch(() => {});
         return () => { cancelled = true; };
@@ -1285,6 +1285,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
             if (structuredCode === 'WORKSPACE_SESSION_PARTIAL' || structuredCode === 'WORKSPACE_SESSION_CONNECTION_TIMEOUT') {
                 setWorkspaceRecovery({ code: structuredCode, message: rawMessage });
                 toast.error(t('settings.workspaces.newSession.partial'));
+                return;
+            }
+
+            if (typeof structuredCode === 'string' && structuredCode.startsWith('WORKSPACE_SESSION_')) {
+                // Provider failures arrive as internal sentences ("Docker CLI is not
+                // available"); say what to do instead of forwarding the sentence.
+                const hint = workspaceStartRemedy(rawMessage);
+                toast.error(hint ? t(hint) : t('settings.workspaces.newSession.startFailed'));
                 return;
             }
 
@@ -2504,7 +2512,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
                     ) : secureBlocked === 'project' ? (
                         <p className="text-center typography-meta text-muted-foreground" role="status">{t('settings.workspaces.newSession.chooseProject')}</p>
                     ) : newSessionDraft?.workspaceMode === 'secure' ? (
-                        <p className="text-center typography-meta text-muted-foreground">{t('settings.workspaces.newSession.secureHint')}</p>
+                        <p className="text-center typography-meta text-muted-foreground">
+                            {workspaceCompat?.defaultProvider
+                                ? t('settings.workspaces.newSession.secureHintWithRuntime', { runtime: workspaceRuntimeLabel(t, workspaceCompat.defaultProvider) })
+                                : t('settings.workspaces.newSession.secureHint')}
+                        </p>
                     ) : null}
                 </div>
             ) : null}
@@ -2980,5 +2992,29 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({ onOpenSettings, scrollTo
 };
 
 ChatInputComponent.displayName = 'ChatInput';
+
+/** Human name of the runtime a secure session would use, for the composer hint. */
+function workspaceRuntimeLabel(t: (key: never) => string, provider: string) {
+    if (provider === 'apple-container') return t('settings.workspaces.provider.appleContainer' as never);
+    if (provider === 'kubernetes') return t('settings.workspaces.provider.kubernetes' as never);
+    return t('settings.workspaces.provider.docker' as never);
+}
+
+/**
+ * Maps a workspace start failure to actionable guidance. The server sends provider
+ * sentences meant for logs; the composer needs the remedy, not the sentence.
+ */
+function workspaceStartRemedy(message: string) {
+    const text = (message || '').toLowerCase();
+    if (text.includes('docker cli is not available')) return 'settings.workspaces.remediation.docker.cliMissing' as const;
+    if (text.includes('docker daemon is not reachable')) return 'settings.workspaces.remediation.docker.daemonUnavailable' as const;
+    if (text.includes('kubectl is not available')) return 'settings.workspaces.remediation.kubernetes.cliMissing' as const;
+    if (text.includes('no kubernetes configuration')) return 'settings.workspaces.remediation.kubernetes.notConfigured' as const;
+    if (text.includes('cluster is not reachable')) return 'settings.workspaces.remediation.kubernetes.clusterUnreachable' as const;
+    if (text.includes('namespace does not exist')) return 'settings.workspaces.remediation.kubernetes.namespaceMissing' as const;
+    if (text.includes('apple container cli is not available')) return 'settings.workspaces.remediation.apple.cliMissing' as const;
+    if (text.includes('supported only on macos')) return 'settings.workspaces.remediation.apple.unsupportedPlatform' as const;
+    return null;
+}
 
 export const ChatInput = React.memo(ChatInputComponent);

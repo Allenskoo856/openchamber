@@ -280,6 +280,19 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     }
   }
 
+  // Where the current chat runs decides which move directions make sense at all;
+  // undefined means unknown (still loading or lookup failed) and keeps both offered.
+  const [currentChatWorkspaceID, setCurrentChatWorkspaceID] = React.useState<string | null | undefined>(undefined);
+  React.useEffect(() => {
+    let cancelled = false;
+    setCurrentChatWorkspaceID(undefined);
+    if (!currentSessionID) return;
+    opencodeClient.getSession(currentSessionID, directory || undefined)
+      .then((session) => { if (!cancelled) setCurrentChatWorkspaceID(session.workspaceID ?? null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentSessionID, directory]);
+
   async function createHandoffDraft(targetWorkspaceID: string | null) {
     if (!currentSessionID || !runtimeAPIs.workspaces) return;
     setHandoffBusy(true);
@@ -629,21 +642,34 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
                   <Button size="sm" data-testid="workspace-start-session" onClick={() => void startSession()} disabled={busy || selectedStatus !== 'connected'}>{t('settings.workspaces.lifecycle.startSession')}</Button>
                   <Button size="sm" variant="destructive" data-testid="workspace-delete" onClick={() => setRemoveWorkspaceID(selectedWorkspace.id)} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.delete')}</Button>
                 </div>
+                {/* Repair belongs to the problem it solves, so it appears only while the
+                    workspace is not usable — not as a standing action nobody can place. */}
                 {selectedStatus !== 'connected' ? (
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="typography-meta text-muted-foreground">{t('settings.workspaces.lifecycle.connectHint')}</p>
-                    <Button size="sm" variant="outline" onClick={() => void reconcileSelectedWorkspace()} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.reconcile')}</Button>
+                    <Button size="sm" variant="outline" onClick={() => void reconcileSelectedWorkspace()} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.reconnect')}</Button>
                   </div>
                 ) : null}
-                <details className="rounded-md border border-border/60 px-3 py-2">
-                  <summary className="cursor-pointer select-none typography-meta text-muted-foreground">{t('settings.workspaces.lifecycle.advanced')}</summary>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Button size="sm" variant="outline" onClick={() => void createHandoffDraft(selectedWorkspace.id)} disabled={busy || handoffBusy || !currentSessionID || selectedStatus !== 'connected'}>{t('settings.workspaces.handoff.continueWorkspace')}</Button>
-                    <Button size="sm" variant="outline" onClick={() => void createHandoffDraft(null)} disabled={busy || handoffBusy || !currentSessionID}>{t('settings.workspaces.handoff.continueHost')}</Button>
-                    <Button size="sm" variant="outline" onClick={() => void reconcileSelectedWorkspace()} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.reconcile')}</Button>
+                {/* Moving a chat is a real feature, not an "advanced" leftover: name it,
+                    say what happens, and show it only when there is a chat to move. */}
+                {currentSessionID ? (
+                  <div className="space-y-1.5 border-t border-border/60 pt-3">
+                    <p className="typography-ui-label font-medium text-foreground">{t('settings.workspaces.handoff.moveTitle')}</p>
+                    <p className="typography-meta text-muted-foreground">
+                      {currentChatWorkspaceID === selectedWorkspace.id
+                        ? t('settings.workspaces.handoff.chatAlreadyHere')
+                        : t('settings.workspaces.handoff.moveHint')}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      {currentChatWorkspaceID !== selectedWorkspace.id ? (
+                        <Button size="sm" variant="outline" onClick={() => void createHandoffDraft(selectedWorkspace.id)} disabled={busy || handoffBusy || selectedStatus !== 'connected'}>{t('settings.workspaces.handoff.moveIntoWorkspace')}</Button>
+                      ) : null}
+                      {currentChatWorkspaceID !== null ? (
+                        <Button size="sm" variant="outline" onClick={() => void createHandoffDraft(null)} disabled={busy || handoffBusy}>{t('settings.workspaces.handoff.moveToHost')}</Button>
+                      ) : null}
+                    </div>
                   </div>
-                  {!currentSessionID ? <p className="mt-2 typography-meta text-muted-foreground">{t('settings.workspaces.handoff.noCurrentSession')}</p> : null}
-                </details>
+                ) : null}
               </div>
             ) : null}
 
