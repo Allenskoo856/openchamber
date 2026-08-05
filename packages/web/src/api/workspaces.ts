@@ -4,10 +4,12 @@ import type {
   WorkspaceCompatibilityResult,
   WorkspaceConfigureResult,
   WorkspaceExportResult,
+  WorkspaceProviderKind,
   WorkspaceProviderValidationInput,
   WorkspaceProviderValidationResult,
   WorkspaceReadinessResult,
   WorkspaceSecurityAPI,
+  WorkspaceSetupResult,
   WorkspaceHandoffOperation,
   WorkspaceSessionStartError,
   WorkspaceSessionStartResult,
@@ -47,6 +49,17 @@ export const createWebWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
     const payload = await readJson<WorkspaceReadinessResult | { error?: string }>(response, { error: response.statusText });
     if (!response.ok) throw new Error('error' in payload && payload.error ? payload.error : 'Failed to inspect workspace readiness');
     return payload as WorkspaceReadinessResult;
+  },
+
+  async setupProvider(input: { provider: WorkspaceProviderKind; action: 'create-namespace' | 'check-isolation'; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceSetupResult> {
+    const response = await runtimeFetch('/api/workspaces/providers/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...proofHeaders(input.reauthProof, input.reauthNonce) },
+      body: JSON.stringify({ provider: input.provider, action: input.action }),
+    });
+    const payload = await readJson<WorkspaceSetupResult | { error?: string }>(response, { error: response.statusText });
+    if (!response.ok) throw new Error('error' in payload && payload.error ? payload.error : 'Workspace setup step failed');
+    return payload as WorkspaceSetupResult;
   },
 
   async compatibility(input?: { directory?: string | null }): Promise<WorkspaceCompatibilityResult> {

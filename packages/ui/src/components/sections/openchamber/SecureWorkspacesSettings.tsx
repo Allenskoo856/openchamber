@@ -78,6 +78,8 @@ export const SecureWorkspacesSettings: React.FC = () => {
   const [checking, setChecking] = React.useState(false);
   const [activationMessage, setActivationMessage] = React.useState('');
   const reauth = useWorkspaceReauth();
+  const [setupBusy, setSetupBusy] = React.useState<string>('');
+  const [setupMessage, setSetupMessage] = React.useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
   const dirtyRef = React.useRef(false);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [settings, setSettings] = React.useState<Required<SecureWorkspaceSettingsPayload>>({
@@ -205,6 +207,32 @@ export const SecureWorkspacesSettings: React.FC = () => {
     }
   }
 
+  /** Completes one setup requirement the app can do on the person's behalf. */
+  async function runSetupAction(provider: WorkspaceProviderKind, action: 'create-namespace' | 'check-isolation') {
+    if (!runtimeAPIs.workspaces?.setupProvider) return;
+    setSetupBusy(action);
+    setSetupMessage(null);
+    try {
+      const proof = await reauthenticate('workspace.setup', 'host', { provider, action });
+      if (!proof) return;
+      const result = await runtimeAPIs.workspaces.setupProvider({ provider, action, reauthProof: proof.proof, reauthNonce: proof.nonce });
+      if (action === 'create-namespace') {
+        setSetupMessage({ tone: 'ok', text: t(result.created ? 'settings.workspaces.setup.namespaceCreated' : 'settings.workspaces.setup.namespaceExists') });
+      } else if (result.verdict === 'enforced') {
+        setSetupMessage({ tone: 'ok', text: t('settings.workspaces.setup.isolationEnforced') });
+      } else if (result.verdict === 'not-enforced') {
+        setSetupMessage({ tone: 'warn', text: t('settings.workspaces.setup.isolationMissing') });
+      } else {
+        setSetupMessage({ tone: 'warn', text: result.diagnostics?.[0] ?? t('settings.workspaces.setup.isolationUnknown') });
+      }
+      await refreshCompatibility(opencodeClient.getDirectory() ?? undefined);
+    } catch (error) {
+      setSetupMessage({ tone: 'warn', text: error instanceof Error ? error.message : t('settings.workspaces.setup.actionFailed') });
+    } finally {
+      setSetupBusy('');
+    }
+  }
+
   async function activateWorkspaces() {
     if (!runtimeAPIs.workspaces) return;
     setSaving(true);
@@ -241,6 +269,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
   const providerLabel = (provider: WorkspaceProviderKind) => provider === 'apple-container'
     ? t('settings.workspaces.provider.appleContainer')
     : provider === 'kubernetes' ? t('settings.workspaces.provider.kubernetes') : t('settings.workspaces.provider.docker');
+  const selectedSteps = providerReadiness.get(selectedProvider)?.steps ?? [];
   const doneMark = <span className={SETTINGS_HELPER_CLASS} style={{ color: 'var(--status-success)' }}>{t('settings.workspaces.setup.done')}</span>;
 
   return (
@@ -286,6 +315,38 @@ export const SecureWorkspacesSettings: React.FC = () => {
           </SettingsFieldRow>
         </div>
       </SettingsSection>
+
+      {selectedSteps.length > 0 && !(runtimeReady && selectedSteps.every((step) => step.status === 'satisfied')) ? (
+        <SettingsSection
+          title={t('settings.workspaces.setup.pathTitle', { provider: providerLabel(selectedProvider) })}
+          description={t('settings.workspaces.setup.pathHint')}
+          settingsItem="workspaces.setup.path"
+        >
+          <div className={SETTINGS_FIELDS_STACK_CLASS}>
+            {selectedSteps.map((step, index) => {
+              const remediation = step.status === 'blocked' ? providerRemediation(selectedProvider, step.code) : null;
+              const busy = setupBusy === step.action;
+              return (
+                <SettingsFieldRow
+                  key={step.id}
+                  label={`${index + 1}. ${t(`settings.workspaces.setup.step.${selectedProvider}.${step.id}` as never)}`}
+                  info={t(`settings.workspaces.setup.stepInfo.${selectedProvider}.${step.id}` as never)}
+                  description={remediation ? t(remediation) : undefined}
+                >
+                  {step.status === 'satisfied' ? doneMark : step.action && step.status !== 'pending' ? (
+                    <Button size="sm" variant="outline" onClick={() => void runSetupAction(selectedProvider, step.action!)} disabled={busy || setupBusy !== ''}>
+                      {busy ? t('settings.workspaces.setup.working') : t(`settings.workspaces.setup.action.${step.action}` as never)}
+                    </Button>
+                  ) : null}
+                </SettingsFieldRow>
+              );
+            })}
+          </div>
+          {setupMessage ? (
+            <p className={SETTINGS_HELPER_CLASS} style={setupMessage.tone === 'warn' ? { color: 'var(--status-warning-foreground)' } : undefined}>{setupMessage.text}</p>
+          ) : null}
+        </SettingsSection>
+      ) : null}
 
       <SettingsSection
         title={t('settings.workspaces.where.title')}

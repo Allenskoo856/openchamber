@@ -42,6 +42,7 @@ const OPERATION_LABEL_KEYS = {
   'workspace.cleanup': 'settings.workspaces.reauth.op.cleanup',
   'workspace.configure': 'settings.workspaces.reauth.op.configure',
   'workspace.validate': 'settings.workspaces.reauth.op.validate',
+  'workspace.setup': 'settings.workspaces.reauth.op.setup',
   'workspace.reconcile': 'settings.workspaces.reauth.op.reconcile',
   'workspace.export': 'settings.workspaces.reauth.op.export',
   'host.apply': 'settings.workspaces.reauth.op.hostApply',

@@ -48,6 +48,15 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode,
   },
   {
+    // The ordered path to a working provider, shown only while something is missing.
+    id: 'workspaces.setup.path',
+    page: 'workspaces',
+    titleKey: 'settings.workspaces.setup.pathTitle',
+    descriptionKey: 'settings.workspaces.setup.pathHint',
+    keywords: ['setup', 'steps', 'prerequisites', 'kubectl', 'namespace', 'permissions', 'isolation', 'networkpolicy', 'cluster', 'docker', 'kubernetes', 'guide'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
     id: 'workspaces.providers',
     page: 'workspaces',
     titleKey: 'settings.workspaces.title',

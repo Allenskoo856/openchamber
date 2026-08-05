@@ -835,11 +835,33 @@ export interface WorkspaceCompatibilityResult {
   platformProviders?: WorkspaceProviderKind[];
 }
 
+/** One requirement on the ordered path to a working provider. */
+export interface WorkspaceSetupStep {
+  id: 'platform' | 'cli' | 'daemon' | 'cluster' | 'namespace' | 'permissions' | 'isolation';
+  status: 'satisfied' | 'blocked' | 'pending' | 'unknown';
+  /** Present when the app can complete this step itself. */
+  action?: 'create-namespace' | 'check-isolation';
+  /** Present on a blocking step, naming the specific cause. */
+  code?: string;
+}
+
+export interface WorkspaceSetupResult {
+  provider: WorkspaceProviderKind;
+  action: 'create-namespace' | 'check-isolation';
+  namespace?: string;
+  created?: boolean;
+  verdict?: 'enforced' | 'not-enforced' | 'inconclusive';
+  diagnostics?: string[];
+}
+
 export interface WorkspaceProviderReadiness {
   provider: WorkspaceProviderKind;
   available: boolean;
   /** Structured reason when unavailable; never carries provider output or credentials. */
   code?: string;
+  /** The ordered path to a working provider, so a surface can show the whole route. */
+  steps?: WorkspaceSetupStep[];
+  diagnostics?: string[];
 }
 
 /** Environment readiness, answerable without any step-up authentication. */
@@ -940,6 +962,7 @@ export type WorkspacePrivilegedOperation =
   | 'workspace.session.start'
   | 'workspace.configure'
   | 'workspace.validate'
+  | 'workspace.setup'
   | 'workspace.create'
   | 'workspace.cleanup'
   | 'workspace.reconcile'
@@ -967,6 +990,7 @@ export interface WorkspaceSecurityAPI {
   validateProvider(input: WorkspaceProviderValidationInput & { reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceProviderValidationResult>;
   compatibility(input?: { directory?: string | null }): Promise<WorkspaceCompatibilityResult>;
   readiness(input?: { directory?: string | null }): Promise<WorkspaceReadinessResult>;
+  setupProvider(input: { provider: WorkspaceProviderKind; action: 'create-namespace' | 'check-isolation'; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceSetupResult>;
   updateSettings(input: { changes: Partial<SettingsPayload>; activate?: boolean; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceConfigureResult>;
   create(input: { type: WorkspaceProviderKind; directory?: string | null; extra?: Record<string, unknown> | null; reauthProof?: string; reauthNonce?: string }): Promise<{ id: string; type: string; name: string; directory?: string | null; status: 'connected' | 'connecting'; provisional: boolean; retryable: boolean; diagnostics: string[] }>;
   cleanup(input: { id: string; directory?: string | null; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceLifecycleResult>;

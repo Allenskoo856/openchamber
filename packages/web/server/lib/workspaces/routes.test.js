@@ -442,8 +442,12 @@ describe('workspace provider operation routes', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body).toMatchObject({ enabled: true, defaultProvider: 'docker' });
-    expect(res.body.providers).toContainEqual({ provider: 'docker', available: false, code: 'WORKSPACE_PROVIDER_DAEMON_UNAVAILABLE' });
+    expect(res.body.providers).toContainEqual(expect.objectContaining({ provider: 'docker', available: false, code: 'WORKSPACE_PROVIDER_DAEMON_UNAVAILABLE' }));
     expect(res.body.providers.every((entry) => !('message' in entry) && !('error' in entry))).toBe(true);
+    // Readiness carries the ordered path to a working provider, with the failing
+    // requirement identified rather than left for the surface to infer.
+    const docker = res.body.providers.find((entry) => entry.provider === 'docker');
+    expect(docker.steps.map((step) => [step.id, step.status])).toEqual([['cli', 'satisfied'], ['daemon', 'blocked']]);
     expect(deps.uiAuthController.consumeReauthProof).not.toHaveBeenCalled();
   });
 

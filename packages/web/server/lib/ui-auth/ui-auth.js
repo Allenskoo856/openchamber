@@ -16,6 +16,7 @@ const REAUTH_PROOF_PREFIX = 'oc_reauth_';
 const REAUTH_PROOF_OPERATIONS = new Set([
   'workspace.configure',
   'workspace.validate',
+  'workspace.setup',
   'workspace.create',
   'workspace.session.start',
   'workspace.cleanup',

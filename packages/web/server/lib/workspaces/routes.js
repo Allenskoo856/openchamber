@@ -13,6 +13,7 @@ import { buildPluginOptions, readWorkspaceSettings } from './policy.js';
 import { isWorkspacePluginEntry, WORKSPACE_PLUGIN_PACKAGE } from './plugin-identity.js';
 import { createWorkspaceSessionHandoff, WorkspaceHandoffJournal } from './session-handoff.js';
 import { OrdinarySessionJournal, startOrdinaryWorkspaceSession } from './ordinary-session-start.js';
+import { workspaceSetupSteps } from './setup-steps.js';
 
 const WORKSPACE_ADAPTER_PROBE_TIMEOUT_MS = 10_000;
 const WORKSPACE_CREATE_STATUS_REQUEST_TIMEOUT_MS = 3_000;
@@ -93,6 +94,16 @@ async function atomicWritePrivateJson(file, value) {
     await fs.promises.rm(temporary, { force: true }).catch(() => {});
     throw error;
   }
+}
+
+/**
+ * The provider reports an earlier isolation probe through its diagnostics rather than a
+ * field, because the probe is too slow to run on a readiness check.
+ */
+function isolationVerdict(result) {
+  const diagnostics = Array.isArray(result?.diagnostics) ? result.diagnostics : [];
+  if (diagnostics.some((entry) => typeof entry === 'string' && /could not be verified/i.test(entry))) return { verdict: 'inconclusive' };
+  return null;
 }
 
 function platformProviders() {
@@ -503,6 +514,26 @@ export function registerWorkspaceRoutes(app, dependencies) {
   app.get('/api/workspaces/providers/validate', handleProviderValidation);
   app.post('/api/workspaces/providers/validate', handleProviderValidation);
 
+  const SETUP_ACTIONS = new Set(['create-namespace', 'check-isolation']);
+
+  // Setup actions change the cluster, so they carry the same proof as other host-affecting
+  // work rather than riding on an unauthenticated readiness read.
+  app.post('/api/workspaces/providers/setup', async (req, res) => {
+    const provider = typeof req.body?.provider === 'string' ? req.body.provider : '';
+    const action = typeof req.body?.action === 'string' ? req.body.action : '';
+    if (!await authorizePrivilegedRequest(req, res, 'workspace.admin', 'workspace.setup', 'host', { provider, action })) return;
+    if (!SECURE_WORKSPACE_PROVIDERS.has(provider)) return res.status(400).json({ error: 'Unsupported workspace provider' });
+    if (!SETUP_ACTIONS.has(action)) return res.status(400).json({ error: 'Unsupported setup action' });
+    try {
+      const context = await persistedContext('', null);
+      const result = await (await operationsFor(context)).prepareProvider(provider, action);
+      return res.json({ ...result, provider });
+    } catch (error) {
+      return res.status(error?.statusCode || 503).json({ error: safeErrorMessage(error, 'Workspace setup step failed'), code: typeof error?.code === 'string' ? error.code : undefined });
+    }
+  });
+
+
   app.get('/api/workspaces/compatibility', async (req, res) => {
     if (!await authorizeCapabilityRequest(req, res, 'workspace.read', { allowUnsupported: true })) return;
     try {
@@ -547,12 +578,17 @@ export function registerWorkspaceRoutes(app, dependencies) {
       }
 
       const providers = await Promise.all(compatibility.platformProviders.map(async (provider) => {
-        if (!operations) return { provider, available: false, code: 'WORKSPACE_POLICY_INCOMPLETE' };
+        if (!operations) {
+          const verdict = { available: false, code: 'WORKSPACE_POLICY_INCOMPLETE' };
+          return { provider, ...verdict, steps: workspaceSetupSteps(provider, verdict) };
+        }
         try {
           const result = await operations.validateProvider(provider);
-          return { provider, available: result?.available === true };
+          const verdict = { available: result?.available === true };
+          return { provider, ...verdict, diagnostics: result?.diagnostics ?? [], steps: workspaceSetupSteps(provider, verdict, isolationVerdict(result)) };
         } catch (error) {
-          return { provider, available: false, code: typeof error?.code === 'string' ? error.code : 'WORKSPACE_PROVIDER_UNAVAILABLE' };
+          const verdict = { available: false, code: typeof error?.code === 'string' ? error.code : 'WORKSPACE_PROVIDER_UNAVAILABLE' };
+          return { provider, ...verdict, steps: workspaceSetupSteps(provider, verdict) };
         }
       }));
 
