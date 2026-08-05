@@ -858,6 +858,8 @@ export interface WorkspaceSetupResult {
   namespace?: string;
   created?: boolean;
   verdict?: 'enforced' | 'not-enforced' | 'inconclusive';
+  /** The check could not run because the cluster could not pull the configured image. */
+  imageUnavailable?: boolean;
   diagnostics?: string[];
 }
 

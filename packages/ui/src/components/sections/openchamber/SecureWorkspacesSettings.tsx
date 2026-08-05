@@ -1,12 +1,13 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { toast } from '@/components/ui';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useI18n } from '@/lib/i18n';
 import { opencodeClient } from '@/lib/opencode/client';
 import { reportSettingsSaveState } from '@/lib/persistence';
 import { useWorkspaceReauth } from '@/components/workspaces/WorkspaceReauth';
-import type { WorkspaceProviderEnvironment, WorkspaceProviderKind, WorkspaceReadinessResult, WorkspaceReauthProofResult } from '@/lib/api/types';
+import type { WorkspaceProviderEnvironment, WorkspaceProviderKind, WorkspaceReadinessResult, WorkspaceReauthProofResult, WorkspaceSetupResult } from '@/lib/api/types';
 import { Icon } from '@/components/icon/Icon';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -68,6 +69,30 @@ type SecureWorkspaceSettingsPayload = {
 
 const DEFAULT_NAMESPACE = 'openchamber-workspaces';
 const DEFAULT_NO_PROXY = '127.0.0.1,localhost';
+
+/**
+ * Turns a setup result into what to tell the operator. An image the cluster cannot pull
+ * is called out separately: the failure is a setting they own, not anything the probe
+ * learned about the cluster, and reporting it as an isolation problem sends them
+ * looking in the wrong place.
+ */
+function setupOutcome(
+  t: (key: never) => string,
+  action: 'create-namespace' | 'check-isolation',
+  result: WorkspaceSetupResult,
+): { tone: 'ok' | 'warn'; text: string } {
+  if (action === 'create-namespace') {
+    return { tone: 'ok', text: t((result.created ? 'settings.workspaces.setup.namespaceCreated' : 'settings.workspaces.setup.namespaceExists') as never) };
+  }
+  if (result.imageUnavailable === true) {
+    return { tone: 'warn', text: t('settings.workspaces.setup.imageUnpullable' as never) };
+  }
+  if (result.verdict === 'enforced') return { tone: 'ok', text: t('settings.workspaces.setup.isolationEnforced' as never) };
+  if (result.verdict === 'not-enforced') {
+    return { tone: 'warn', text: `${t('settings.workspaces.setup.isolationMissing' as never)} ${t('settings.workspaces.setup.isolationDockerDesktop' as never)}` };
+  }
+  return { tone: 'warn', text: result.diagnostics?.[0] ?? t('settings.workspaces.setup.isolationUnknown' as never) };
+}
 
 /**
  * What this choice means, followed by what is wrong with it if anything. Guidance leads
@@ -242,15 +267,13 @@ export const SecureWorkspacesSettings: React.FC = () => {
         return;
       }
       const result = await runtimeAPIs.workspaces.setupProvider({ provider, action, reauthProof: proof.proof, reauthNonce: proof.nonce });
-      if (action === 'create-namespace') {
-        setSetupMessage({ tone: 'ok', text: t(result.created ? 'settings.workspaces.setup.namespaceCreated' : 'settings.workspaces.setup.namespaceExists') });
-      } else if (result.verdict === 'enforced') {
-        setSetupMessage({ tone: 'ok', text: t('settings.workspaces.setup.isolationEnforced') });
-      } else if (result.verdict === 'not-enforced') {
-        setSetupMessage({ tone: 'warn', text: `${t('settings.workspaces.setup.isolationMissing')} ${t('settings.workspaces.setup.isolationDockerDesktop')}` });
-      } else {
-        setSetupMessage({ tone: 'warn', text: result.diagnostics?.[0] ?? t('settings.workspaces.setup.isolationUnknown') });
-      }
+      // Reported twice on purpose: the message belongs with the step, but a toast
+      // outlives any re-render the refresh below causes, so an answer cannot vanish
+      // before it has been read.
+      const outcome = setupOutcome(t, action, result);
+      setSetupMessage(outcome);
+      if (outcome.tone === 'ok') toast.success(outcome.text);
+      else toast.error(outcome.text);
       await refreshCompatibility(opencodeClient.getDirectory() ?? undefined);
     } catch (error) {
       setSetupMessage({ tone: 'warn', text: error instanceof Error ? error.message : t('settings.workspaces.setup.actionFailed') });
@@ -319,6 +342,8 @@ export const SecureWorkspacesSettings: React.FC = () => {
     ? t('settings.workspaces.provider.appleContainer')
     : provider === 'kubernetes' ? t('settings.workspaces.provider.kubernetes') : t('settings.workspaces.provider.docker');
   const selectedSteps = providerReadiness.get(selectedProvider)?.steps ?? [];
+  // Empty means the built-in pinned images; anything else was typed in and can be undone.
+  const usesCustomImages = Boolean(settings.secureWorkspacesImage || settings.secureWorkspacesGatewayImage || settings.secureWorkspacesAllowedImages);
   const doneMark = <span className={SETTINGS_HELPER_CLASS} style={{ color: 'var(--status-success)' }}>{t('settings.workspaces.setup.done')}</span>;
 
   return (
@@ -508,6 +533,13 @@ export const SecureWorkspacesSettings: React.FC = () => {
                   <Input className="h-8" value={settings.secureWorkspacesAllowedImages} onChange={(event) => editSettings((current) => ({ ...current, secureWorkspacesAllowedImages: event.target.value }))} onBlur={() => void save({ secureWorkspacesAllowedImages: settings.secureWorkspacesAllowedImages.trim() })} />
                 </SettingsStackedField>
               </SettingsTwoColumn>
+              {usesCustomImages ? (
+                <SettingsFieldRow label={t('settings.workspaces.advanced.customImages')} description={t('settings.workspaces.advanced.customImagesHint')}>
+                  <Button size="sm" variant="outline" onClick={() => void save({ secureWorkspacesImage: '', secureWorkspacesGatewayImage: '', secureWorkspacesAllowedImages: '' })}>
+                    {t('settings.workspaces.advanced.useBuiltInImages')}
+                  </Button>
+                </SettingsFieldRow>
+              ) : null}
             </SettingsControlGroup>
 
             <SettingsControlGroup title={t('settings.workspaces.advanced.limitsGroup')} info={t('settings.workspaces.advanced.limitsHint')}>
