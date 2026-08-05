@@ -178,6 +178,7 @@
   'settings.workspaces.setup.isolationDockerDesktop': "如果這是 Docker Desktop 內建的 Kubernetes：其 kubeadm 模式不含任何強制執行網路規則的元件，而 kind 模式含有。切換模式或直接使用 Docker 都可以。",
   'settings.workspaces.setup.isolationUnknown': "隔離檢查未能得出結論。請重試，或確認叢集能夠啟動 Pod。",
   'settings.workspaces.setup.actionFailed': "無法完成此步驟。",
+  'settings.workspaces.setup.actionCancelled': "已取消，未做任何變更。",
   'settings.workspaces.setup.step.docker.cli': "已安裝 Docker",
   'settings.workspaces.setup.step.docker.daemon': "Docker 正在執行",
   'settings.workspaces.setup.step.kubernetes.cli': "已安裝 kubectl",

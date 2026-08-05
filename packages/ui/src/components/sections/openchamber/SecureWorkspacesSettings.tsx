@@ -237,7 +237,10 @@ export const SecureWorkspacesSettings: React.FC = () => {
     setSetupMessage(null);
     try {
       const proof = await reauthenticate('workspace.setup', 'host', { provider, action });
-      if (!proof) return;
+      if (!proof) {
+        setSetupMessage({ tone: 'warn', text: t('settings.workspaces.setup.actionCancelled') });
+        return;
+      }
       const result = await runtimeAPIs.workspaces.setupProvider({ provider, action, reauthProof: proof.proof, reauthNonce: proof.nonce });
       if (action === 'create-namespace') {
         setSetupMessage({ tone: 'ok', text: t(result.created ? 'settings.workspaces.setup.namespaceCreated' : 'settings.workspaces.setup.namespaceExists') });
@@ -362,7 +365,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
         </div>
       </SettingsSection>
 
-      {selectedSteps.length > 0 && !(runtimeReady && selectedSteps.every((step) => step.status === 'satisfied')) ? (
+      {selectedSteps.length > 0 && (setupMessage !== null || !(runtimeReady && selectedSteps.every((step) => step.status === 'satisfied'))) ? (
         <SettingsSection
           title={t('settings.workspaces.setup.pathTitle', { provider: providerLabel(selectedProvider) })}
           description={t('settings.workspaces.setup.pathHint')}

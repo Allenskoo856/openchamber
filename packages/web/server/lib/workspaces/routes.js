@@ -96,14 +96,16 @@ async function atomicWritePrivateJson(file, value) {
   }
 }
 
+const ISOLATION_VERDICTS = new Set(['enforced', 'not-enforced', 'inconclusive']);
+
 /**
- * The provider reports an earlier isolation probe through its diagnostics rather than a
- * field, because the probe is too slow to run on a readiness check.
+ * The verdict of an earlier isolation probe, which the provider carries forward because
+ * the probe itself is too slow to run on a readiness check. Read as a field: matching on
+ * diagnostic wording silently lost every passing verdict, which carries no diagnostics.
  */
 function isolationVerdict(result) {
-  const diagnostics = Array.isArray(result?.diagnostics) ? result.diagnostics : [];
-  if (diagnostics.some((entry) => typeof entry === 'string' && /could not be verified/i.test(entry))) return { verdict: 'inconclusive' };
-  return null;
+  const verdict = result?.isolation?.verdict;
+  return ISOLATION_VERDICTS.has(verdict) ? { verdict } : null;
 }
 
 function platformProviders() {

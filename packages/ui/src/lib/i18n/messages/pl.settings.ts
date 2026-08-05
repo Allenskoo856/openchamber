@@ -1339,6 +1339,7 @@ export const settingsDict = {
   'settings.workspaces.setup.isolationDockerDesktop': "Jeśli to wbudowany Kubernetes w Docker Desktop: tryb kubeadm nie zawiera niczego, co egzekwuje reguły sieciowe, a tryb kind tak. Pomoże zmiana trybu albo po prostu użycie Dockera.",
   'settings.workspaces.setup.isolationUnknown': "Sprawdzenie izolacji nie dało rozstrzygnięcia. Spróbuj ponownie lub sprawdź, czy klaster może uruchamiać pody.",
   'settings.workspaces.setup.actionFailed': "Nie udało się wykonać tego kroku.",
+  'settings.workspaces.setup.actionCancelled': "Anulowano — nic nie zmieniono.",
   'settings.workspaces.setup.step.docker.cli': "Docker zainstalowany",
   'settings.workspaces.setup.step.docker.daemon': "Docker uruchomiony",
   'settings.workspaces.setup.step.kubernetes.cli': "kubectl zainstalowany",

@@ -181,6 +181,7 @@ export const settingsDict = {
   'settings.workspaces.setup.isolationDockerDesktop': "Docker Desktop 내장 Kubernetes라면, kubeadm 모드에는 네트워크 규칙을 적용하는 구성 요소가 없고 kind 모드에는 있습니다. 모드를 바꾸거나 Docker를 직접 사용하면 됩니다.",
   'settings.workspaces.setup.isolationUnknown': "격리 확인이 결론에 이르지 못했습니다. 다시 시도하거나 클러스터가 파드를 시작할 수 있는지 확인하세요.",
   'settings.workspaces.setup.actionFailed': "이 단계를 완료하지 못했습니다.",
+  'settings.workspaces.setup.actionCancelled': "취소했습니다. 변경된 것은 없습니다.",
   'settings.workspaces.setup.step.docker.cli': "Docker 설치",
   'settings.workspaces.setup.step.docker.daemon': "Docker 실행 중",
   'settings.workspaces.setup.step.kubernetes.cli': "kubectl 설치",

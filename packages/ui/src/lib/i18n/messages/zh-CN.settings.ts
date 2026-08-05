@@ -181,6 +181,7 @@ export const settingsDict = {
   'settings.workspaces.setup.isolationDockerDesktop': "如果这是 Docker Desktop 内置的 Kubernetes：其 kubeadm 模式不含任何强制执行网络规则的组件，而 kind 模式含有。切换模式或直接使用 Docker 都可以。",
   'settings.workspaces.setup.isolationUnknown': "隔离检查未能得出结论。请重试，或确认集群能够启动 Pod。",
   'settings.workspaces.setup.actionFailed': "无法完成此步骤。",
+  'settings.workspaces.setup.actionCancelled': "已取消，未做任何更改。",
   'settings.workspaces.setup.step.docker.cli': "已安装 Docker",
   'settings.workspaces.setup.step.docker.daemon': "Docker 正在运行",
   'settings.workspaces.setup.step.kubernetes.cli': "已安装 kubectl",

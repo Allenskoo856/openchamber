@@ -1977,6 +1977,7 @@ export const settingsDict = {
   'settings.workspaces.setup.isolationDockerDesktop': "S’il s’agit du Kubernetes intégré de Docker Desktop : son mode kubeadm n’embarque rien qui applique les règles réseau, contrairement à son mode kind. Changer de mode ou utiliser Docker directement fonctionne.",
   'settings.workspaces.setup.isolationUnknown': "La vérification n’a pas pu conclure. Réessayez ou vérifiez que le cluster peut démarrer des pods.",
   'settings.workspaces.setup.actionFailed': "Cette étape n’a pas pu être effectuée.",
+  'settings.workspaces.setup.actionCancelled': "Annulé — rien n’a été modifié.",
   'settings.workspaces.setup.step.docker.cli': "Docker installé",
   'settings.workspaces.setup.step.docker.daemon': "Docker en cours d’exécution",
   'settings.workspaces.setup.step.kubernetes.cli': "kubectl installé",

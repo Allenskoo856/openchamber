@@ -181,6 +181,7 @@ export const settingsDict = {
   'settings.workspaces.setup.isolationDockerDesktop': "Docker Desktop 内蔵の Kubernetes の場合、kubeadm モードにはネットワークルールを適用する仕組みがなく、kind モードにはあります。モードの切り替えでも、Docker を直接使うのでも解決します。",
   'settings.workspaces.setup.isolationUnknown': "分離の確認は結論に至りませんでした。もう一度試すか、クラスターが Pod を起動できるか確認してください。",
   'settings.workspaces.setup.actionFailed': "この手順を完了できませんでした。",
+  'settings.workspaces.setup.actionCancelled': "キャンセルしました。変更はありません。",
   'settings.workspaces.setup.step.docker.cli': "Docker のインストール",
   'settings.workspaces.setup.step.docker.daemon': "Docker の起動",
   'settings.workspaces.setup.step.kubernetes.cli': "kubectl のインストール",

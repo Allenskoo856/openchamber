@@ -451,6 +451,36 @@ describe('workspace provider operation routes', () => {
     expect(deps.uiAuthController.consumeReauthProof).not.toHaveBeenCalled();
   });
 
+  it('marks isolation verified once the provider reports a passing verdict', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({
+      operations: {
+        // A passing probe carries no diagnostics, so a verdict read from diagnostic
+        // wording rather than the field is silently lost and the step never completes.
+        validateProvider: vi.fn(async () => ({ available: true, diagnostics: [], isolation: { verdict: 'enforced' } })),
+      },
+    });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('GET', '/api/workspaces/readiness')({ query: {} }, res);
+
+    const kubernetes = res.body.providers.find((entry) => entry.provider === 'kubernetes');
+    expect(kubernetes.steps.find((step) => step.id === 'isolation').status).toBe('satisfied');
+  });
+
+  it('does not call isolation verified when the provider has not probed it', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({ operations: { validateProvider: vi.fn(async () => ({ available: true, diagnostics: [] })) } });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('GET', '/api/workspaces/readiness')({ query: {} }, res);
+
+    const kubernetes = res.body.providers.find((entry) => entry.provider === 'kubernetes');
+    expect(kubernetes.steps.find((step) => step.id === 'isolation').status).toBe('unknown');
+  });
+
   it('reports readiness as policy-incomplete instead of failing when settings are unusable', async () => {
     const registry = routeRegistry();
     const deps = dependencies({

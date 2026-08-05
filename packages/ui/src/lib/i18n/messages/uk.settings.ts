@@ -181,6 +181,7 @@ export const settingsDict = {
   "settings.workspaces.setup.isolationDockerDesktop": "Якщо це вбудований Kubernetes у Docker Desktop: у режимі kubeadm немає нічого, що виконує мережеві правила, а в режимі kind — є. Допоможе і зміна режиму, і просто перехід на Docker.",
   "settings.workspaces.setup.isolationUnknown": "Перевірка ізоляції не дійшла висновку. Спробуйте ще раз або перевірте, чи кластер може запускати поди.",
   "settings.workspaces.setup.actionFailed": "Не вдалося виконати цей крок.",
+  "settings.workspaces.setup.actionCancelled": "Скасовано — нічого не змінено.",
   "settings.workspaces.setup.step.docker.cli": "Докер установлений",
   "settings.workspaces.setup.step.docker.daemon": "Докер запущений",
   "settings.workspaces.setup.step.kubernetes.cli": "kubectl установлений",
