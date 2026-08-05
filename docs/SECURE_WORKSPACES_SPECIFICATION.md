@@ -181,7 +181,7 @@ This section records the audited state of the current candidate. Evidence is ide
 ### 5.1 Current Candidate Identity
 
 - OpenChamber pins `@opencode-ai/sdk@1.18.9`.
-- Web and Electron pin `@openchamber/opencode-container-workspace` to immutable plugin commit `ee532780f1c53ad428aad2d91b5f8ec1538e8418`. That commit carries the cleanup, snapshot-source, provider-readiness, and granted-egress fixes found during live Windows Docker validation; It is the squashed merge of plugin PR #1 on the default branch, with plugin test, both image, docker-live, and kubernetes-live jobs green at that commit.
+- Web and Electron pin `@openchamber/opencode-container-workspace` to immutable plugin commit `35aac9e73f032be3ff7a6eb9133d76f4da69e89a`. That commit carries the cleanup, snapshot-source, provider-readiness, and granted-egress fixes found during live Windows Docker validation; It is the squashed merge of plugin PR #1 on the default branch, with plugin test, both image, docker-live, and kubernetes-live jobs green at that commit.
 - That plugin payload is version `0.1.1`, compiles against `@opencode-ai/plugin@1.18.8`, and builds its runtime image with OpenCode `1.18.8`.
 - Electron stages and verifies the exact installed plugin payload and bundles an OpenCode CLI matching the OpenChamber SDK version.
 - The runtime and gateway defaults currently present in `packages/web/server/lib/workspaces/policy.js` are historical `v0.1.0` image identities. They are not certified defaults for this candidate matrix.
@@ -203,7 +203,7 @@ Current-candidate live Docker, Kubernetes, Apple Container, Windows, Linux, iOS,
 
 The `v0.1.0` plugin/image milestone remains historical evidence for its exact `1.18.4` compatibility matrix only. Tag commit `eedfd5b3a08e99285f3f167c7e7d83799844c03d`, release run `30022813361`, and the signed public runtime/gateway digests recorded in section 15 validated that older matrix. Later historical plugin commit `d9567f00fa5d1c2115fed613d8fe5b9aafe69cbb` and run `30027172196` do not validate the current pin.
 
-Historical evidence must not be used to certify SDK `1.18.9`, plugin commit `ee532780f1c53ad428aad2d91b5f8ec1538e8418`, plugin API/OpenCode `1.18.8`, newly built images, or current native packages.
+Historical evidence must not be used to certify SDK `1.18.9`, plugin commit `35aac9e73f032be3ff7a6eb9133d76f4da69e89a`, plugin API/OpenCode `1.18.8`, newly built images, or current native packages.
 
 ### 5.5 Remaining Gates And Validation Model
 
@@ -219,7 +219,7 @@ These runs use an OpenChamber session directly on each target host. The assistan
 
 ### 6.1 Audit Baseline
 
-The last fully certified upstream baseline was OpenCode/SDK/plugin `1.18.4`, reviewed from `anomalyco/opencode` dev commit `5f241f1cc1fc0c266044b64bf9e860d4e37c9c1f`. The current candidate is intentionally newer and not yet fully certified: OpenChamber SDK `1.18.9`, plugin API/runtime OpenCode `1.18.8`, and plugin commit `ee532780f1c53ad428aad2d91b5f8ec1538e8418`.
+The last fully certified upstream baseline was OpenCode/SDK/plugin `1.18.4`, reviewed from `anomalyco/opencode` dev commit `5f241f1cc1fc0c266044b64bf9e860d4e37c9c1f`. The current candidate is intentionally newer and not yet fully certified: OpenChamber SDK `1.18.9`, plugin API/runtime OpenCode `1.18.8`, and plugin commit `35aac9e73f032be3ff7a6eb9133d76f4da69e89a`.
 
 The workspace HTTP surface and generated SDK calls must be audited against this exact current combination. A dependency upgrade MUST still follow normal OpenChamber dependency, lockfile, bundled CLI, plugin staging, routing, transport, and live compatibility validation.
 
