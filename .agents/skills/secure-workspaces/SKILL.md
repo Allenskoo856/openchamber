@@ -49,6 +49,9 @@ Keep entrypoints, routes, bridges, and UI thin. Security decisions belong in the
 - The gateway must not receive project mounts, workspace credentials, provider state, or arbitrary process helpers.
 - Keep images immutable and digest-pinned. Do not introduce `latest`, tag-only production defaults, silent pull fallback, or platform fallback.
 - Provider differences must be explicit. In particular, Apple Container must never silently fall back to Docker, and unsupported managed networking must fail closed.
+- A cluster accepting a NetworkPolicy is not a cluster enforcing one. Where nothing enforces, every written policy is inert, the egress allowlist means nothing, and every surface still reports the workspace as isolated. Creation probes enforcement and fails closed when a cluster is proven not to enforce.
+- That probe needs two pods, not one: an unrestricted pod establishes the reference address is reachable, and only then does a restricted pod prove anything. A single blocked probe cannot tell an enforced policy from an address that was never reachable, and must report inconclusive rather than pass.
+- Enforcement latches but is not instant. A pod can start before the CNI programs a policy selecting it, so a probe samples across a window; any blocked attempt proves enforcement, and only an unbroken run of successes disproves it. A single attempt races enforcement and reports a false negative on a healthy cluster.
 
 ### Secrets And Transport
 
@@ -56,6 +59,13 @@ Keep entrypoints, routes, bridges, and UI thin. Security decisions belong in the
 - Seed secret volumes through bounded redacted stdin. Never bind-mount private host secret directories into helpers.
 - Preserve authenticated HTTP, SSE, and WebSocket behavior. The host shim strips caller routing/auth headers, verifies the fixed provider target, rereads the canonical token, and injects it only upstream.
 - Do not treat loopback source address as remote-client authority. Relay and tunnel traffic can arrive through loopback.
+
+### Host And Container Boundaries
+
+- A path inside a workspace means nothing on this computer. A session routed into a workspace reports the directory it works in — `/workspace` — and host-side state must never take it: the file tree points at nothing, and it persists as `lastDirectory` past the session that introduced it. Convert at the transport boundary.
+- Ask a person only for what the machine cannot determine. The cluster states its own DNS service address and kubeconfig names its own contexts; requiring either by hand blocks the case Kubernetes exists for and breaks name resolution invisibly when mistyped. Ask only where RBAC genuinely hides the answer, and say what to request.
+- One rule, one owner. When the provider learned to discover the DNS address, the requirement stayed in OpenChamber's completeness check and refused every save — including changes about something else, which then rolled back. A rule enforced in two places will drift, and the second copy fails silently.
+- Never hand a tool an absolute path it may reinterpret. Windows ships bsdtar in System32 and Git for Windows ships GNU tar, which reads `C:\path` as `host:path`; PATH order decides which answers, so the same command works or fails depending on what else is installed. Stream through stdout rather than detecting flavours.
 
 ### Lifecycle And Failure
 
@@ -88,6 +98,40 @@ Keep entrypoints, routes, bridges, and UI thin. Security decisions belong in the
 - Simulator, emulator, fixture, VM, unpacked package, and automated packaged smoke are not physical/live platform evidence. Maestro dry-run is not interactive host-apply evidence.
 - Do not claim production readiness until the exact plugin, SDK/OpenCode, runtime/gateway images, package, and required-platform matrix has current live evidence.
 
+## Product Strategy
+
+These are decisions, not preferences. Each was reached by working the problem; reversing
+one needs a reason at least as concrete.
+
+- **Docker is the ordinary choice; Kubernetes means a cluster somebody else runs.** A
+  cluster on the same computer is strictly worse here — same machine, more layers, a
+  1.3 GB pull into the cluster, an extra port-forward hop — for isolation Docker enforces
+  natively. Kubernetes earns its place when the work must run elsewhere: a cluster from
+  work, a bigger machine, one with a GPU. Say so where the choice is made, so nobody
+  configures a local cluster believing it is the more serious option.
+- **This product does not create clusters.** Tools at this layer consume one and document
+  how to get it; provisioning belongs to kind, minikube, Docker Desktop, or a vendor CLI.
+  Offering a known-good recipe is fine; owning cluster lifecycle is not.
+- **Nothing is discovered by failing.** A person must not learn the state of their setup
+  by choosing an operation and having it refused. If a fact is knowable before the
+  attempt — a missing namespace, a policy that no longer matches, a dependency that is
+  not installed — surface it beside the thing it concerns, before it is needed.
+- **Ask only for what the machine cannot know.** Everything the cluster, kubeconfig, or
+  environment already states is read, not typed. What remains for a person is genuinely
+  theirs: a domain they own, an allowlist, a credential.
+- **Name the setting at fault, not the symptom observed.** An image the cluster cannot
+  pull is an image problem; reporting it as an isolation result sends the reader to the
+  wrong screen. Map every failure to the thing its owner can change.
+- **A control that names an outcome produces it.** Editing a text field is a draft and
+  waits for Save; pressing a button called "Use built-in images" is not. A control that
+  only stages a change while appearing to act is indistinguishable from a broken one.
+- **An answer must outlive the thing that showed it.** Results reported inside a section
+  that a refresh can unmount are lost exactly when they matter. A completed checklist
+  stays visible too — it is the only way to confirm a setup is still sound.
+- **The setup path is finite, ordered, and shown whole.** Every requirement is listed
+  from the start with its own status, the app completes the steps it can, and the list
+  reads as a request an operator can hand to whoever administers their cluster.
+
 ## Change Method
 
 Before implementation, state which trust boundary changes and answer:
@@ -111,7 +155,7 @@ Use package scripts as the command source of truth and validate the real risk:
 | Shared UI or Runtime API | Focused UI/runtime tests, UI type-check/lint, and intentional web/Electron/mobile/VS Code behavior |
 | Provider core | Unit tests plus package build/lint/type-check; live provider lifecycle for platform behavior |
 | Auth, SSE, WebSocket, proxy, or egress | Authenticated and unauthenticated live paths; direct and applicable relay paths; negative network assertions |
-| Kubernetes | Port-forward or final HTTPS target as applicable, NetworkPolicy, ownership, rollback, reconciliation, and cleanup |
+| Kubernetes | Port-forward or final HTTPS target as applicable, NetworkPolicy **enforcement observed on a cluster that enforces and one that does not**, ownership, rollback, reconciliation, and cleanup. A create takes roughly eighty seconds against a local cluster; waits shorter than that report healthy workspaces as timed out |
 | Apple Container | Supported macOS host, immutable arm64 image, create/target/export/reconcile, collision, system restart, and cleanup |
 | Runtime/gateway images | Both architectures, exact digest, runtime smoke, HIGH/CRITICAL fixed-vulnerability gate, and anonymous pull when public |
 | Plugin pin or Electron packaging | Lockfile/install verification, staging tests, package verification, and affected packaged build/smoke |
@@ -140,3 +184,9 @@ Static checks do not prove isolation, transport, provider, rollback, or platform
 - Control-plane row removed while provider resources remain.
 - Static tests presented as proof of live provider or transport security.
 - Simulator, emulator, VM, fixture, package smoke, or Maestro dry-run presented as physical platform or interactive host-apply evidence.
+- NetworkPolicy objects created and treated as isolation without observing that the cluster enforces them.
+- A container path stored, compared, or displayed as a path on this computer.
+- A value required from the operator that the cluster, kubeconfig, or environment already states.
+- The same requirement enforced in both the plugin and OpenChamber, where one can refuse what the other has learned to resolve.
+- An absolute path passed as an argument to a tool whose flavour varies by platform or PATH order.
+- A long-standing platform-specific test failure dismissed as noise. Two such failures in the snapshot suite were a real defect that broke workspace creation for every Windows operator whose PATH preferred Git's tar.

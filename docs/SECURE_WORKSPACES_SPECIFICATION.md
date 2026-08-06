@@ -804,6 +804,12 @@ The pod MUST set non-root UID/GID, RuntimeDefault seccomp, `allowPrivilegeEscala
 
 Validation MUST cover CLI availability, context and namespace existence, allowlists, exact RBAC verbs, storage capability, Secrets, Deployment, Service, NetworkPolicy, selected connectivity, and proxy reachability. `kubectl auth can-i` requires literal affirmative output, not only exit code zero.
 
+A cluster accepts NetworkPolicy objects whether or not its CNI enforces them, and an unenforced policy leaves the runtime reaching the whole cluster network and the internet directly while every surface still reports isolation. Creation therefore MUST observe enforcement and MUST fail closed when a cluster is proven not to enforce.
+
+The observation MUST use two pods: an unrestricted pod establishing that the reference address is reachable, and a pod under a deny-all policy. One probe cannot distinguish an enforced policy from an address that was never reachable, so an unreachable reference MUST yield an explicit inconclusive verdict rather than a pass or a refusal. Because a pod can start before the CNI programs a policy selecting it, each probe MUST sample across a window: any blocked attempt proves enforcement, and only an unbroken run of successes disproves it. Verdicts MAY be cached per context and namespace, with a proven pass held longer than an inconclusive one, and preflight MUST report the last verdict rather than implying isolation it never checked.
+
+The cluster's DNS service address MUST be resolved from the cluster rather than required from the operator; it differs per distribution, and a wrong value breaks name resolution inside the workspace without any visible cause. It MUST be requested only where RBAC hides it, and a configured range remains authoritative and validated. No other component may refuse a configuration for lacking a value this resolution supplies.
+
 ### 14.3 Kubernetes Ingress
 
 Ingress policy MUST specify:
