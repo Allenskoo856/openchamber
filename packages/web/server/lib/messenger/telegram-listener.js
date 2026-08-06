@@ -363,7 +363,16 @@ async function dispatchCallbackQuery(state, callbackQuery, broadcastEvent, bridg
     await annotate(
       known ? `${label} — by ${fromName}` : '⚠ This approval expired — wait for a new request.',
     );
-    broadcastEvent?.('messenger.telegram.approval_decision', { approvalId, decision, chatId });
+    // Same event contract as the Discord listener's messenger.discord.approval
+    // broadcast — the bridge's hub fallback and UI clients consume it.
+    broadcastEvent?.('messenger.telegram.approval', {
+      approvalId,
+      decision,
+      by: { id: from.id ?? null, username: from.username ?? null, displayName: fromName },
+      messageId,
+      channelId: chatId != null ? String(chatId) : null,
+      decidedAt: new Date().toISOString(),
+    });
     return;
   }
 

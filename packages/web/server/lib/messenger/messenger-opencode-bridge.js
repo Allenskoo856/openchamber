@@ -5766,13 +5766,15 @@ export function createMessengerOpencodeBridge({
     _respondToOpenCode = respondToOpenCode;
     console.log('[BRIDGE] Approval listener initialized');
 
-    // Also subscribe to global event hub as a fallback
+    // Also subscribe to global event hub as a fallback. Both platforms emit
+    // the same approval event contract; handleApprovalDecision is idempotent
+    // so a direct listener call plus this fallback can never double-reply.
     if (!globalEventHub) return;
     const handler = (event) => {
       const payload = event?.payload ?? event;
       if (!payload || typeof payload !== 'object') return;
       const type = payload.type ?? payload.event ?? null;
-      if (type !== 'messenger.discord.approval') return;
+      if (type !== 'messenger.discord.approval' && type !== 'messenger.telegram.approval') return;
       handleApprovalDecision(payload.approvalId, payload.decision);
     };
     const unsub = globalEventHub.subscribeEvent?.(handler);
