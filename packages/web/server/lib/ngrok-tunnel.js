@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { probeExecutable } from './tunnels/probe-executable.js';
+import { cachedDependencyProbe, probeExecutable } from './tunnels/probe-executable.js';
 import {
   createExecutableSearchEnv,
   resolveExecutableLaunchTarget,
@@ -13,7 +13,11 @@ const NGROK_PUBLIC_URL_REGEX = /https:\/\/[^\s"']+/i;
 const NGROK_AUTHTOKEN_HELP = 'Run: ngrok config add-authtoken <your-ngrok-token>';
 const getNgrokInstallInfo = () => getTunnelDependencyInstallInfo(TUNNEL_PROVIDER_NGROK);
 
-export async function checkNgrokAvailable() {
+export async function checkNgrokAvailable({ force = false } = {}) {
+  return cachedDependencyProbe('ngrok', () => probecheckNgrokAvailable(), { force });
+}
+
+async function probecheckNgrokAvailable() {
   const target = resolveExecutableLaunchTarget('ngrok');
   if (target) {
     try {

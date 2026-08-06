@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { probeExecutable } from './tunnels/probe-executable.js';
+import { cachedDependencyProbe, probeExecutable } from './tunnels/probe-executable.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -22,7 +22,11 @@ const TUNNEL_MODE_QUICK = 'quick';
 const TUNNEL_MODE_MANAGED_REMOTE = 'managed-remote';
 const TUNNEL_MODE_MANAGED_LOCAL = 'managed-local';
 
-export async function checkCloudflaredAvailable() {
+export async function checkCloudflaredAvailable({ force = false } = {}) {
+  return cachedDependencyProbe('cloudflared', () => probecheckCloudflaredAvailable(), { force });
+}
+
+async function probecheckCloudflaredAvailable() {
   const target = resolveExecutableLaunchTarget('cloudflared');
   if (target) {
     try {
