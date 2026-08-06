@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Issue #2712 reproduction - user-actions footer wraps on narrow bubble</title>
+<!--
+  Reproduction of https://github.com/openchamber/openchamber/issues/2712
+
+  The hover-revealed `group/user-actions` footer (timestamp + Revert/Fork/Pin/Copy
+  buttons) wraps onto multiple lines when the message bubble is narrower than the
+  combined width of the controls.
+
+  The CSS below is the REAL output of a production `vite build` of the OpenChamber
+  web app (Tailwind v4, packages/web), subset to the classes used by the footer
+  DOM that appears in the issue. Rendering this fixture in a headless browser and
+  measuring the footer row geometry reproduces the reported layout defect.
+
+  Reproduction: open this file in a browser, or run `node measure.mjs`.
+  Observed defect with a narrow bubble (~65px wide, e.g. a one-word message):
+    - the timestamp label "1:41 PM" wraps onto two lines (2 text line boxes),
+    - the footer row grows from 24px to 40px tall, and
+    - the absolutely-positioned footer overlaps the message content below it.
+  With a bubble >= ~235px the row stays on a single line (24px tall).
+-->
+<style>
+  /* ── subset of the real compiled Tailwind CSS (vite build of packages/web) ── */
+  :root { --padding-scale: 1; --radius-xl: 0.9rem; --radius-sm: 0.4rem; --primary: #b45309; --muted-foreground: #6b7280; }
+  .flex{display:flex}
+  .items-center{align-items:center}
+  .justify-end{justify-content:flex-end}
+  .gap-1{gap:calc(.25rem * var(--padding-scale,1))}
+  .translate-x-5{--tw-translate-x:calc(1.25rem * var(--padding-scale,1));translate:var(--tw-translate-x) var(--tw-translate-y)}
+  .absolute{position:absolute}
+  .top-full{top:100%}
+  .left-0{left:0}
+  .right-0{right:0}
+  .z-10{z-index:10}
+  .pt-5{padding-top:calc(1.25rem * var(--padding-scale,1))}
+  .mr-1{margin-right:calc(.25rem * var(--padding-scale,1))}
+  .text-sm{font-size:var(--text-sm,0.875rem);line-height:var(--tw-leading,var(--text-sm--line-height,1.25rem))}
+  .tabular-nums{--tw-numeric-spacing:tabular-nums;font-variant-numeric:var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,)}
+  .text-muted-foreground\/60{color:color-mix(in oklab,var(--muted-foreground,#6b7280) 60%,transparent)}
+  .h-6{height:calc(1.5rem * var(--padding-scale,1))}
+  .w-6{width:calc(1.5rem * var(--padding-scale,1))}
+  .h-3{height:calc(.75rem * var(--padding-scale,1))}
+  .w-3{width:calc(.75rem * var(--padding-scale,1))}
+  .h-3\.5{height:calc(.875rem * var(--padding-scale,1))}
+  .w-3\.5{width:calc(.875rem * var(--padding-scale,1))}
+  .shrink-0{flex-shrink:0}
+  .inline-flex{display:inline-flex}
+  .pointer-events-none{pointer-events:none}
+  .opacity-0{opacity:0}
+  .relative{position:relative}
+  .w-full{width:100%}
+  .px-5{padding-inline:calc(1.25rem * var(--padding-scale,1))}
+  .py-3{padding-block:calc(.75rem * var(--padding-scale,1))}
+  .border{border-style:var(--tw-border-style,solid);border-width:1px}
+  .border-primary\/5{border-color:color-mix(in oklab,var(--primary) 5%,transparent)}
+  .select-none{-webkit-user-select:none;user-select:none}
+  .whitespace-nowrap{white-space:nowrap}
+
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; }
+  .chat-message-column { width: min(100%, 48rem); margin-inline: auto; padding-inline: 1rem; }
+  .user-bubble-outer { display: flex; justify-content: flex-end; }
+  .user-bubble-max { max-width: 85%; }
+  .follow-msg { margin-top: 4px; padding: 8px; background: #efe; font-size: 15px; }
+</style>
+</head>
+<body>
+<h3>Issue #2712 fixture — narrow user bubble (one-word message)</h3>
+<p>Hover state is forced visible so the footer row can be measured.</p>
+<div id="results" style="font-family:monospace; font-size:12px; white-space:pre; background:#f6f6f6; padding:8px; margin-bottom:16px;"></div>
+
+<div class="chat-message-column">
+  <div class="user-bubble-outer group/user-shell">
+    <div class="user-bubble-max">
+      <div class="px-5 py-3 shadow-none border border-primary/5" style="background-color: var(--chat-user-message-bg); border-radius: var(--radius-xl); border-bottom-right-radius: var(--radius-sm);">
+        <div class="relative w-full group/message" style="contain: layout; transform: translateZ(0);">
+          <div><p style="margin:0">OK</p></div>
+          <!-- actionsBlock: userActionsMode=inline, desktop (non-mobile) — exact classes from MessageBody.tsx -->
+          <div class="group/user-actions absolute top-full left-0 right-0 z-10 pt-5">
+            <div class="flex items-center justify-end gap-1 translate-x-5 pointer-events-none opacity-0 transition-opacity duration-150 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-hover/user-actions:pointer-events-auto group-hover/user-actions:opacity-100 group-hover/user-shell:pointer-events-auto group-hover/user-shell:opacity-100" id="actionRow">
+              <span class="mr-1 flex items-center gap-1 text-sm tabular-nums text-muted-foreground/60" id="timeSpan" aria-label="Message time: 1:41 PM">
+                <svg class="remixicon h-3.5 w-3.5" viewBox="0 0 24 24"><use href="#oc-time"></use></svg>
+                <span class="message-footer__label" id="timeLabel">1:41 PM</span>
+              </span>
+              <button type="button" class="group relative inline-flex items-center justify-center gap-2 whitespace-nowrap typography-ui-label font-medium lowercase tracking-[0.01em] shrink-0 select-none size-9 h-6 w-6 text-muted-foreground bg-transparent" aria-label="Revert to this message">
+                <svg class="h-3 w-3" viewBox="0 0 24 24"><use href="#oc-arrow-go-back"></use></svg>
+              </button>
+              <button type="button" class="group relative inline-flex items-center justify-center gap-2 whitespace-nowrap typography-ui-label font-medium lowercase tracking-[0.01em] shrink-0 select-none size-9 h-6 w-6 text-muted-foreground bg-transparent" aria-label="Fork from this message">
+                <svg class="h-3 w-3" viewBox="0 0 24 24"><use href="#oc-git-branch"></use></svg>
+              </button>
+              <button type="button" class="group relative inline-flex items-center justify-center gap-2 whitespace-nowrap typography-ui-label font-medium lowercase tracking-[0.01em] shrink-0 select-none size-9 h-6 w-6 text-muted-foreground bg-transparent" aria-label="Pin into context">
+                <svg class="h-3 w-3" viewBox="0 0 24 24"><use href="#oc-pushpin-2"></use></svg>
+              </button>
+              <button type="button" class="group relative inline-flex items-center justify-center gap-2 whitespace-nowrap typography-ui-label font-medium lowercase tracking-[0.01em] shrink-0 select-none size-9 h-6 w-6 text-muted-foreground bg-transparent" aria-label="Copy message text">
+                <svg class="h-3 w-3" viewBox="0 0 24 24"><use href="#oc-file-copy"></use></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="follow-msg" id="follow">Assistant reply below the user bubble.</div>
+</div>
+
+<h3>Control — wide bubble (&gt;= ~235px): footer stays on one line</h3>
+<div class="chat-message-column">
+  <div class="user-bubble-outer group/user-shell">
+    <div class="user-bubble-max" style="width:400px">
+      <div class="px-5 py-3 shadow-none border border-primary/5" style="background-color: var(--chat-user-message-bg); border-radius: var(--radius-xl); border-bottom-right-radius: var(--radius-sm);">
+        <div class="relative w-full group/message" style="contain: layout; transform: translateZ(0);">
+          <div><p style="margin:0">A somewhat longer user message that fills a wide bubble.</p></div>
+          <div class="group/user-actions absolute top-full left-0 right-0 z-10 pt-5" id="ctrlOuter">
+            <div class="flex items-center justify-end gap-1 translate-x-5" id="ctrlRow">
+              <span class="mr-1 flex items-center gap-1 text-sm tabular-nums text-muted-foreground/60" id="ctrlTime">
+                <svg class="remixicon h-3.5 w-3.5" viewBox="0 0 24 24"><use href="#oc-time"></use></svg>
+                <span class="message-footer__label" id="ctrlLabel">1:41 PM</span>
+              </span>
+              <button type="button" class="group relative inline-flex items-center justify-center gap-2 whitespace-nowrap typography-ui-label font-medium lowercase tracking-[0.01em] shrink-0 select-none size-9 h-6 w-6 text-muted-foreground bg-transparent" aria-label="Revert to this message"><svg class="h-3 w-3" viewBox="0 0 24 24"><use href="#oc-arrow-go-back"></use></svg></button>
+              <button type="button" class="group relative inline-flex items-center justify-center gap-2 whitespace-nowrap typography-ui-label font-medium lowercase tracking-[0.01em] shrink-0 select-none size-9 h-6 w-6 text-muted-foreground bg-transparent" aria-label="Fork from this message"><svg class="h-3 w-3" viewBox="0 0 24 24"><use href="#oc-git-branch"></use></svg></button>
+              <button type="button" class="group relative inline-flex items-center justify-center gap-2 whitespace-nowrap typography-ui-label font-medium lowercase tracking-[0.01em] shrink-0 select-none size-9 h-6 w-6 text-muted-foreground bg-transparent" aria-label="Pin into context"><svg class="h-3 w-3" viewBox="0 0 24 24"><use href="#oc-pushpin-2"></use></svg></button>
+              <button type="button" class="group relative inline-flex items-center justify-center gap-2 whitespace-nowrap typography-ui-label font-medium lowercase tracking-[0.01em] shrink-0 select-none size-9 h-6 w-6 text-muted-foreground bg-transparent" aria-label="Copy message text"><svg class="h-3 w-3" viewBox="0 0 24 24"><use href="#oc-file-copy"></use></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="follow-msg" id="ctrlFollow">Assistant reply below the user bubble.</div>
+</div>
+
+<svg style="display:none">
+  <symbol id="oc-time" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 5v5.59l3.95 2.35-.6 1.01L11 13.2V7h2z"/></symbol>
+  <symbol id="oc-arrow-go-back" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/></symbol>
+  <symbol id="oc-git-branch" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/></symbol>
+  <symbol id="oc-pushpin-2" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/></symbol>
+  <symbol id="oc-file-copy" viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/></symbol>
+</svg>
+<script>
+  // Force the hover-revealed rows visible so we can measure their geometry.
+  function forceVisible(el) {
+    if (!el) return;
+    el.classList.remove('pointer-events-none', 'opacity-0');
+    el.style.opacity = '1';
+    el.style.pointerEvents = 'auto';
+  }
+  forceVisible(document.getElementById('actionRow'));
+  forceVisible(document.getElementById('ctrlRow'));
+
+  window.addEventListener('load', () => {
+    const r = (el) => { const b = el.getBoundingClientRect(); return { top: +b.top.toFixed(2), bottom: +b.bottom.toFixed(2), height: +b.height.toFixed(2) }; };
+    const linesOf = (labelEl) => {
+      const range = document.createRange();
+      range.selectNodeContents(labelEl);
+      return range.getClientRects().length;
+    };
+
+    const row = document.getElementById('actionRow');
+    const btnTops = [...new Set(Array.from(row.querySelectorAll('button')).map(b => b.getBoundingClientRect().top.toFixed(2)))];
+
+    const data = {
+      narrowBubble: {
+        bubbleWidth: +document.querySelectorAll('.user-bubble-max')[0].getBoundingClientRect().width.toFixed(2),
+        footerOuter: r(document.querySelector('.group\\/user-actions')),
+        actionRow: r(row),
+        timeSpan: r(document.getElementById('timeSpan')),
+        timestampLabelLineCount: linesOf(document.getElementById('timeLabel')),
+        buttonsShareOneRow: btnTops.length === 1,
+        buttonTops: btnTops,
+        followMessage: r(document.getElementById('follow')),
+        footerOverlapsFollow: r(document.querySelector('.group\\/user-actions')).bottom > document.getElementById('follow').getBoundingClientRect().top,
+      },
+      wideBubbleControl: {
+        bubbleWidth: +document.querySelectorAll('.user-bubble-max')[1].getBoundingClientRect().width.toFixed(2),
+        actionRow: r(document.getElementById('ctrlRow')),
+        timeSpan: r(document.getElementById('ctrlTime')),
+        timestampLabelLineCount: linesOf(document.getElementById('ctrlLabel')),
+        footerOverlapsFollow: r(document.getElementById('ctrlOuter')).bottom > document.getElementById('ctrlFollow').getBoundingClientRect().top,
+      },
+    };
+    document.getElementById('results').textContent = JSON.stringify(data, null, 2);
+  });
+</script>
+</body>
+</html>
