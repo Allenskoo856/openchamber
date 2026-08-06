@@ -1,5 +1,6 @@
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 
 export const applyPersistedDirectoryPreferences = async (): Promise<void> => {
   if (typeof window === 'undefined') {
@@ -22,6 +23,36 @@ export const applyPersistedDirectoryPreferences = async (): Promise<void> => {
   // (initializeHomeDirectory → /api/fs/home) that runs on every startup.
 
   if (savedDirectory && !isVSCodeRuntime()) {
-    useDirectoryStore.getState().setDirectory(savedDirectory, { showOverlay: false });
+    // Restored only if it still resolves on this computer. A directory that has been
+    // deleted, lives on a drive that is not attached, or — as workspace-routed sessions
+    // once persisted — exists only inside a container, would otherwise be handed to the
+    // file tree at every launch, which reports it as missing and offers no way out.
+    if (await directoryStillExists(savedDirectory)) {
+      useDirectoryStore.getState().setDirectory(savedDirectory, { showOverlay: false });
+    } else {
+      try {
+        window.localStorage.removeItem('lastDirectory');
+      } catch {
+        // A cleared value is an optimization; failing to clear it changes nothing.
+      }
+      // The store already took the saved value for its initial state, so clearing storage
+      // is not enough — it has to be moved off the directory that does not resolve.
+      const home = useDirectoryStore.getState().homeDirectory;
+      if (home && home !== savedDirectory) {
+        useDirectoryStore.getState().setDirectory(home, { showOverlay: false });
+      }
+    }
+  }
+};
+
+/** Whether the saved directory is a directory this host can actually open. */
+const directoryStillExists = async (directory: string): Promise<boolean> => {
+  try {
+    const runtime = getRegisteredRuntimeAPIs();
+    if (!runtime?.files?.listDirectory) return true;
+    await runtime.files.listDirectory(directory);
+    return true;
+  } catch {
+    return false;
   }
 };
