@@ -3,7 +3,7 @@ import React from 'react';
 import { isCapacitorApp } from '@/lib/platform';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 
-import { buildDeepLink, parseDeepLink, type DeepLinkIntent, type SessionsFilter, type ViewTarget } from './deepLinks';
+import { parseDeepLink, type DeepLinkIntent, type SessionsFilter, type ViewTarget } from './deepLinks';
 
 /**
  * Navigation layer for {@link DeepLinkIntent}s — the only place that knows how to *apply* a
