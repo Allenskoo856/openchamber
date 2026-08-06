@@ -532,6 +532,39 @@ export function registerWorkspaceRoutes(app, dependencies) {
     }
   });
 
+  /**
+   * Which listed workspaces were created under settings that are no longer in force.
+   * The answer is in each workspace's own metadata, so it can be shown beside the
+   * workspace rather than discovered by attempting an operation and having it refused.
+   * The comparison folds in each workspace's own image, so it cannot be done by
+   * comparing one fingerprint in the browser.
+   */
+  app.get('/api/workspaces/policy-state', async (req, res) => {
+    if (!await authorizeCapabilityRequest(req, res, 'workspace.read', { allowUnsupported: true })) return;
+    const directory = typeof req.query.directory === 'string' ? req.query.directory : '';
+    try {
+      const context = await persistedContext(directory, null);
+      const operations = await operationsFor(context);
+      const client = await sdkClient(directory);
+      const listed = await client.experimental.workspace.list(directory ? { directory } : undefined);
+      const workspaces = Array.isArray(listed?.data) ? listed.data : [];
+      const mismatched = [];
+      for (const workspace of workspaces) {
+        if (!SECURE_WORKSPACE_PROVIDERS.has(workspace?.type)) continue;
+        try {
+          const state = await operations.describeWorkspacePolicyState(workspace);
+          if (state?.matchesPolicy === false) mismatched.push(workspace.id);
+        } catch {
+          // A workspace this host cannot read is not evidence of drift, so it is not flagged.
+        }
+      }
+      return res.json({ mismatched });
+    } catch {
+      // Not knowing is reported as nothing to flag: a wrong badge is worse than none.
+      return res.json({ mismatched: [] });
+    }
+  });
+
   const SETUP_ACTIONS = new Set(['create-namespace', 'check-isolation']);
 
   // Setup actions change the cluster, so they carry the same proof as other host-affecting

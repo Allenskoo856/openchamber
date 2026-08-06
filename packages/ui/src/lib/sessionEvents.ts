@@ -21,7 +21,9 @@ type GitRefreshHint = { directory: string };
 type GitRefreshListener = (hint: GitRefreshHint) => void;
 type WorkspaceLiveEvent =
   | { type: 'status'; workspaceID: string; status: 'connected' | 'connecting' | 'disconnected' | 'error' }
-  | { type: 'refresh' };
+  | { type: 'refresh' }
+  /** Workspace settings were written, so anything showing them is now out of date. */
+  | { type: 'policy-changed' };
 type WorkspaceListener = (event: WorkspaceLiveEvent) => void;
 
 const deleteListeners = new Set<DeleteListener>();

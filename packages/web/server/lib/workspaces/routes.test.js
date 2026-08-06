@@ -133,7 +133,7 @@ function dependencies(overrides = {}) {
     ...overrides.operations,
   };
   const remove = vi.fn(async () => { calls.push('remove'); return { data: true }; });
-  const list = vi.fn(async () => ({ data: [currentWorkspace] }));
+  const list = overrides.list ?? vi.fn(async () => ({ data: [currentWorkspace] }));
   const create = vi.fn(async () => ({ data: currentWorkspace }));
   const status = vi.fn(async () => ({ data: [{ workspaceID: currentWorkspace.id, status: 'connected' }] }));
   const createWorkspaceProviderOperations = vi.fn(() => operations);
@@ -486,6 +486,39 @@ describe('workspace provider operation routes', () => {
 
     const kubernetes = res.body.providers.find((entry) => entry.provider === 'kubernetes');
     expect(kubernetes.steps.find((step) => step.id === 'isolation').status).toBe('unknown');
+  });
+
+  it('names the workspaces built under settings that are no longer in force', async () => {
+    const registry = routeRegistry();
+    const drifted = { id: 'ws-old', type: 'docker', projectID: 'p1' };
+    const current = { id: 'ws-new', type: 'docker', projectID: 'p1' };
+    const deps = dependencies({
+      operations: {
+        describeWorkspacePolicyState: vi.fn(async (workspace) => ({ matchesPolicy: workspace.id !== 'ws-old' })),
+      },
+      list: vi.fn(async () => ({ data: [drifted, current] })),
+    });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('GET', '/api/workspaces/policy-state')({ query: {} }, res);
+
+    // Reported per workspace: a panel-wide warning cannot say which one it means.
+    expect(res.body).toEqual({ mismatched: ['ws-old'] });
+  });
+
+  it('flags nothing when the workspaces cannot be read, rather than guessing', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({
+      operations: { describeWorkspacePolicyState: vi.fn(async () => { throw new Error('unreadable'); }) },
+      list: vi.fn(async () => ({ data: [{ id: 'ws-1', type: 'docker', projectID: 'p1' }] })),
+    });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('GET', '/api/workspaces/policy-state')({ query: {} }, res);
+
+    expect(res.body).toEqual({ mismatched: [] });
   });
 
   it('reports readiness as policy-incomplete instead of failing when settings are unusable', async () => {

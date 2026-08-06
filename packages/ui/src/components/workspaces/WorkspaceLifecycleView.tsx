@@ -77,6 +77,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
   const [handoffBusy, setHandoffBusy] = React.useState(false);
   const [handoffError, setHandoffError] = React.useState('');
   const [operation, setOperation] = React.useState<'creating' | 'deleting' | 'repairing' | 'exporting' | 'checking' | 'applying' | null>(null);
+  const [driftedWorkspaces, setDriftedWorkspaces] = React.useState<Set<string>>(new Set());
 
   const clearExportArtifact = React.useCallback(() => {
     setExportID('');
@@ -107,6 +108,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     setHandoff(null);
     setHandoffText('');
     setHandoffError('');
+    setDriftedWorkspaces(new Set());
   }, [clearExportArtifact]);
 
   React.useEffect(() => subscribeRuntimeEndpointWillChange(resetScope), [resetScope]);
@@ -230,8 +232,42 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       }
       return;
     }
+    // Settings are read once when this view loads, so a provider chosen afterwards left
+    // the create button offering the old one until the view was rebuilt from scratch.
+    if (event.type === 'policy-changed') {
+      void (async () => {
+        try {
+          const result = await runtimeAPIs.settings.load();
+          const settings = result.settings;
+          setPolicy({
+            enabled: settings.secureWorkspacesEnabled === true,
+            provider: settings.secureWorkspacesDefaultProvider === 'kubernetes' || settings.secureWorkspacesDefaultProvider === 'apple-container'
+              ? settings.secureWorkspacesDefaultProvider
+              : 'docker',
+            preserveOnDelete: settings.secureWorkspacesRetentionPreserveOnDelete === true,
+          });
+        } catch {
+          // A failed re-read leaves the previous policy in place rather than a guess.
+        }
+      })();
+      return;
+    }
     void loadWorkspaces(false);
-  }), [loadWorkspaces, t]);
+  }), [loadWorkspaces, runtimeAPIs.settings, t]);
+
+  // Which workspaces predate the current settings is recorded in each workspace, so it
+  // can be shown beside them instead of surfacing as a refused operation later.
+  React.useEffect(() => {
+    if (workspaceList.length === 0 || !runtimeAPIs.workspaces?.policyState) {
+      setDriftedWorkspaces(new Set());
+      return;
+    }
+    let cancelled = false;
+    runtimeAPIs.workspaces.policyState({ directory: directory || undefined })
+      .then((result) => { if (!cancelled) setDriftedWorkspaces(new Set(result.mismatched)); })
+      .catch(() => { if (!cancelled) setDriftedWorkspaces(new Set()); });
+    return () => { cancelled = true; };
+  }, [workspaceList, directory, runtimeAPIs.workspaces]);
 
   React.useEffect(() => {
     if (workspaceList.length === 0) return;
@@ -614,19 +650,25 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
                     aria-pressed={selected}
                   >
                     <span className="min-w-0 truncate typography-ui-label font-medium">{workspace.name || workspace.id}</span>
-                    <span className="flex shrink-0 items-center gap-1.5"><ProviderBadge provider={workspace.type} /><StatusBadge status={workspaceStatuses[workspace.id]} /></span>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {driftedWorkspaces.has(workspace.id) ? <SettingsDriftBadge /> : null}
+                      <ProviderBadge provider={workspace.type} />
+                      <StatusBadge status={workspaceStatuses[workspace.id]} />
+                    </span>
                   </button>
                 );
               })}
             </div>
             {missingCapabilities.length > 0 ? (
-              <p className="rounded-md bg-[var(--status-warning-background)] px-3 py-2 typography-meta text-[var(--status-warning-foreground)]" role="status">
+              <p className="rounded-md bg-[var(--status-warning-background)] px-3 py-2 typography-meta text-foreground" role="status">
                 {t(applyBlocked ? 'settings.workspaces.capability.hostApplyRequired' : 'settings.workspaces.capability.adminRequired')}
               </p>
             ) : null}
-            {policyMismatch ? (
+            {policyMismatch && driftedWorkspaces.size === 0 ? (
+              // Only when no row carries the mark: otherwise this repeats what the list
+              // already shows, without saying which workspace it means.
               <div className="space-y-1 rounded-md bg-[var(--status-warning-background)] px-3 py-2" role="alert">
-                <p className="typography-meta text-[var(--status-warning-foreground)]">{t('settings.workspaces.errors.policyMismatch')}</p>
+                <p className="typography-meta text-foreground">{t('settings.workspaces.errors.policyMismatch')}</p>
               </div>
             ) : null}
             {displayWorkspaceError ? <p className="typography-meta text-[var(--status-error)]" role="alert">{displayWorkspaceError}</p> : null}
@@ -687,7 +729,11 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
                 </div>
                 <Button size="sm" data-testid="workspace-export-review" onClick={() => void exportSelectedWorkspace()} disabled={busy || adminBlocked || !selectedWorkspaceID}>{t('settings.workspaces.export.review')}</Button>
               </div>
-              {artifactReview ? (
+              {artifactReview && artifactReview.totalFiles === 0 ? (
+                // An empty result used to render as a bare zero-count line, which reads as
+                // a failure rather than an answer.
+                <p className="typography-meta text-muted-foreground" role="status">{t('settings.workspaces.export.nothingChanged')}</p>
+              ) : artifactReview ? (
                 <div className="space-y-3">
                   <p className="typography-meta text-muted-foreground">{t('settings.workspaces.export.summary', { files: String(artifactReview.totalFiles) })}</p>
                   {exportExpiresAt ? <p className="typography-meta text-muted-foreground">{t('settings.workspaces.export.expires', { time: new Date(exportExpiresAt).toLocaleTimeString() })}</p> : null}
@@ -701,7 +747,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
                           <span className="min-w-0 flex-1 truncate font-mono typography-meta text-foreground">{pathLabel}</span>
                           <span className="typography-micro text-muted-foreground">{file.kind}</span>
                           {file.hostState === 'applied' ? <span className="rounded-full bg-[var(--surface-elevated)] px-2 py-0.5 typography-micro text-muted-foreground">{t('settings.workspaces.export.alreadyApplied')}</span> : null}
-                          {file.hostState === 'conflict' ? <span className="rounded-full bg-[var(--status-warning-background)] px-2 py-0.5 typography-micro text-[var(--status-warning-foreground)]">{t('settings.workspaces.export.hostChanged')}</span> : null}
+                          {file.hostState === 'conflict' ? <span className="rounded-full bg-[var(--status-warning-background)] px-2 py-0.5 typography-micro text-foreground">{t('settings.workspaces.export.hostChanged')}</span> : null}
                         </label>
                         {file.textHunks.length > 0 ? file.textHunks.map((hunk) => (
                           <div key={hunk.id} className="ml-5 space-y-1 sm:ml-7">
@@ -761,7 +807,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
             <DialogDescription>{t('settings.workspaces.handoff.description')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="rounded-md bg-[var(--status-warning-background)] px-3 py-2 typography-meta text-[var(--status-warning-foreground)]">
+            <div className="rounded-md bg-[var(--status-warning-background)] px-3 py-2 typography-meta text-foreground">
               <p>{t('settings.workspaces.handoff.fidelityWarning')}</p>
               <p>{t('settings.workspaces.handoff.sourceUnchanged')}</p>
               <p>{t('settings.workspaces.handoff.filesWarning')}</p>
@@ -796,6 +842,23 @@ function ProviderBadge({ provider }: { provider: string }) {
   const { t } = useI18n();
   const label = provider === 'apple-container' ? t('settings.workspaces.provider.appleContainer') : provider === 'kubernetes' ? t('settings.workspaces.provider.kubernetes') : provider === 'docker' ? t('settings.workspaces.provider.docker') : provider;
   return <span className="rounded-full bg-[var(--interactive-selection)] px-2 py-0.5 typography-micro text-[var(--interactive-selection-foreground)]">{label}</span>;
+}
+
+/**
+ * A workspace built under settings that have since changed. It still runs and can still
+ * be deleted; what it cannot do is export under a policy it was not created with, so the
+ * wording avoids calling it broken.
+ */
+function SettingsDriftBadge() {
+  const { t } = useI18n();
+  return (
+    <span
+      className="rounded-full bg-[var(--status-warning-background)] px-2 py-0.5 typography-micro text-foreground"
+      title={t('settings.workspaces.lifecycle.driftedHint')}
+    >
+      {t('settings.workspaces.lifecycle.drifted')}
+    </span>
+  );
 }
 
 function StatusBadge({ status }: { status?: WorkspaceStatus }) {

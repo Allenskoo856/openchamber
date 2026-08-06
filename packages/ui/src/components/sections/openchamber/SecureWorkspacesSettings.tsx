@@ -4,7 +4,9 @@ import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useI18n } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 import { opencodeClient } from '@/lib/opencode/client';
+import { sessionEvents } from '@/lib/sessionEvents';
 import { reportSettingsSaveState } from '@/lib/persistence';
 import { useWorkspaceReauth } from '@/components/workspaces/WorkspaceReauth';
 import type { WorkspaceProviderEnvironment, WorkspaceProviderKind, WorkspaceReadinessResult, WorkspaceReauthProofResult, WorkspaceSetupResult } from '@/lib/api/types';
@@ -256,6 +258,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
       if (!configured) throw new Error(t('settings.workspaces.compatibility.failed'));
       dirtyRef.current = false;
       reportSettingsSaveState('saved');
+      sessionEvents.publishWorkspaceEvent({ type: 'policy-changed' });
       if (configured.compatibility) setReadiness((current) => (current ? { ...current, ...configured.compatibility } : current));
       return true;
     } catch (error) {
@@ -284,6 +287,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
       const configured = await runtimeAPIs.workspaces?.updateSettings({ changes, activate: false, reauthProof: proof.proof, reauthNonce: proof.nonce });
       if (!configured) throw new Error(t('settings.workspaces.compatibility.failed'));
       reportSettingsSaveState('saved');
+      sessionEvents.publishWorkspaceEvent({ type: 'policy-changed' });
       if (configured.compatibility) setReadiness((current) => (current ? { ...current, ...configured.compatibility } : current));
     } catch (error) {
       reportSettingsSaveState('error');
@@ -381,6 +385,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
     ? t('settings.workspaces.provider.appleContainer')
     : provider === 'kubernetes' ? t('settings.workspaces.provider.kubernetes') : t('settings.workspaces.provider.docker');
   const selectedSteps = providerReadiness.get(selectedProvider)?.steps ?? [];
+  const setupComplete = runtimeReady && selectedSteps.length > 0 && selectedSteps.every((step) => step.status === 'satisfied');
   // Empty means the built-in pinned images; anything else was typed in and can be undone.
   const usesCustomImages = Boolean(settings.secureWorkspacesImage || settings.secureWorkspacesGatewayImage || settings.secureWorkspacesAllowedImages);
   const doneMark = <span className={SETTINGS_HELPER_CLASS} style={{ color: 'var(--status-success)' }}>{t('settings.workspaces.setup.done')}</span>;
@@ -429,10 +434,12 @@ export const SecureWorkspacesSettings: React.FC = () => {
         </div>
       </SettingsSection>
 
-      {selectedSteps.length > 0 && (setupMessage !== null || !(runtimeReady && selectedSteps.every((step) => step.status === 'satisfied'))) ? (
+      {selectedSteps.length > 0 ? (
         <SettingsSection
-          title={t('settings.workspaces.setup.pathTitle', { provider: providerLabel(selectedProvider) })}
-          description={t('settings.workspaces.setup.pathHint')}
+          title={setupComplete
+            ? t('settings.workspaces.setup.pathReadyTitle', { provider: providerLabel(selectedProvider) })
+            : t('settings.workspaces.setup.pathTitle', { provider: providerLabel(selectedProvider) })}
+          description={setupComplete ? t('settings.workspaces.setup.pathReadyHint') : t('settings.workspaces.setup.pathHint')}
           settingsItem="workspaces.setup.path"
         >
           <div className={SETTINGS_FIELDS_STACK_CLASS}>
@@ -463,7 +470,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
             })}
           </div>
           {setupMessage ? (
-            <p className={SETTINGS_HELPER_CLASS} style={setupMessage.tone === 'warn' ? { color: 'var(--status-warning-foreground)' } : undefined}>{setupMessage.text}</p>
+            <p className={cn(SETTINGS_HELPER_CLASS, setupMessage.tone === 'warn' && 'text-[var(--status-warning)]')}>{setupMessage.text}</p>
           ) : null}
         </SettingsSection>
       ) : null}

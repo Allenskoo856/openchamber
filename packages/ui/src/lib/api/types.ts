@@ -1001,6 +1001,7 @@ export interface WorkspaceSecurityAPI {
   readiness(input?: { directory?: string | null }): Promise<WorkspaceReadinessResult>;
   setupProvider(input: { provider: WorkspaceProviderKind; action: 'create-namespace' | 'check-isolation'; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceSetupResult>;
   providerEnvironment(input: { provider: WorkspaceProviderKind }): Promise<WorkspaceProviderEnvironment>;
+  policyState(input?: { directory?: string | null }): Promise<{ mismatched: string[] }>;
   updateSettings(input: { changes: Partial<SettingsPayload>; activate?: boolean; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceConfigureResult>;
   create(input: { type: WorkspaceProviderKind; directory?: string | null; extra?: Record<string, unknown> | null; reauthProof?: string; reauthNonce?: string }): Promise<{ id: string; type: string; name: string; directory?: string | null; status: 'connected' | 'connecting'; provisional: boolean; retryable: boolean; diagnostics: string[] }>;
   cleanup(input: { id: string; directory?: string | null; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceLifecycleResult>;

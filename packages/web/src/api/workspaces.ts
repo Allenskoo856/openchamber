@@ -73,6 +73,16 @@ export const createWebWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
     return response.ok ? payload : { provider: input.provider, contexts: [], currentContext: null };
   },
 
+  async policyState(input?: { directory?: string | null }): Promise<{ mismatched: string[] }> {
+    const response = await runtimeFetch('/api/workspaces/policy-state', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      query: input?.directory ? { directory: input.directory } : {},
+    });
+    const payload = await readJson<{ mismatched?: string[] }>(response, {});
+    return { mismatched: Array.isArray(payload.mismatched) ? payload.mismatched : [] };
+  },
+
   async compatibility(input?: { directory?: string | null }): Promise<WorkspaceCompatibilityResult> {
     const response = await runtimeFetch('/api/workspaces/compatibility', {
       method: 'GET',
