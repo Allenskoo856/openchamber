@@ -209,10 +209,13 @@ export const SecureWorkspacesSettings: React.FC = () => {
             ? loaded.secureWorkspacesKubernetesNamespace.trim() : DEFAULT_NAMESPACE,
           ...Object.fromEntries(Object.keys(current).filter((key) => key !== 'secureWorkspacesEnabled' && key !== 'secureWorkspacesDefaultProvider' && key !== 'secureWorkspacesImage' && Object.hasOwn(loaded, key)).map((key) => [key, loaded[key as keyof SecureWorkspaceSettingsPayload]])),
         }));
-        await refreshCompatibility(opencodeClient.getDirectory() ?? undefined);
       } finally {
         if (!cancelled) setLoading(false);
       }
+      // Deliberately not awaited: readiness asks Docker and the cluster what they can
+      // do, which takes seconds, and none of it is needed to show settings already
+      // read from disk. Awaiting it left the page blank for the whole probe.
+      if (!cancelled) void refreshCompatibility(opencodeClient.getDirectory() ?? undefined);
     })();
     return () => { cancelled = true; };
   }, [refreshCompatibility, runtimeAPIs.settings]);
@@ -363,7 +366,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
         <div className={SETTINGS_FIELDS_STACK_CLASS}>
           <SettingsFieldRow
             label={t('settings.workspaces.setup.stepRuntime')}
-            description={runtimeReady ? undefined : (runtimeRemediation ? t(runtimeRemediation) : t('settings.workspaces.status.unavailable'))}
+            description={runtimeReady ? undefined : readiness === null ? t('settings.workspaces.setup.checking') : (runtimeRemediation ? t(runtimeRemediation) : t('settings.workspaces.status.unavailable'))}
           >
             {runtimeReady ? doneMark : (
               <Button size="sm" variant="outline" onClick={() => void refreshCompatibility(opencodeClient.getDirectory() ?? undefined)} disabled={checking}>
