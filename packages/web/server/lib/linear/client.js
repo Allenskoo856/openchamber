@@ -1,11 +1,11 @@
-export const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
+const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
 
 /**
  * Resolve the effective Linear GraphQL endpoint. `OPENCHAMBER_LINEAR_API_URL`
  * exists for tests and local end-to-end validation against a stub server; it
  * is read at call time so tests can set it per-case.
  */
-export function resolveLinearApiUrl() {
+function resolveLinearApiUrl() {
   const override = process.env.OPENCHAMBER_LINEAR_API_URL;
   if (typeof override === 'string' && override.trim().length > 0) return override.trim();
   return LINEAR_GRAPHQL_URL;

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-export const LINEAR_LINK_STATUSES = ['started', 'completed', 'failed', 'attention'];
+const LINEAR_LINK_STATUSES = ['started', 'completed', 'failed', 'attention'];
 
 const MAX_LINKS = 500;
 

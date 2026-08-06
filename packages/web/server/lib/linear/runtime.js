@@ -3,7 +3,7 @@ import { LinearLinkStore } from './link-store.js';
 import { createLinearClient, parseIssueReference, LinearApiError } from './client.js';
 import { buildIssuePrompt, buildIssueSessionTitle } from './issue-prompt.js';
 
-export const LINEAR_POLL_INTERVAL_DEFAULT_MS = 60_000;
+const LINEAR_POLL_INTERVAL_DEFAULT_MS = 60_000;
 const POLL_INTERVAL_MIN_MS = 15_000;
 
 function asNonEmptyString(value) {
