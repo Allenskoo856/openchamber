@@ -18,7 +18,12 @@ import { workspaceSetupSteps } from './setup-steps.js';
 const WORKSPACE_ADAPTER_PROBE_TIMEOUT_MS = 10_000;
 const WORKSPACE_CREATE_STATUS_REQUEST_TIMEOUT_MS = 3_000;
 const WORKSPACE_CREATE_STATUS_POLL_INTERVAL_MS = 250;
-const WORKSPACE_CREATE_STATUS_MAX_ATTEMPTS = 40;
+// A Kubernetes workspace was measured taking about 80 seconds to create on Windows
+// against a local cluster — pods, two seeded volumes, a gateway rollout and a
+// port-forward — and the status it then reports is not instant either. Waiting ten
+// seconds for it declared a healthy workspace timed out. The loop still returns the
+// moment the workspace reports connected, so a longer ceiling only buys patience.
+const WORKSPACE_CREATE_STATUS_MAX_ATTEMPTS = 240;
 const WORKSPACE_PLUGIN_RESOURCE_PATH = path.join('opencode-container-workspace', 'src', 'plugin.js');
 const SECURE_WORKSPACE_PROVIDERS = new Set(['docker', 'kubernetes', 'apple-container']);
 
