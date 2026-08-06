@@ -9,9 +9,9 @@
  * getUpdates, 429 rate limited with parameters.retry_after).
  */
 
-export const TELEGRAM_MESSAGE_LIMIT = 4096;
+const TELEGRAM_MESSAGE_LIMIT = 4096;
 /** Telegram callback_data is capped at 64 bytes — keep custom ids short. */
-export const TELEGRAM_CALLBACK_DATA_LIMIT = 64;
+const TELEGRAM_CALLBACK_DATA_LIMIT = 64;
 
 export async function telegramApi(token, method, body, { timeoutMs = 15_000, signal } = {}) {
   const url = `https://api.telegram.org/bot${encodeURIComponent(token)}/${method}`;

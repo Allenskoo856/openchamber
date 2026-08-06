@@ -5568,8 +5568,8 @@ export function createMessengerOpencodeBridge({
     if (!fromQueue && busySessions.has(sessionId)) {
       // Broadcast the incoming message IMMEDIATELY so the UI can show it
       // before the current turn is aborted — avoids the "stuck" gap.
-      broadcastEvent?.('messenger.discord.supersede_incoming', {
-        type: 'discord',
+      broadcastEvent?.(`messenger.${ctx.type}.supersede_incoming`, {
+        type: ctx.type,
         sessionId,
         channelId: ctx.channelId,
         threadId: ctx.threadId,

@@ -7,7 +7,7 @@ import {
 import { usePendingDiscordStore } from '@/stores/usePendingDiscordStore';
 
 type SupersedeIncomingPayload = {
-  type?: 'discord';
+  type?: 'discord' | 'telegram';
   sessionId?: string;
   channelId?: string;
   threadId?: string;
@@ -38,13 +38,19 @@ export function useDiscordSupersedeMessages() {
 
   useEffect(() => {
     const handler = (event: OpenChamberAgentUiRealtimeEvent) => {
-      if (event.eventType !== 'messenger.discord.supersede_incoming') return;
+      if (
+        event.eventType !== 'messenger.discord.supersede_incoming' &&
+        event.eventType !== 'messenger.telegram.supersede_incoming'
+      ) {
+        return;
+      }
       const data = event.data as SupersedeIncomingPayload | undefined;
       if (!data || !data.sessionId || !data.text) return;
 
+      const messengerName = data.type === 'telegram' ? 'Telegram' : 'Discord';
       const sessionId = data.sessionId;
       const friendlyName =
-        data.from?.firstName ?? data.from?.username ?? 'Discord user';
+        data.from?.firstName ?? data.from?.username ?? `${messengerName} user`;
       const preview = data.text.length > 120
         ? data.text.slice(0, 120) + '…'
         : data.text;
@@ -71,7 +77,7 @@ export function useDiscordSupersedeMessages() {
       });
 
       // Show a toast so the user is immediately aware.
-      toast.info(`📨 Discord — ${friendlyName}`, {
+      toast.info(`📨 ${messengerName} — ${friendlyName}`, {
         description: preview,
         duration: 6_000,
       });

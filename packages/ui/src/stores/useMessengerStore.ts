@@ -5,7 +5,7 @@ import { useProjectsStore } from './useProjectsStore';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import type { ProjectEntry } from '@/lib/api/types';
 
-export type MessengerType = 'discord';
+export type MessengerType = 'discord' | 'telegram';
 export type SyncMode = 'full' | 'notifications' | 'off';
 export type MessengerVerbosity = 'quiet' | 'normal' | 'verbose';
 
@@ -176,6 +176,33 @@ export interface MessengerConnection {
    */
   bridgeEnabled?: boolean;
 
+  // ---- Telegram-specific (mirrors the Discord listener fields above) ----
+  /**
+   * True when the server-side settings.json has a Telegram bot token
+   * configured, regardless of whether the local store has the token.
+   * Same recovery contract as `discordServerConfigured`.
+   */
+  telegramServerConfigured?: boolean;
+  telegramBotId?: string;
+  telegramBotUsername?: string;
+  /** Bot API getMe flags — drive the group-privacy hint in the wizard. */
+  telegramCanJoinGroups?: boolean | null;
+  telegramCanReadAllGroupMessages?: boolean | null;
+  /** Default Telegram chat id that test messages are sent to. */
+  defaultChatId?: string;
+  /** Optional allow-list of chat ids the bot answers in (empty = all chats). */
+  telegramAllowedChatIds?: string[];
+  telegramDefaultReplyMode?: 'always' | 'mention';
+  telegramListenerEnabled?: boolean;
+  telegramListenerRunning?: boolean;
+  telegramListenerConnected?: boolean;
+  telegramListenerStartedAt?: number | null;
+  telegramListenerLastUpdateAt?: number | null;
+  telegramListenerTotalReceived?: number;
+  telegramListenerTotalReplied?: number;
+  telegramListenerTotalRawMessages?: number;
+  telegramListenerError?: string | null;
+
   // Sync config
   syncMode: SyncMode;
   syncProjects: boolean;
@@ -230,6 +257,13 @@ export interface MessengerInboundMessage {
     messageId: string;
     authorId: string | null;
   };
+  /** Telegram-only extras (chatId, messageId, topic id) when present. */
+  telegram?: {
+    chatId: string | null;
+    messageId: number | null;
+    messageThreadId: number | null;
+    chatType: string | null;
+  };
 }
 
 export interface DiscordHistoryMessage {
@@ -282,6 +316,8 @@ interface MessengerState {
 
   /** Same shape for Discord — newest first, capped at 50. */
   discordInbound: MessengerInboundMessage[];
+  /** Telegram inbound messages — newest first, capped at 50. */
+  telegramInbound: MessengerInboundMessage[];
   /** Last-50-messages history fetched via /discord/history. */
   discordHistory: DiscordHistoryMessage[];
 
@@ -359,6 +395,8 @@ interface MessengerState {
   removeConnection: (type: MessengerType) => void;
   /** Stop the live gateway, clear server Discord config, and drop local connection. */
   disconnectDiscord: () => Promise<void>;
+  /** Stop polling, clear server Telegram config, and drop the local connection. */
+  disconnectTelegram: () => Promise<void>;
   testConnection: (type: MessengerType) => Promise<boolean>;
   /**
    * Quiet re-fetch of Discord bot identity + guild membership via
@@ -418,6 +456,18 @@ interface MessengerState {
   loadRecentDiscordMessages: () => Promise<void>;
   ingestDiscordInbound: (msg: MessengerInboundMessage) => void;
   loadDiscordHistory: (channelId: string, limit?: number) => Promise<boolean>;
+  /** Persist Telegram settings to the server (auto-start on boot). */
+  saveTelegramConfig: () => Promise<void>;
+  startTelegramListener: () => Promise<boolean>;
+  stopTelegramListener: () => Promise<boolean>;
+  refreshTelegramListenerStatus: () => Promise<void>;
+  /**
+   * Reconcile UI Telegram status with the live server after reload / server
+   * rebuild — the Telegram half of resyncDiscordStatus.
+   */
+  resyncTelegramStatus: () => Promise<void>;
+  loadRecentTelegramMessages: () => Promise<void>;
+  ingestTelegramInbound: (msg: MessengerInboundMessage) => void;
   sendApprovalRequest: (
     type: MessengerType,
     prompt: string,
@@ -711,6 +761,105 @@ type DiscordListenerStatusPayload = {
   guildPolicies?: Record<string, DiscordGuildPolicy>;
 };
 
+type TelegramListenerStatusPayload = {
+  ok: boolean;
+  configured?: boolean;
+  listenerEnabled?: boolean;
+  running?: boolean;
+  connected?: boolean;
+  autoReply?: boolean;
+  bridgeEnabled?: boolean;
+  botId?: string | null;
+  botUsername?: string | null;
+  startedAt?: number;
+  lastUpdateAt?: number | null;
+  totalReceived?: number;
+  totalReplied?: number;
+  totalRawMessages?: number;
+  lastRawMessageAt?: number | null;
+  filteredOutCount?: number;
+  lastError?: string | null;
+  defaultReplyMode?: 'always' | 'mention';
+  defaultChatId?: string;
+  allowedChatIds?: string[];
+};
+
+type TelegramTestPayload = {
+  ok: boolean;
+  error?: string;
+  id?: string | null;
+  username?: string | null;
+  firstName?: string | null;
+  canJoinGroups?: boolean | null;
+  canReadAllGroupMessages?: boolean | null;
+};
+
+/** Dedupes concurrent resync calls from hydration + reconnect + settings mount. */
+let telegramStatusResyncInFlight: Promise<void> | null = null;
+
+/**
+ * Telegram token verify via `/api/messenger/test` (Bot API getMe). Mirrors
+ * verifyDiscordBotAndGuilds minus the guild membership side — Telegram bots
+ * have no enumerable "server list".
+ */
+async function verifyTelegramBot(
+  get: MessengerStoreGet,
+  opts: { quiet?: boolean } = {},
+): Promise<boolean> {
+  const quiet = Boolean(opts.quiet);
+  const conn = get().connections.find((c) => c.type === 'telegram');
+  if (!conn) return false;
+  if (!conn.botToken && !conn.telegramServerConfigured) return false;
+
+  const alreadyLive =
+    conn.status === 'connected' ||
+    conn.status === 'connecting' ||
+    Boolean(conn.telegramListenerConnected);
+
+  if (!quiet) {
+    get().updateConnection('telegram', { status: 'connecting', error: null });
+  }
+
+  try {
+    const data = await postJson<TelegramTestPayload>('/api/messenger/test', {
+      type: 'telegram',
+      ...(conn.botToken ? { token: conn.botToken } : {}),
+    });
+    if (!data.ok) throw new Error(data.error ?? 'Telegram API failed');
+
+    const updates: Partial<MessengerConnection> = {
+      telegramBotId: data.id ?? undefined,
+      telegramBotUsername: data.username ?? undefined,
+      telegramCanJoinGroups: data.canJoinGroups ?? null,
+      telegramCanReadAllGroupMessages: data.canReadAllGroupMessages ?? null,
+      // Successful verify (local or server-token fallback) means the bot is
+      // configured — keep the configured view even if localStorage lost the token.
+      telegramServerConfigured: true,
+    };
+
+    if (!quiet || conn.status === 'disconnected' || conn.status === 'error') {
+      updates.status = 'connected';
+      updates.lastConnectedAt = Date.now();
+      updates.error = null;
+    } else if (alreadyLive) {
+      updates.lastConnectedAt = Date.now();
+    }
+
+    get().updateConnection('telegram', updates);
+    return true;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Connection failed';
+    if (quiet && alreadyLive) {
+      return false;
+    }
+    get().updateConnection('telegram', {
+      status: 'error',
+      error: message,
+    });
+    return false;
+  }
+}
+
 /**
  * Derive the Discord settings badge from live listener state first, then the
  * last token-verify result. Persisted verify status is forced to
@@ -759,6 +908,38 @@ export function deriveDiscordViewState(input: {
   serverConfigured: boolean;
   wizardActive: boolean;
 }): DiscordViewState {
+  if (input.wizardActive) return 'wizard';
+  if (!input.hasToken && !input.serverConfigured) return 'connect-card';
+  return 'configured';
+}
+
+/**
+ * Derive the Telegram settings badge from live listener state first, then the
+ * last token-verify result — same precedence rules as the Discord badge.
+ */
+export function deriveTelegramDisplayStatus(
+  conn: Pick<
+    MessengerConnection,
+    'status' | 'botToken' | 'telegramServerConfigured' | 'telegramListenerRunning' | 'telegramListenerConnected'
+  >,
+): MessengerConnection['status'] {
+  if (conn.telegramListenerConnected) return 'connected';
+  if (conn.status === 'connecting') return 'connecting';
+  if (conn.telegramListenerRunning) return 'connecting';
+  if (conn.status === 'connected') return 'connected';
+  if (conn.status === 'error') return 'error';
+  if (conn.botToken || conn.telegramServerConfigured) return 'connecting';
+  return 'disconnected';
+}
+
+export type TelegramViewState = 'connect-card' | 'wizard' | 'configured';
+
+/** Which Telegram surface the settings section shows (mirrors Discord). */
+export function deriveTelegramViewState(input: {
+  hasToken: boolean;
+  serverConfigured: boolean;
+  wizardActive: boolean;
+}): TelegramViewState {
   if (input.wizardActive) return 'wizard';
   if (!input.hasToken && !input.serverConfigured) return 'connect-card';
   return 'configured';
@@ -819,6 +1000,7 @@ export const useMessengerStore = create<MessengerState>()(
       onboardingType: null,
       hasHydrated: typeof window === 'undefined',
       discordInbound: [],
+      telegramInbound: [],
       discordHistory: [],
       discordDiagnosis: null,
       discordDiagnosisRunning: false,
@@ -894,6 +1076,28 @@ export const useMessengerStore = create<MessengerState>()(
         get().removeConnection('discord');
       },
 
+      disconnectTelegram: async () => {
+        const conn = get().connections.find((c) => c.type === 'telegram');
+        try {
+          await postJson<{ ok: boolean }>('/api/messenger/telegram/disconnect', {
+            token: conn?.botToken,
+          });
+        } catch {
+          // Fallback: at least stop the in-process poller before clearing UI.
+          if (conn?.botToken) {
+            try {
+              await postJson('/api/messenger/telegram/listener/stop', {
+                token: conn.botToken,
+              });
+            } catch {
+              // ignore — local clear still proceeds
+            }
+          }
+        }
+        get().removeConnection('telegram');
+        set({ telegramInbound: [] });
+      },
+
       testConnection: async (type) => {
         const conn = get().connections.find((c) => c.type === type);
         if (!conn) return false;
@@ -907,6 +1111,17 @@ export const useMessengerStore = create<MessengerState>()(
             return false;
           }
           return verifyDiscordBotAndGuilds(get, set, { quiet: false });
+        }
+
+        if (type === 'telegram') {
+          if (!conn.botToken) {
+            get().updateConnection(type, {
+              status: 'error',
+              error: 'No token configured',
+            });
+            return false;
+          }
+          return verifyTelegramBot(get, { quiet: false });
         }
 
         get().updateConnection(type, {
@@ -1191,6 +1406,56 @@ export const useMessengerStore = create<MessengerState>()(
       sendTestMessage: async (type, opts) => {
         const conn = get().connections.find((c) => c.type === type);
         if (!conn) return false;
+
+        if (type === 'telegram') {
+          const configured = Boolean(conn.botToken || conn.telegramServerConfigured);
+          if (!configured) {
+            get().updateConnection(type, {
+              lastSyncStatus: 'error',
+              lastSyncMessage: 'Connect Telegram before sending a test message',
+            });
+            return false;
+          }
+          const target = conn.defaultChatId;
+          if (!target) {
+            get().updateConnection(type, {
+              lastSyncStatus: 'error',
+              lastSyncMessage: 'Save a default Chat ID to send the test to',
+            });
+            return false;
+          }
+          get().updateConnection(type, {
+            lastSyncStatus: 'sending',
+            lastSyncMessage: 'Sending test message…',
+          });
+          try {
+            const data = await postJson<{ ok: boolean; error?: string }>('/api/messenger/send', {
+              type,
+              ...(conn.botToken ? { token: conn.botToken } : {}),
+              target,
+              text: 'OpenChamber agent connected ✓\nThis is a test message from your OpenChamber agent.',
+            });
+            if (!data.ok) {
+              get().updateConnection(type, {
+                lastSyncStatus: 'error',
+                lastSyncMessage: data.error ?? 'Send failed',
+              });
+              return false;
+            }
+            get().updateConnection(type, {
+              lastSyncAt: Date.now(),
+              lastSyncStatus: 'ok',
+              lastSyncMessage: 'Test message delivered ✓',
+            });
+            return true;
+          } catch (e) {
+            get().updateConnection(type, {
+              lastSyncStatus: 'error',
+              lastSyncMessage: e instanceof Error ? e.message : 'Send failed',
+            });
+            return false;
+          }
+        }
 
         // "Connected" can be true purely from the live server gateway while
         // this browser holds no token (second device / cleared storage). The
@@ -1857,6 +2122,245 @@ export const useMessengerStore = create<MessengerState>()(
         set({ discordInbound: next });
       },
 
+      saveTelegramConfig: async () => {
+        const conn = get().connections.find((c) => c.type === 'telegram');
+        if (!conn) return;
+        // Tokenless clients (second device, cleared localStorage) must still
+        // save: the server falls back to the settings.json token when the body
+        // omits botToken — same contract as saveDiscordConfig.
+        if (!conn.botToken && !conn.telegramServerConfigured) return;
+        try {
+          await postJson('/api/messenger/telegram/save-config', {
+            ...(conn.botToken ? { botToken: conn.botToken } : {}),
+            autoReply: true,
+            defaultChatId: conn.defaultChatId,
+            defaultUserId: conn.defaultUserId,
+            allowedChatIds: conn.telegramAllowedChatIds ?? [],
+            defaultReplyMode: conn.telegramDefaultReplyMode ?? 'always',
+          });
+        } catch {
+          // silent — config save is best-effort
+        }
+      },
+
+      startTelegramListener: async () => {
+        const conn = get().connections.find((c) => c.type === 'telegram');
+        // Tokenless start is allowed — the endpoint falls back to the token
+        // saved in settings.json (same pattern as /test and /listener/stop).
+        if (!conn?.botToken && !conn?.telegramServerConfigured) return false;
+        try {
+          const data = await postJson<{
+            ok: boolean;
+            running?: boolean;
+            connected?: boolean;
+            startedAt?: number;
+            lastUpdateAt?: number | null;
+            totalReceived?: number;
+            totalReplied?: number;
+            totalRawMessages?: number;
+            lastError?: string | null;
+            botUsername?: string | null;
+          }>('/api/messenger/telegram/listener/start', {
+            ...(conn.botToken ? { token: conn.botToken } : {}),
+            defaultChatId: conn.defaultChatId,
+            defaultUserId: conn.defaultUserId,
+            allowedChatIds: conn.telegramAllowedChatIds ?? [],
+            defaultReplyMode: conn.telegramDefaultReplyMode ?? 'always',
+          });
+          if (!data.ok) return false;
+          get().updateConnection('telegram', {
+            telegramListenerEnabled: true,
+            telegramListenerRunning: data.running ?? true,
+            telegramListenerConnected: data.connected ?? false,
+            telegramListenerStartedAt: data.startedAt ?? Date.now(),
+            telegramListenerLastUpdateAt: data.lastUpdateAt ?? null,
+            telegramListenerTotalReceived: data.totalReceived ?? 0,
+            telegramListenerTotalReplied: data.totalReplied ?? 0,
+            telegramListenerTotalRawMessages: data.totalRawMessages ?? 0,
+            telegramListenerError: data.lastError ?? null,
+          });
+          // getMe + the first poll are async — poll until connected or a
+          // terminal error (bad token) surfaces.
+          for (let attempt = 0; attempt < 24; attempt++) {
+            const latest = get().connections.find((c) => c.type === 'telegram');
+            if (latest?.telegramListenerConnected) break;
+            if (latest?.telegramListenerError && /unauthorized/i.test(latest.telegramListenerError)) {
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            await get().refreshTelegramListenerStatus();
+          }
+          // Persist config server-side so it auto-starts on server restart
+          void get().saveTelegramConfig();
+          const finalConn = get().connections.find((c) => c.type === 'telegram');
+          return Boolean(finalConn?.telegramListenerRunning);
+        } catch (e) {
+          get().updateConnection('telegram', {
+            telegramListenerError: e instanceof Error ? e.message : 'start failed',
+            telegramListenerRunning: false,
+          });
+          return false;
+        }
+      },
+
+      stopTelegramListener: async () => {
+        const conn = get().connections.find((c) => c.type === 'telegram');
+        // Tokenless stop is allowed — the endpoint falls back to the token
+        // saved in settings.json.
+        if (!conn?.botToken && !conn?.telegramServerConfigured) return false;
+        try {
+          await postJson('/api/messenger/telegram/listener/stop', {
+            ...(conn?.botToken ? { token: conn.botToken } : {}),
+          });
+          get().updateConnection('telegram', {
+            telegramListenerEnabled: false,
+            telegramListenerRunning: false,
+            telegramListenerConnected: false,
+          });
+          return true;
+        } catch (e) {
+          get().updateConnection('telegram', {
+            telegramListenerError: e instanceof Error ? e.message : 'stop failed',
+          });
+          return false;
+        }
+      },
+
+      refreshTelegramListenerStatus: async () => {
+        const conn = get().connections.find((c) => c.type === 'telegram');
+        try {
+          // Prefer the server-saved config probe (mirrors discord
+          // runtime-status): keyed by settings.json, no client token needed.
+          let data: TelegramListenerStatusPayload | null = null;
+          try {
+            data = await getJson<TelegramListenerStatusPayload>(
+              '/api/messenger/telegram/runtime-status',
+            );
+          } catch {
+            data = null;
+          }
+          // After Disconnect the server has no config. Do not fall back to a
+          // client-token probe that could resurrect a stale "connected" view.
+          if (data?.ok && data.configured === false) {
+            if (!conn) return;
+            get().updateConnection('telegram', {
+              telegramServerConfigured: false,
+              telegramListenerEnabled: false,
+              telegramListenerRunning: false,
+              telegramListenerConnected: false,
+              telegramListenerError: null,
+            });
+            return;
+          }
+          if ((!data || !data.ok) && conn?.botToken) {
+            data = await postJson<TelegramListenerStatusPayload>(
+              '/api/messenger/telegram/listener/status',
+              { token: conn.botToken },
+            );
+          }
+          if (!data?.ok) return;
+
+          const updates: Partial<MessengerConnection> = {
+            telegramServerConfigured: data.configured ?? false,
+            telegramListenerEnabled:
+              typeof data.listenerEnabled === 'boolean'
+                ? data.listenerEnabled
+                : conn?.telegramListenerEnabled,
+            telegramListenerRunning: data.running ?? false,
+            telegramListenerConnected: data.connected ?? false,
+            telegramListenerStartedAt: data.startedAt ?? null,
+            telegramListenerLastUpdateAt: data.lastUpdateAt ?? null,
+            telegramListenerTotalReceived: data.totalReceived ?? 0,
+            telegramListenerTotalReplied: data.totalReplied ?? 0,
+            telegramListenerTotalRawMessages: data.totalRawMessages ?? 0,
+            telegramListenerError: data.lastError ?? null,
+            telegramDefaultReplyMode:
+              data.defaultReplyMode ?? conn?.telegramDefaultReplyMode ?? 'always',
+          };
+          if (data.defaultChatId && !conn?.defaultChatId) {
+            updates.defaultChatId = data.defaultChatId;
+          }
+          if (Array.isArray(data.allowedChatIds) && !conn?.telegramAllowedChatIds) {
+            updates.telegramAllowedChatIds = data.allowedChatIds;
+          }
+          if (data.botId) updates.telegramBotId = data.botId;
+          if (data.botUsername) updates.telegramBotUsername = data.botUsername;
+          // Authoritative live listener → keep the header badge in sync even
+          // when the separate token-verify call has not completed yet.
+          if (data.connected) {
+            updates.status = 'connected';
+            updates.error = null;
+            updates.lastConnectedAt = Date.now();
+          } else if (data.running && conn?.status === 'disconnected') {
+            updates.status = 'connecting';
+            updates.error = null;
+          }
+          get().updateConnection('telegram', updates);
+        } catch {
+          // ignore — keep prior listener fields; a failed probe must not look
+          // like an authoritative "listener stopped" result.
+        }
+      },
+
+      resyncTelegramStatus: async () => {
+        if (telegramStatusResyncInFlight) return telegramStatusResyncInFlight;
+        telegramStatusResyncInFlight = (async () => {
+          // Persist the UI token first so the runtime probe keys by the
+          // current token, not a stale one (same race resyncDiscordStatus
+          // solved for the Discord gateway).
+          const conn = get().connections.find((c) => c.type === 'telegram');
+          if (conn?.botToken) {
+            await get().saveTelegramConfig();
+          }
+
+          await get().refreshTelegramListenerStatus();
+
+          const afterRefresh = get().connections.find((c) => c.type === 'telegram');
+          if (!afterRefresh?.botToken && !afterRefresh?.telegramServerConfigured) return;
+
+          // Verify the bot identity (getMe) when configured.
+          await verifyTelegramBot(get, { quiet: true });
+
+          // Respect sticky stop — never auto-restart after the user stopped
+          // listening. Otherwise keep the listener live while configured.
+          const latest = get().connections.find((c) => c.type === 'telegram');
+          if (
+            (latest?.botToken || latest?.telegramServerConfigured) &&
+            latest.telegramListenerEnabled !== false &&
+            !latest.telegramListenerRunning
+          ) {
+            await get().startTelegramListener();
+          }
+        })().finally(() => {
+          telegramStatusResyncInFlight = null;
+        });
+        return telegramStatusResyncInFlight;
+      },
+
+      loadRecentTelegramMessages: async () => {
+        const conn = get().connections.find((c) => c.type === 'telegram');
+        try {
+          const data = await postJson<{
+            ok: boolean;
+            messages?: MessengerInboundMessage[];
+          }>('/api/messenger/telegram/listener/recent', {
+            ...(conn?.botToken ? { token: conn.botToken } : {}),
+            limit: 25,
+          });
+          if (data.ok && Array.isArray(data.messages)) {
+            set({ telegramInbound: data.messages });
+          }
+        } catch {
+          // ignore
+        }
+      },
+
+      ingestTelegramInbound: (msg) => {
+        const cur = get().telegramInbound;
+        const next = [msg, ...cur.filter((m) => m.updateId !== msg.updateId)].slice(0, 50);
+        set({ telegramInbound: next });
+      },
+
       loadDiscordHistory: async (channelId, limit = 50) => {
         const conn = get().connections.find((c) => c.type === 'discord');
         if (!conn?.botToken) return false;
@@ -2239,6 +2743,14 @@ export const useMessengerStore = create<MessengerState>()(
           discordListenerStartedAt: null,
           discordListenerLastUpdateAt: null,
           discordListenerError: null,
+          // Same live-state reset for the Telegram listener — re-acquired from
+          // the server probe on the next load.
+          telegramServerConfigured: false,
+          telegramListenerRunning: false,
+          telegramListenerConnected: false,
+          telegramListenerStartedAt: null,
+          telegramListenerLastUpdateAt: null,
+          telegramListenerError: null,
         })),
         projectMappings: state.projectMappings,
       }),
@@ -2259,6 +2771,7 @@ export const useMessengerStore = create<MessengerState>()(
         // server-side settings.json that may hold a live bot token.
         queueMicrotask(() => {
           void useMessengerStore.getState().resyncDiscordStatus();
+          void useMessengerStore.getState().resyncTelegramStatus();
         });
       },
     },

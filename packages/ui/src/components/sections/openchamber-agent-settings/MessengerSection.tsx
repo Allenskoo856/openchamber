@@ -1,11 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { RiAlertLine } from '@remixicon/react';
 import {
-  MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
-  MESSENGER_INTERRUPT_TIMEOUT_MAX_MS,
-  MESSENGER_INTERRUPT_TIMEOUT_MIN_MS,
   deriveDiscordDisplayStatus,
   deriveDiscordViewState,
+  deriveTelegramViewState,
   isDiscordGuildSyncing,
   useMessengerStore,
   type MessengerType,
@@ -19,7 +17,7 @@ import { useDiscordGuildMembershipPoll } from './useDiscordGuildMembershipPoll';
 import { useOpenChamberAgentEventsStore, type OpenChamberAgentUiRealtimeEvent } from '@/stores/useOpenChamberAgentEventsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -33,9 +31,18 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useI18n, type I18nKey } from '@/lib/i18n';
 import { Icon } from '@/components/icon/Icon';
-import type { IconName } from '@/components/icon/icons';
 import { DiscordOnboardingWizard } from './DiscordOnboardingWizard';
 import { DiscordCommandsButton } from './DiscordCommandPalette';
+import {
+  AdvancedSectionCard,
+  BehaviorPanel,
+  DangerZoneRow,
+  SessionBindingsPanel,
+  StatusBadge,
+  formatRelative,
+  type MessengerBehaviorStrings,
+} from './messenger-shared';
+import { TelegramConnectTile, TelegramSectionCard } from './TelegramCard';
 
 /** Discord brand mark — intentional product color, not a theme token. */
 const DISCORD_BRAND_CLASS = 'text-[#5865F2]';
@@ -63,6 +70,18 @@ const MESSENGER_META: Record<MessengerType, MessengerMeta> = {
     targetHelp: (
       <>
         Enable Developer Mode, then right-click a text channel → <strong>Copy Channel ID</strong>.
+      </>
+    ),
+  },
+  telegram: {
+    name: 'Telegram',
+    color: 'text-[#2AABEE]',
+    targetLabel: 'Chat ID',
+    targetPlaceholder: 'e.g. -1001234567890 or 123456789',
+    targetHelp: (
+      <>
+        Message the bot, then read the id from the recent-messages list or ask{' '}
+        <strong>@userinfobot</strong>.
       </>
     ),
   },
@@ -165,180 +184,17 @@ const PERMISSION_MODE_OPTIONS: {
   },
 ];
 
-function StatusBadge({ status }: { status: MessengerConnection['status'] }) {
-  const { t } = useI18n();
-  const styles: Record<string, string> = {
-    connected:
-      'bg-[var(--status-success)]/15 text-[var(--status-success)]',
-    connecting:
-      'bg-[var(--status-warning)]/15 text-[var(--status-warning)]',
-    error: 'bg-[var(--status-error)]/15 text-[var(--status-error)]',
-    disconnected: 'bg-muted text-muted-foreground',
-  };
-  const labelKey: I18nKey =
-    status === 'connected'
-      ? 'settings.integrations.discord.status.connected'
-      : status === 'connecting'
-        ? 'settings.integrations.discord.status.connecting'
-        : status === 'error'
-          ? 'settings.integrations.discord.status.error'
-          : 'settings.integrations.discord.status.disconnected';
-  const label = t(labelKey);
-  // Connected: checkmark only (label stays for accessibility). Other states keep text.
-  if (status === 'connected') {
-    return (
-      <span
-        className={cn(
-          'inline-flex size-5 items-center justify-center rounded-full',
-          styles.connected,
-        )}
-        title={label}
-        aria-label={label}
-      >
-        <Icon name="check" className="size-3" />
-      </span>
-    );
-  }
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
-        styles[status],
-      )}
-      aria-label={label}
-    >
-      {status === 'connecting' ? (
-        <Icon name="loader-4" className="size-3 animate-spin" />
-      ) : null}
-      {label}
-    </span>
-  );
-}
-
-type TranslateFn = (key: I18nKey, params?: Record<string, string | number | boolean | null | undefined>) => string;
-
-function formatRelative(ts: number | null | undefined, t: TranslateFn): string {
-  if (!ts) return t('settings.integrations.discord.relative.never');
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return t('common.relative.justNow');
-  if (diff < 3_600_000) {
-    return t('common.relative.minutesAgoShort', { count: Math.floor(diff / 60_000) });
-  }
-  if (diff < 86_400_000) {
-    return t('common.relative.hoursAgoShort', { count: Math.floor(diff / 3_600_000) });
-  }
-  return new Date(ts).toLocaleString();
-}
-
-/** Collapsible card used by Discord Advanced settings accordion sections. */
-function AdvancedSectionCard({
-  icon,
-  title,
-  meta,
-  badge,
-  open,
-  onOpenChange,
-  children,
-}: {
-  icon: IconName;
-  title: string;
-  meta?: React.ReactNode;
-  badge?: React.ReactNode;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Collapsible open={open} onOpenChange={onOpenChange}>
-      <div className="overflow-hidden rounded-xl border border-[var(--interactive-border)] bg-[var(--surface-elevated)]">
-        <CollapsibleTrigger className="flex w-full items-center gap-2.5 rounded-none px-4 py-3 hover:bg-[var(--interactive-hover)]/50">
-          <Icon name={icon} className="size-4 shrink-0 text-primary" />
-          <span className="shrink-0 text-sm font-semibold text-foreground">{title}</span>
-          {badge}
-          {meta ? (
-            <span className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground">
-              {meta}
-            </span>
-          ) : (
-            <span className="flex-1" />
-          )}
-          <Icon
-            name={open ? 'arrow-up-s' : 'arrow-down-s'}
-            className="size-4 shrink-0 text-muted-foreground"
-          />
-        </CollapsibleTrigger>
-        <CollapsibleContent className="border-t border-[var(--interactive-border)] px-4 py-3">
-          {children}
-        </CollapsibleContent>
-      </div>
-    </Collapsible>
-  );
-}
-
-/** Segmented picker matching the Discord Advanced settings mock (chip selection). */
-function DiscordSegmentedControl<T extends string>({
-  value,
-  options,
-  onChange,
-  disabled,
-  ariaLabel,
-}: {
-  value: T;
-  options: Array<{ id: T; label: string }>;
-  onChange: (value: T) => void;
-  disabled?: boolean;
-  ariaLabel: string;
-}) {
-  return (
-    <div role="group" aria-label={ariaLabel} className="flex flex-wrap gap-1.5">
-      {options.map((opt) => (
-        <Button
-          key={opt.id}
-          type="button"
-          variant="chip"
-          size="xs"
-          disabled={disabled}
-          aria-pressed={value === opt.id}
-          className="!font-normal normal-case"
-          onClick={() => onChange(opt.id)}
-        >
-          {opt.label}
-        </Button>
-      ))}
-    </div>
-  );
-}
-
 type DangerZoneKey = 'fallback' | 'owner' | 'trusted' | 'slash';
 
-function DangerZoneRow({
-  label,
-  open,
-  onToggle,
-  children,
-}: {
-  label: string;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-[var(--interactive-hover)]/40"
-      >
-        <span className="text-sm font-medium text-foreground">{label}</span>
-        <Icon
-          name={open ? 'arrow-down-s' : 'arrow-right-s'}
-          className="size-4 shrink-0 text-muted-foreground"
-        />
-      </button>
-      {open ? <div className="space-y-2 px-4 pb-3">{children}</div> : null}
-    </div>
-  );
+/** Localized status labels for the Discord badge (shared StatusBadge input). */
+function useDiscordStatusLabels(): Record<MessengerConnection['status'], string> {
+  const { t } = useI18n();
+  return {
+    connected: t('settings.integrations.discord.status.connected'),
+    connecting: t('settings.integrations.discord.status.connecting'),
+    error: t('settings.integrations.discord.status.error'),
+    disconnected: t('settings.integrations.discord.status.disconnected'),
+  };
 }
 
 function severityClass(s: MessengerDiagnosisCheck['severity']) {
@@ -464,7 +320,11 @@ function DiscordListenerPanel({
         <div className="rounded-lg border border-border bg-background px-2 py-1.5">
           <div className="text-muted-foreground">Last update</div>
           <div className="text-foreground font-medium">
-            {formatRelative(conn.discordListenerLastUpdateAt ?? null, t)}
+            {formatRelative(
+              conn.discordListenerLastUpdateAt ?? null,
+              t,
+              t('settings.integrations.discord.relative.never'),
+            )}
           </div>
         </div>
       </div>
@@ -659,7 +519,9 @@ function DiscordDiagnosePanel({
       )}
       {diagnosis && (
         <div className="text-[10px] text-muted-foreground">
-          Last run {formatRelative(diagnosis.runAt, t)} for{' '}
+          Last run{' '}
+          {formatRelative(diagnosis.runAt, t, t('settings.integrations.discord.relative.never'))}{' '}
+          for{' '}
           {conn.discordBotUsername ? `bot ${conn.discordBotUsername}` : 'this bot'}.
         </div>
       )}
@@ -667,245 +529,64 @@ function DiscordDiagnosePanel({
   );
 }
 
-function BehaviorPanel({
-  type,
-  bridgeStatus,
-  refreshBridgeStatus,
-}: {
-  type: MessengerType;
-  bridgeStatus: ReturnType<typeof useMessengerStore.getState>['bridgeStatus'];
-  refreshBridgeStatus: (t?: MessengerType) => Promise<void>;
-}) {
+/** Localized strings for the shared BehaviorPanel, resolved from discord keys. */
+function useDiscordBehaviorStrings(): MessengerBehaviorStrings {
   const { t } = useI18n();
-  const bridgeVerbosity = useMessengerStore((s) => s.bridgeVerbosity);
-  const setBridgeVerbosity = useMessengerStore((s) => s.setBridgeVerbosity);
-  const bridgePermissionMode = useMessengerStore((s) => s.bridgePermissionMode);
-  const setBridgePermissionMode = useMessengerStore((s) => s.setBridgePermissionMode);
-  const bridgeNotifyOnComplete = useMessengerStore((s) => s.bridgeNotifyOnComplete);
-  const setBridgeNotifyOnComplete = useMessengerStore((s) => s.setBridgeNotifyOnComplete);
-  const bridgeCritiqueEnabled = useMessengerStore((s) => s.bridgeCritiqueEnabled);
-  const setBridgeCritiqueEnabled = useMessengerStore((s) => s.setBridgeCritiqueEnabled);
-  const bridgeInterruptTimeoutMs = useMessengerStore((s) => s.bridgeInterruptTimeoutMs);
-  const setBridgeInterruptTimeoutMs = useMessengerStore((s) => s.setBridgeInterruptTimeoutMs);
+  return {
+    unavailable: t('settings.integrations.discord.bridge.unavailable'),
+    verbosityTitle: t('settings.integrations.discord.bridge.verbosity.title'),
+    verbosityOptions: VERBOSITY_OPTIONS.map((opt) => ({
+      id: opt.id,
+      label: t(opt.labelKey),
+      desc: t(opt.descKey),
+    })),
+    permissionTitle: t('settings.integrations.discord.bridge.permissionMode.title'),
+    permissionOptions: PERMISSION_MODE_OPTIONS.map((opt) => ({
+      id: opt.id,
+      label: t(opt.labelKey),
+      desc: t(opt.descKey),
+    })),
+    notifyTitle: t('settings.integrations.discord.bridge.notifyOnComplete.title'),
+    notifyDescription: t('settings.integrations.discord.bridge.notifyOnComplete.description'),
+    critiqueTitle: t('settings.integrations.discord.bridge.critique.title'),
+    critiqueDescription: t('settings.integrations.discord.bridge.critique.description'),
+    interruptTitle: t('settings.integrations.discord.bridge.interruptTimeout.title'),
+    interruptUnit: t('settings.integrations.discord.bridge.interruptTimeout.unit'),
+    interruptDescription: t('settings.integrations.discord.bridge.interruptTimeout.description'),
+    activeLabel: (count) =>
+      count === 1
+        ? t('settings.integrations.discord.bridge.activeOne')
+        : t('settings.integrations.discord.bridge.activeMany', { count }),
+  };
+}
+
+/** Discord-only worktree sync toggle — injected into the shared BehaviorPanel. */
+function DiscordWorktreesSlot() {
+  const { t } = useI18n();
   const syncWorktrees = useMessengerStore(
     (s) => s.connections.find((c) => c.type === 'discord')?.syncWorktrees !== false,
   );
-  useEffect(() => {
-    refreshBridgeStatus(type);
-    const id = setInterval(() => refreshBridgeStatus(type), 8000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type]);
-
-  const active = bridgeStatus.active.filter((a) => a.type === type);
-  const currentVerbosity: MessengerVerbosity = bridgeVerbosity[type] ?? 'normal';
-  const currentVerbosityOption =
-    VERBOSITY_OPTIONS.find((o) => o.id === currentVerbosity) ?? VERBOSITY_OPTIONS[0];
-  const currentPermissionMode: MessengerPermissionMode = bridgePermissionMode[type] ?? 'agent';
-  const currentPermissionOption =
-    PERMISSION_MODE_OPTIONS.find((o) => o.id === currentPermissionMode) ??
-    PERMISSION_MODE_OPTIONS[0];
-  const notifyOnComplete = bridgeNotifyOnComplete[type] ?? false;
-  const critiqueEnabled = bridgeCritiqueEnabled[type] ?? false;
-  const interruptTimeoutMs =
-    bridgeInterruptTimeoutMs[type] ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS;
-  const controlsDisabled = !bridgeStatus.enabled;
-
   return (
-    <div className="space-y-4">
-      {!bridgeStatus.enabled ? (
-        <p className="text-xs text-[var(--status-warning)] leading-snug">
-          {t('settings.integrations.discord.bridge.unavailable')}
-        </p>
-      ) : null}
-
-      {/* Output verbosity — how much of each OpenCode turn is mirrored back. */}
-      <div className="space-y-2">
-        <div className="text-sm font-medium text-foreground">
-          {t('settings.integrations.discord.bridge.verbosity.title')}
-        </div>
-        <DiscordSegmentedControl
-          value={currentVerbosity}
-          disabled={controlsDisabled}
-          ariaLabel={t('settings.integrations.discord.bridge.verbosity.title')}
-          onChange={(id) => setBridgeVerbosity(type, id)}
-          options={VERBOSITY_OPTIONS.map((opt) => ({
-            id: opt.id,
-            label: t(opt.labelKey),
-          }))}
+    <div data-settings-item="integrations.discord.sync-worktrees" className="space-y-1">
+      <label className="flex cursor-pointer items-start gap-2">
+        <Checkbox
+          checked={syncWorktrees}
+          onChange={(checked) => {
+            useMessengerStore.getState().updateConnection('discord', { syncWorktrees: checked });
+            setTimeout(() => useMessengerStore.getState().saveDiscordConfig(), 0);
+          }}
+          ariaLabel={t('settings.integrations.discord.bridge.syncWorktrees.title')}
         />
-        <div className="text-xs text-muted-foreground leading-snug">
-          {t(currentVerbosityOption.descKey)}
-        </div>
-      </div>
-
-      {/* Tool permission mode — same defaults as /yolo and /permissions. */}
-      <div className="space-y-2">
-        <div className="text-sm font-medium text-foreground">
-          {t('settings.integrations.discord.bridge.permissionMode.title')}
-        </div>
-        <DiscordSegmentedControl
-          value={currentPermissionMode}
-          disabled={controlsDisabled}
-          ariaLabel={t('settings.integrations.discord.bridge.permissionMode.title')}
-          onChange={(id) => setBridgePermissionMode(type, id)}
-          options={PERMISSION_MODE_OPTIONS.map((opt) => ({
-            id: opt.id,
-            label: t(opt.labelKey),
-          }))}
-        />
-        <div className="text-xs text-muted-foreground leading-snug">
-          {t(currentPermissionOption.descKey)}
-        </div>
-      </div>
-
-      <div data-settings-item="integrations.discord.notify-on-complete" className="space-y-1">
-        <label className="flex cursor-pointer items-start gap-2">
-          <Checkbox
-            checked={notifyOnComplete}
-            onChange={(checked) => setBridgeNotifyOnComplete(type, checked)}
-            disabled={controlsDisabled}
-            ariaLabel={t('settings.integrations.discord.bridge.notifyOnComplete.title')}
-          />
-          <span className="min-w-0">
-            <span className="block text-sm font-medium text-foreground">
-              {t('settings.integrations.discord.bridge.notifyOnComplete.title')}
-            </span>
-            <span className="block text-xs text-muted-foreground leading-snug">
-              {t('settings.integrations.discord.bridge.notifyOnComplete.description')}
-            </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-foreground">
+            {t('settings.integrations.discord.bridge.syncWorktrees.title')}
           </span>
-        </label>
-      </div>
-
-      <div data-settings-item="integrations.discord.critique" className="space-y-1">
-        <label className="flex cursor-pointer items-start gap-2">
-          <Checkbox
-            checked={critiqueEnabled}
-            onChange={(checked) => setBridgeCritiqueEnabled(type, checked)}
-            disabled={controlsDisabled}
-            ariaLabel={t('settings.integrations.discord.bridge.critique.title')}
-          />
-          <span className="min-w-0">
-            <span className="block text-sm font-medium text-foreground">
-              {t('settings.integrations.discord.bridge.critique.title')}
-            </span>
-            <span className="block text-xs text-muted-foreground leading-snug">
-              {t('settings.integrations.discord.bridge.critique.description')}
-            </span>
+          <span className="block text-xs text-muted-foreground leading-snug">
+            {t('settings.integrations.discord.bridge.syncWorktrees.description')}
           </span>
-        </label>
-      </div>
-
-      <div data-settings-item="integrations.discord.sync-worktrees" className="space-y-1">
-        <label className="flex cursor-pointer items-start gap-2">
-          <Checkbox
-            checked={syncWorktrees}
-            onChange={(checked) => {
-              useMessengerStore.getState().updateConnection('discord', { syncWorktrees: checked });
-              setTimeout(() => useMessengerStore.getState().saveDiscordConfig(), 0);
-            }}
-            ariaLabel={t('settings.integrations.discord.bridge.syncWorktrees.title')}
-          />
-          <span className="min-w-0">
-            <span className="block text-sm font-medium text-foreground">
-              {t('settings.integrations.discord.bridge.syncWorktrees.title')}
-            </span>
-            <span className="block text-xs text-muted-foreground leading-snug">
-              {t('settings.integrations.discord.bridge.syncWorktrees.description')}
-            </span>
-          </span>
-        </label>
-      </div>
-
-      <div
-        data-settings-item="integrations.discord.interrupt-timeout"
-        className="space-y-2"
-      >
-        <label
-          className="text-sm font-medium text-foreground"
-          htmlFor="discord-interrupt-timeout-ms"
-        >
-          {t('settings.integrations.discord.bridge.interruptTimeout.title')}
-        </label>
-        <div className="flex items-center gap-2">
-          <input
-            id="discord-interrupt-timeout-ms"
-            type="number"
-            min={MESSENGER_INTERRUPT_TIMEOUT_MIN_MS}
-            max={MESSENGER_INTERRUPT_TIMEOUT_MAX_MS}
-            step={500}
-            disabled={controlsDisabled}
-            value={interruptTimeoutMs}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              if (Number.isFinite(next)) {
-                setBridgeInterruptTimeoutMs(type, next);
-              }
-            }}
-            className="h-8 w-28 rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-          />
-          <span className="text-xs text-muted-foreground">
-            {t('settings.integrations.discord.bridge.interruptTimeout.unit')}
-          </span>
-        </div>
-        <div className="text-xs text-muted-foreground leading-snug">
-          {t('settings.integrations.discord.bridge.interruptTimeout.description')}
-        </div>
-      </div>
-
-      {active.length > 0 && (
-        <div className="text-xs text-muted-foreground">
-          <span className="text-primary">▶</span>{' '}
-          {active.length === 1
-            ? t('settings.integrations.discord.bridge.activeOne')
-            : t('settings.integrations.discord.bridge.activeMany', { count: active.length })}
-        </div>
-      )}
-
-      <div
-        data-settings-item="integrations.discord.proxy-worktrees"
-        className="space-y-1 border-t border-border/60 pt-3 text-xs text-muted-foreground leading-snug"
-      >
-        <div>{t('settings.integrations.discord.bridge.proxyNote')}</div>
-        <div>{t('settings.integrations.discord.bridge.autoWorktreeNote')}</div>
-      </div>
+        </span>
+      </label>
     </div>
-  );
-}
-
-function SessionBindingsPanel({
-  type,
-  bridgeStatus,
-}: {
-  type: MessengerType;
-  bridgeStatus: ReturnType<typeof useMessengerStore.getState>['bridgeStatus'];
-}) {
-  const { t } = useI18n();
-  const bindings = bridgeStatus.bindings.filter((b) => b.type === type);
-  if (bindings.length === 0) {
-    return (
-      <div className="text-xs text-muted-foreground">
-        {t('settings.integrations.discord.advanced.sessionBindings.empty')}
-      </div>
-    );
-  }
-  return (
-    <ul className="max-h-48 space-y-1 overflow-y-auto">
-      {bindings.map((b) => (
-        <li
-          key={`${b.type}:${b.targetKey}:${b.sessionId}`}
-          className="rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground"
-        >
-          <code className="rounded bg-muted px-1 text-foreground">{b.targetKey}</code>
-          {' → '}
-          <code className="rounded bg-muted px-1 text-foreground">
-            {b.sessionId.slice(0, 16)}…
-          </code>
-          {b.projectLabel ? ` · ${b.projectLabel}` : ''}
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -1021,6 +702,7 @@ function DiscordAdvancedSettings({
   const isOpen = open ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
   const { t } = useI18n();
+  const behaviorStrings = useDiscordBehaviorStrings();
 
   const updateConnection = useMessengerStore((s) => s.updateConnection);
   const saveDiscordConfig = useMessengerStore((s) => s.saveDiscordConfig);
@@ -1205,6 +887,15 @@ function DiscordAdvancedSettings({
             type={conn.type}
             bridgeStatus={bridgeStatus}
             refreshBridgeStatus={refreshBridgeStatus}
+            strings={behaviorStrings}
+            settingsItemPrefix="integrations.discord"
+            worktreesSlot={<DiscordWorktreesSlot />}
+            footerNotes={
+              <div data-settings-item="integrations.discord.proxy-worktrees" className="space-y-1">
+                <div>{t('settings.integrations.discord.bridge.proxyNote')}</div>
+                <div>{t('settings.integrations.discord.bridge.autoWorktreeNote')}</div>
+              </div>
+            }
           />
         </AdvancedSectionCard>
 
@@ -1256,7 +947,11 @@ function DiscordAdvancedSettings({
           meta={
             conn.lastSyncAt
               ? t('settings.integrations.discord.advanced.syncLog.lastSynced', {
-                  when: formatRelative(conn.lastSyncAt, t),
+                  when: formatRelative(
+                    conn.lastSyncAt,
+                    t,
+                    t('settings.integrations.discord.relative.never'),
+                  ),
                 })
               : t('settings.integrations.discord.advanced.syncLog.never')
           }
@@ -1285,7 +980,11 @@ function DiscordAdvancedSettings({
           open={sectionOpen.bindings}
           onOpenChange={(next) => setSectionOpen((s) => ({ ...s, bindings: next }))}
         >
-          <SessionBindingsPanel type={conn.type} bridgeStatus={bridgeStatus} />
+          <SessionBindingsPanel
+            type={conn.type}
+            bridgeStatus={bridgeStatus}
+            emptyText={t('settings.integrations.discord.advanced.sessionBindings.empty')}
+          />
         </AdvancedSectionCard>
       </div>
 
@@ -1793,6 +1492,7 @@ function DiscordServersAndInviteBlock({ conn }: { conn: MessengerConnection }) {
 
 function ConnectionCard({ conn }: { conn: MessengerConnection }) {
   const { t } = useI18n();
+  const statusLabels = useDiscordStatusLabels();
   const onboardingStep = useMessengerStore((s) => s.onboardingStep);
   const onboardingType = useMessengerStore((s) => s.onboardingType);
 
@@ -1875,7 +1575,7 @@ function ConnectionCard({ conn }: { conn: MessengerConnection }) {
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
           <Icon name="discord-fill" className={cn('size-5 shrink-0', meta.color)} />
           <span className="shrink-0 text-sm font-semibold text-foreground">{meta.name}</span>
-          <StatusBadge status={displayStatus} />
+          <StatusBadge status={displayStatus} labels={statusLabels} />
           {conn.discordBotUsername && (
             <span className="min-w-0 truncate text-xs text-muted-foreground">
               {conn.discordBotUsername}
@@ -2091,6 +1791,7 @@ export const MessengerSection: React.FC = () => {
   }, [hasHydrated]);
 
   const discordConn = connections.find((c) => c.type === 'discord');
+  const telegramConn = connections.find((c) => c.type === 'telegram');
   // Single render rule for the whole section — keyed on the persisted token,
   // not on transient live status, so the surface never flaps between the
   // connect tile, a bare token form, and the configured view.
@@ -2100,6 +1801,15 @@ export const MessengerSection: React.FC = () => {
   const serverConfigured = Boolean(discordConn?.discordServerConfigured);
   const wizardActive = onboardingStep !== null && onboardingType === 'discord';
   const view = deriveDiscordViewState({ hasToken, serverConfigured, wizardActive });
+
+  const telegramHasToken = Boolean(telegramConn?.botToken);
+  const telegramServerConfigured = Boolean(telegramConn?.telegramServerConfigured);
+  const telegramWizardActive = onboardingStep !== null && onboardingType === 'telegram';
+  const telegramView = deriveTelegramViewState({
+    hasToken: telegramHasToken,
+    serverConfigured: telegramServerConfigured,
+    wizardActive: telegramWizardActive,
+  });
 
   // When the connect card is showing we don't know yet whether the server has
   // a working bot configured — the localStorage hydration may have come up
@@ -2114,13 +1824,31 @@ export const MessengerSection: React.FC = () => {
     void useMessengerStore.getState().resyncDiscordStatus();
   }, [hasHydrated, hasToken, serverConfigured]);
 
+  // Same probe for Telegram — flip to "configured" within one round-trip
+  // when the server already has a working bot but local state was lost.
+  useEffect(() => {
+    if (!hasHydrated) return;
+    if (telegramHasToken || telegramServerConfigured) return;
+    void useMessengerStore.getState().resyncTelegramStatus();
+  }, [hasHydrated, telegramHasToken, telegramServerConfigured]);
+
   return (
     <div className="space-y-4">
       {/* Suppress only the connect-card flash until rehydrate; never blank the page. */}
-      {hasHydrated && view === 'connect-card' && (
-        <DiscordConnectCard onConnect={() => startOnboarding('discord')} />
+      {hasHydrated && (view === 'connect-card' || telegramView === 'connect-card') && (
+        <div className="flex flex-wrap gap-3">
+          {view === 'connect-card' && (
+            <DiscordConnectCard onConnect={() => startOnboarding('discord')} />
+          )}
+          {telegramView === 'connect-card' && (
+            <TelegramConnectTile onConnect={() => startOnboarding('telegram')} />
+          )}
+        </div>
       )}
       {view !== 'connect-card' && discordConn && <ConnectionCard conn={discordConn} />}
+      {telegramView !== 'connect-card' && telegramConn && (
+        <TelegramSectionCard conn={telegramConn} />
+      )}
     </div>
   );
 };
