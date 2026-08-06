@@ -866,6 +866,16 @@ export const createSettingsHelpers = (dependencies) => {
       }
     }
 
+    // Telegram integration block — same contract as discord (null clears).
+    if (candidate.telegram === null) {
+      result.telegram = null;
+    } else if (candidate.telegram && typeof candidate.telegram === 'object' && !Array.isArray(candidate.telegram)) {
+      const sanitizedTelegram = sanitizeTelegramConfig(candidate.telegram);
+      if (sanitizedTelegram) {
+        result.telegram = sanitizedTelegram;
+      }
+    }
+
     return result;
   };
 
@@ -960,6 +970,57 @@ export const createSettingsHelpers = (dependencies) => {
     return result;
   };
 
+  const sanitizeTelegramConfig = (value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const result = {};
+    if (typeof value.botToken === 'string') {
+      const token = value.botToken.trim();
+      if (token.length > 0) {
+        result.botToken = token;
+      }
+    }
+    if (typeof value.defaultChatId === 'string') {
+      const chatId = value.defaultChatId.trim();
+      if (chatId.length > 0) {
+        result.defaultChatId = chatId;
+      }
+    }
+    if (typeof value.defaultUserId === 'string') {
+      const userId = value.defaultUserId.trim();
+      if (userId.length > 0) {
+        result.defaultUserId = userId;
+      }
+    }
+    if (typeof value.autoReply === 'boolean') {
+      result.autoReply = value.autoReply;
+    }
+    if (value.defaultReplyMode === 'always' || value.defaultReplyMode === 'mention') {
+      result.defaultReplyMode = value.defaultReplyMode;
+    }
+    if (Array.isArray(value.allowedChatIds)) {
+      result.allowedChatIds = Array.from(
+        new Set(
+          value.allowedChatIds
+            .map((id) => (typeof id === 'string' ? id.trim() : String(id ?? '').trim()))
+            .filter((id) => id.length > 0),
+        ),
+      );
+    }
+    // Global bridge mute is not a Telegram setting either — responding is
+    // governed by access control (owner / allowed chats). Coerce legacy false
+    // to true so stale settings cannot silently mute replies.
+    if (Object.prototype.hasOwnProperty.call(value, 'bridgeEnabled')) {
+      result.bridgeEnabled = true;
+    }
+    // Absent means "start by default"; only an explicit false is sticky-stopped.
+    if (typeof value.listenerEnabled === 'boolean') {
+      result.listenerEnabled = value.listenerEnabled;
+    }
+    return result;
+  };
+
   const mergePersistedSettings = (current, changes) => {
     const baseBookmarks = Array.isArray(changes.securityScopedBookmarks)
       ? changes.securityScopedBookmarks
@@ -990,6 +1051,11 @@ export const createSettingsHelpers = (dependencies) => {
       delete next.discord;
     }
 
+    // Explicit null clears Telegram config from disk (Disconnect).
+    if (Object.prototype.hasOwnProperty.call(changes, 'telegram') && changes.telegram === null) {
+      delete next.telegram;
+    }
+
     return next;
   };
 
@@ -1001,6 +1067,12 @@ export const createSettingsHelpers = (dependencies) => {
       const discord = { ...sanitized.discord };
       delete discord.botToken;
       sanitized.discord = discord;
+    }
+    // Never expose the Telegram bot token through the generic settings API.
+    if (sanitized.telegram && typeof sanitized.telegram === 'object') {
+      const telegram = { ...sanitized.telegram };
+      delete telegram.botToken;
+      sanitized.telegram = telegram;
     }
     const bookmarks = normalizeStringArray(settings.securityScopedBookmarks);
     const hasManagedRemoteTunnelToken = typeof settings?.managedRemoteTunnelToken === 'string' && settings.managedRemoteTunnelToken.trim().length > 0;

@@ -311,6 +311,57 @@ describe('settings helpers', () => {
     });
   });
 
+  it('accepts telegram config and clears it with null', () => {
+    const helpers = createTestHelpers();
+
+    expect(helpers.sanitizeSettingsUpdate({
+      telegram: {
+        botToken: ' tok ',
+        defaultChatId: '-1001',
+        defaultUserId: '42',
+        allowedChatIds: ['-1001', ' -1001 ', 55, ''],
+        defaultReplyMode: 'mention',
+        listenerEnabled: false,
+        autoReply: true,
+      },
+    })).toEqual({
+      telegram: {
+        botToken: 'tok',
+        defaultChatId: '-1001',
+        defaultUserId: '42',
+        allowedChatIds: ['-1001', '55'],
+        defaultReplyMode: 'mention',
+        listenerEnabled: false,
+        autoReply: true,
+      },
+    });
+
+    // Invalid entries are dropped; bridgeEnabled always coerces to true.
+    expect(helpers.sanitizeSettingsUpdate({
+      telegram: { botToken: 'tok', defaultReplyMode: 'bogus', bridgeEnabled: false, allowedChatIds: 'no' },
+    })).toEqual({
+      telegram: { botToken: 'tok', bridgeEnabled: true },
+    });
+
+    expect(helpers.sanitizeSettingsUpdate({ telegram: null })).toEqual({ telegram: null });
+
+    const merged = helpers.mergePersistedSettings(
+      { themeId: 'default', telegram: { botToken: 'tok' } },
+      { telegram: null },
+    );
+    expect(merged.telegram).toBeUndefined();
+    expect(merged.themeId).toBe('default');
+  });
+
+  it('strips the telegram bot token from the formatted settings response', () => {
+    const helpers = createTestHelpers();
+    const formatted = helpers.formatSettingsResponse({
+      telegram: { botToken: 'secret', defaultChatId: '-1001' },
+    });
+    expect(formatted.telegram.botToken).toBeUndefined();
+    expect(formatted.telegram.defaultChatId).toBe('-1001');
+  });
+
   it('accepts shortcut overrides as a persisted shared setting', () => {
     const helpers = createTestHelpers();
 
