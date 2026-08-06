@@ -96,26 +96,11 @@ function setupOutcome(
   return { tone: 'warn', text: result.diagnostics?.[0] ?? t('settings.workspaces.setup.isolationUnknown' as never) };
 }
 
-/**
- * What this choice means, followed by what is wrong with it if anything. Guidance leads
- * because picking a provider is a decision, not a status readout; an unavailable
- * provider appends its remedy, and an available one needs no announcement.
- */
-function providerChoiceDescription(
-  t: (key: never) => string,
-  provider: WorkspaceProviderKind,
-  entry: { available: boolean } | undefined,
-  remediation: string | null,
-): string | undefined {
-  const guidance = provider === 'docker'
-    ? t('settings.workspaces.where.dockerRecommended' as never)
-    : provider === 'kubernetes'
-      ? t('settings.workspaces.where.kubernetesWhen' as never)
-      : '';
-  const problem = entry === undefined || entry.available
-    ? ''
-    : remediation ? t(remediation as never) : t('settings.workspaces.status.unavailable' as never);
-  return [guidance, problem].filter(Boolean).join(' ') || undefined;
+/** What choosing this provider means. Explanation, so it lives behind the info icon. */
+function providerChoiceGuidance(t: (key: never) => string, provider: WorkspaceProviderKind): string | undefined {
+  if (provider === 'docker') return t('settings.workspaces.where.dockerRecommended' as never);
+  if (provider === 'kubernetes') return t('settings.workspaces.where.kubernetesWhen' as never);
+  return undefined;
 }
 
 export const SecureWorkspacesSettings: React.FC = () => {
@@ -491,7 +476,10 @@ export const SecureWorkspacesSettings: React.FC = () => {
                 onSelect={() => void save({ secureWorkspacesDefaultProvider: provider })}
                 label={providerLabel(provider)}
                 ariaLabel={providerLabel(provider)}
-                description={providerChoiceDescription(t, provider, entry, remediation)}
+                info={providerChoiceGuidance(t, provider)}
+                description={entry === undefined || entry.available
+                  ? undefined
+                  : remediation ? t(remediation) : t('settings.workspaces.status.unavailable')}
               />
             );
           })}
@@ -580,7 +568,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
                 </SettingsStackedField>
               </SettingsTwoColumn>
               {usesCustomImages ? (
-                <SettingsFieldRow label={t('settings.workspaces.advanced.customImages')} description={t('settings.workspaces.advanced.customImagesHint')}>
+                <SettingsFieldRow label={t('settings.workspaces.advanced.customImages')} info={t('settings.workspaces.advanced.customImagesHint')}>
                   <Button size="sm" variant="outline" onClick={() => void applyNow({ secureWorkspacesImage: '', secureWorkspacesGatewayImage: '', secureWorkspacesAllowedImages: '' }).then((ok) => { if (ok) void refreshCompatibility(opencodeClient.getDirectory() ?? undefined); })}>
                     {t('settings.workspaces.advanced.useBuiltInImages')}
                   </Button>
