@@ -247,6 +247,21 @@ describe('pollOnce', () => {
     expect(disconnected.client.listTriggerIssues).not.toHaveBeenCalled();
   });
 
+  it('accepts API-provided issue ids that the user-input parser would reject', async () => {
+    // Ids returned by the Linear API are trusted verbatim; only pasted user
+    // input goes through reference-shape parsing.
+    const oddIdIssue = { ...ISSUE, id: 'not_a_uuid_or_identifier' };
+    const { runtime, client, sessionService } = createHarness({
+      settings: { autoStartEnabled: true },
+      issue: oddIdIssue,
+    });
+    client.listTriggerIssues.mockResolvedValue([oddIdIssue]);
+    const result = await runtime.pollOnce();
+    expect(result.started).toHaveLength(1);
+    expect(client.fetchIssue).toHaveBeenCalledWith('not_a_uuid_or_identifier');
+    expect(sessionService.create).toHaveBeenCalledTimes(1);
+  });
+
   it('one failed issue does not block the others', async () => {
     const issueB = { ...ISSUE, id: 'issue-2', identifier: 'ENG-43' };
     const { runtime, client, sessionService } = createHarness({

@@ -140,8 +140,11 @@ export function createLinearIntegrationRuntime({
    * carries `linkback` flags so callers can surface what did not land. An
    * already-linked issue is rejected (409) instead of silently duplicated.
    */
-  async function startSessionFromIssue({ issue: issueInput, projectId = null } = {}) {
-    const issueRef = parseIssueReference(issueInput);
+  async function startSessionFromIssue({ issue: issueInput, projectId = null, trustedRef = false } = {}) {
+    // `parseIssueReference` sanitizes *user input* (pasted identifiers/URLs).
+    // The poller passes ids straight from the Linear API — those are already
+    // trusted and must not be rejected by the input-shape heuristics.
+    const issueRef = trustedRef ? asNonEmptyString(issueInput) : parseIssueReference(issueInput);
     if (!issueRef) {
       const error = new Error('A Linear issue id, identifier (e.g. ENG-123), or issue URL is required');
       error.statusCode = 400;
@@ -339,7 +342,7 @@ export function createLinearIntegrationRuntime({
       for (const issue of issues) {
         if (!issue?.id || links.getByIssueId(issue.id) || startsInFlight.has(issue.id)) continue;
         try {
-          const result = await startSessionFromIssue({ issue: issue.id });
+          const result = await startSessionFromIssue({ issue: issue.id, trustedRef: true });
           started.push(result);
           logger.log?.(
             `[Linear] Started session ${result.sessionId} from issue ${issue.identifier ?? issue.id}`,
