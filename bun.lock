@@ -104,7 +104,7 @@
       },
       "devDependencies": {
         "@electron/rebuild": "^3.7.0",
-        "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#76bbe58036f43dfe645225ed0cb3548058e306f9",
+        "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#236cf68b0e2a4b33816a31ce894ebd1b6776ea98",
         "electron": "^41.2.1",
         "electron-builder": "^26.0.0",
       },
@@ -267,7 +267,7 @@
       "dependencies": {
         "@clack/prompts": "^1.1.0",
         "@octokit/rest": "^22.0.1",
-        "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#76bbe58036f43dfe645225ed0cb3548058e306f9",
+        "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#236cf68b0e2a4b33816a31ce894ebd1b6776ea98",
         "@opencode-ai/sdk": "1.18.12",
         "@simplewebauthn/server": "13.3.1",
         "adm-zip": "^0.5.16",
@@ -1010,7 +1010,7 @@
 
     "@openchamber/mobile": ["@openchamber/mobile@workspace:packages/mobile"],
 
-    "@openchamber/opencode-container-workspace": ["@openchamber/opencode-container-workspace@github:openchamber/opencode-container-workspace#76bbe58", { "dependencies": { "@opencode-ai/plugin": "1.18.8" } }, "openchamber-opencode-container-workspace-76bbe58", "sha512-XyQW2/hJEqoBjuCNzX3qnC8YH0bhTuRpF9o+waPy9ue4VIHBx637YTPHMHbMXr32whm0wYtSPUjSbSGkz1i/Kw=="],
+    "@openchamber/opencode-container-workspace": ["@openchamber/opencode-container-workspace@github:openchamber/opencode-container-workspace#236cf68", { "dependencies": { "@opencode-ai/plugin": "1.18.8" } }, "openchamber-opencode-container-workspace-236cf68", "sha512-4oI7/kJRM156WGVguDRXuX3Fqh5qUqf/AtqiNr5wspXvnq3udwKM7Fbcowhp7XpMEzyU5MbgCIeBK1BHJ6Pqsw=="],
 
     "@openchamber/ui": ["@openchamber/ui@workspace:packages/ui"],
 
@@ -3521,6 +3521,8 @@
     "@npmcli/move-file/rimraf": ["rimraf@3.0.2", "", { "dependencies": { "glob": "^7.1.3" }, "bin": { "rimraf": "bin.js" } }, "sha512-JZkJMZkAGFFPP2YqXZXPbMlMBgsxzE8ILs4lMIX/2o0L9UBw9O/Y3o6wFw/i9YLapcUJWwqbi3kdxIPdC62TIA=="],
 
     "@openchamber/web/cron-parser": ["cron-parser@4.9.0", "", { "dependencies": { "luxon": "^3.2.1" } }, "sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q=="],
+
+    "@openchamber/web/yaml": ["yaml@2.9.0", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA=="],
 
     "@opencode-ai/plugin/@opencode-ai/sdk": ["@opencode-ai/sdk@1.18.8", "", { "dependencies": { "cross-spawn": "7.0.6" } }, "sha512-8vi5UBKFFgc+fnyKhZhGUxiIWMtUuN00VAInnK9JO6g6EC8WvWefP+ccTBQD023zod69JaEoAzGgO8hdxXHUaw=="],
 
