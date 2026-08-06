@@ -521,6 +521,25 @@ describe('workspace provider operation routes', () => {
     expect(res.body).toEqual({ mismatched: [] });
   });
 
+  it('applies only the keys a change names, leaving the rest of the configuration alone', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies();
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    // A surface that submits its whole form saves whatever its local state holds, which
+    // begins at defaults — that is how an unrelated action switched the feature off.
+    await registry.route('POST', '/api/workspaces/settings')({
+      body: { changes: { secureWorkspacesKubernetesContext: 'kind-openchamber-np' }, activate: false },
+      headers: {},
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    const persisted = deps.persistSettings.mock.calls.at(-1)?.[0] ?? {};
+    expect(Object.keys(persisted)).toEqual(['secureWorkspacesKubernetesContext']);
+    expect(persisted).not.toHaveProperty('secureWorkspacesEnabled');
+  });
+
   it('reports readiness as policy-incomplete instead of failing when settings are unusable', async () => {
     const registry = routeRegistry();
     const deps = dependencies({
@@ -756,6 +775,39 @@ describe('workspace provider operation routes', () => {
     await registry.route('POST', '/api/workspaces/settings')({ body: { changes: { secureWorkspacesEnabled: true }, activate: false } }, res);
     expect(res.statusCode).toBe(428);
     expect(deps.persistSettings).not.toHaveBeenCalled();
+  });
+
+  it('registers the plugin at startup when settings enable workspaces and OpenCode has no entry', async () => {
+    // The persisted flag and the registration are written together but can drift — an
+    // interrupted save, a restored profile, a file edited outside the app. Nothing
+    // reconciled them, so the setup step called the feature on while the panel called it
+    // unconfigured, and no control repaired either.
+    const registry = routeRegistry();
+    let pluginEntries = [];
+    const deps = dependencies({ dependencies: {
+      listPluginEntries: vi.fn(() => pluginEntries),
+      createPluginEntry: vi.fn((entry) => { pluginEntries.push({ ...entry, id: 'reconciled' }); }),
+    } });
+    registerWorkspaceRoutes(registry.app, deps);
+
+    await registry.route('GET', '/api/workspaces/readiness')({ query: {} }, response());
+
+    expect(deps.createPluginEntry).toHaveBeenCalledTimes(1);
+    expect(pluginEntries).toEqual([expect.objectContaining({ scope: 'user' })]);
+  });
+
+  it('leaves an existing registration alone rather than duplicating it', async () => {
+    const registry = routeRegistry();
+    const existing = { id: 'plugin-1', spec: '@openchamber/opencode-container-workspace', scope: 'user', options: {} };
+    const deps = dependencies({ dependencies: {
+      listPluginEntries: vi.fn(() => [existing]),
+      createPluginEntry: vi.fn(),
+    } });
+    registerWorkspaceRoutes(registry.app, deps);
+
+    await registry.route('GET', '/api/workspaces/readiness')({ query: {} }, response());
+
+    expect(deps.createPluginEntry).not.toHaveBeenCalled();
   });
 
   it('rolls persisted settings and plugin configuration back when activation fails', async () => {

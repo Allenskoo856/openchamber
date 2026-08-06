@@ -226,11 +226,14 @@ export const SecureWorkspacesSettings: React.FC = () => {
    * next action still used what was on disk.
    */
   async function applyNow(changes: Partial<SecureWorkspaceSettingsPayload>) {
-    const merged = { ...settings, ...changes };
-    setSettings(merged);
+    // Only the changed keys are sent. Submitting the whole form wrote whatever the local
+    // state happened to hold, and the local state starts from defaults — so an action
+    // taken before the disk values arrived, or after an edit suppressed that load, saved
+    // `enabled: false` over a working configuration and quietly disabled the feature.
+    setSettings((current) => ({ ...current, ...changes }));
     let proof: WorkspaceReauthProofResult | null;
     try {
-      proof = await reauthenticate('workspace.configure', 'host', { activate: false, changes: merged });
+      proof = await reauthenticate('workspace.configure', 'host', { activate: false, changes });
     } catch (error) {
       setActivationMessage(error instanceof Error ? error.message : t('settings.workspaces.reauth.failed'));
       return false;
@@ -239,7 +242,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
     setSaving(true);
     reportSettingsSaveState('saving');
     try {
-      const configured = await runtimeAPIs.workspaces?.updateSettings({ changes: merged, activate: false, reauthProof: proof.proof, reauthNonce: proof.nonce });
+      const configured = await runtimeAPIs.workspaces?.updateSettings({ changes, activate: false, reauthProof: proof.proof, reauthNonce: proof.nonce });
       if (!configured) throw new Error(t('settings.workspaces.compatibility.failed'));
       dirtyRef.current = false;
       reportSettingsSaveState('saved');

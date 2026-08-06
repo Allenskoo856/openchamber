@@ -311,10 +311,30 @@ export function registerWorkspaceRoutes(app, dependencies) {
     await restoreWorkspaceConfiguration(transaction);
     await clearSettingsTransaction();
   };
-  const settingsRecoveryPromise = recoverSettingsTransaction();
-  void settingsRecoveryPromise.catch((error) => {
-    console.error('[Secure Workspaces] Settings transaction recovery failed:', safeErrorMessage(error, 'recovery failed'));
-  });
+  /**
+   * Registers the plugin when settings say Secure Workspaces are on but OpenCode has no
+   * entry for it. Those two facts are written by the same request and can still drift —
+   * an interrupted save, a restored profile, a settings file edited outside the app — and
+   * nothing reconciled them. The surfaces then contradict each other: the setup step
+   * reads the persisted flag and shows the feature enabled, while the panel reads the
+   * registration and reports it unconfigured, leaving no control that repairs either.
+   */
+  const reconcilePluginRegistration = async () => {
+    const settings = readWorkspaceSettings(await readSettingsFromDiskMigrated());
+    if (!settings.enabled) return;
+    const pluginSpec = resolvedWorkspacePluginSpec();
+    if (workspacePluginEntries(pluginSpec).length > 0) return;
+    createPluginEntry({ spec: pluginSpec, scope: 'user', options: buildPluginOptions(settings, { requireComplete: true }) }, null);
+    console.log('[Secure Workspaces] Registered the workspace plugin, which enabled settings expected and OpenCode did not have');
+  };
+
+  const settingsRecoveryPromise = recoverSettingsTransaction()
+    .then(() => reconcilePluginRegistration())
+    .catch((error) => {
+      // A configuration that cannot be repaired is reported, not hidden: readiness will
+      // still describe the provider as unconfigured, which is the honest answer.
+      console.warn('[Secure Workspaces] Could not reconcile plugin registration:', safeErrorMessage(error, 'reconciliation failed'));
+    });
 
   function principalFor(context) {
     if (context?.type === 'client' && context.clientId) return `client:${context.clientId}`;

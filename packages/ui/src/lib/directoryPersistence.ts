@@ -1,5 +1,7 @@
 import { isVSCodeRuntime } from '@/lib/desktop';
+import { updateDesktopSettings } from '@/lib/persistence';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 
 export const applyPersistedDirectoryPreferences = async (): Promise<void> => {
@@ -35,11 +37,18 @@ export const applyPersistedDirectoryPreferences = async (): Promise<void> => {
       } catch {
         // A cleared value is an optimization; failing to clear it changes nothing.
       }
+      // Clearing the mirror alone achieves nothing: persisted settings are written back
+      // into local storage on every load, so the unusable directory would return at the
+      // next launch. The stored setting is the source and has to be cleared with it.
+      void updateDesktopSettings({ lastDirectory: '' });
       // The store already took the saved value for its initial state, so clearing storage
-      // is not enough — it has to be moved off the directory that does not resolve.
-      const home = useDirectoryStore.getState().homeDirectory;
-      if (home && home !== savedDirectory) {
-        useDirectoryStore.getState().setDirectory(home, { showOverlay: false });
+      // is not enough — it has to be moved off the directory that does not resolve. The
+      // active project is where the operator was working; home is only the last resort.
+      const projects = useProjectsStore.getState();
+      const activeProject = projects.projects.find((project) => project.id === projects.activeProjectId);
+      const replacement = activeProject?.path || useDirectoryStore.getState().homeDirectory;
+      if (replacement && replacement !== savedDirectory) {
+        useDirectoryStore.getState().setDirectory(replacement, { showOverlay: false });
       }
     }
   }
