@@ -2933,5 +2933,3 @@ export const dict = {
   'vscodeLayout.actions.archiveAllError': 'Impossible d’archiver {count} session(s)',
   'vscodeLayout.actions.cancel': 'Annuler',
 } as const;
-
-export type I18nKey = keyof typeof dict;
