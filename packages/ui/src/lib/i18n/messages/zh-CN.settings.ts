@@ -260,6 +260,7 @@ export const settingsDict = {
   'settings.workspaces.remediation.apple.unsupportedPlatform': 'Apple Container 仅在 macOS 上可用。',
   'settings.workspaces.remediation.apple.managedEgress': 'Apple Container 目前需要外部代理出站模式。',
   'settings.workspaces.reauth.setupRequired': '特权工作区操作需要独立的 OpenChamber 界面密码，此服务器尚未配置。请先设置界面密码（或注册通行密钥），然后重试。',
+  'settings.workspaces.reauth.openPasswordSettings': "去设置",
   'settings.workspaces.reauth.op.workspaceCreate': '创建 Secure Workspace',
   'settings.workspaces.reauth.op.sessionStart': '在 Secure Workspace 中开始会话',
   'settings.workspaces.reauth.op.cleanup': '删除工作区',

@@ -260,6 +260,7 @@ export const settingsDict = {
   'settings.workspaces.remediation.apple.unsupportedPlatform': 'Apple Container is available only on macOS.',
   'settings.workspaces.remediation.apple.managedEgress': 'Apple Container currently requires the external proxy egress mode.',
   'settings.workspaces.reauth.setupRequired': 'Privileged workspace actions require an independent OpenChamber UI password, and none is configured on this server yet. Set the UI password (or register a passkey), then try again.',
+  'settings.workspaces.reauth.openPasswordSettings': "Set it up",
   'settings.workspaces.reauth.op.workspaceCreate': 'Create a Secure Workspace',
   'settings.workspaces.reauth.op.sessionStart': 'Start a session in a Secure Workspace',
   'settings.workspaces.reauth.op.cleanup': 'Delete a workspace',

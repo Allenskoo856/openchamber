@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { WorkspacePrivilegedOperation, WorkspaceReauthProofResult } from '@/lib/api/types';
 import { useI18n } from '@/lib/i18n';
+import { useUIStore } from '@/stores/useUIStore';
 
 type PendingReauth = {
   operation: WorkspacePrivilegedOperation;
@@ -92,6 +93,14 @@ export function useWorkspaceReauth(options?: WorkspaceReauthOptions): WorkspaceR
     setSetupRequired(false);
   }, []);
 
+  /** Takes the operator to the page that holds the credential this action needs. */
+  const openCredentialSettings = React.useCallback(() => {
+    setPending(null);
+    setSetupRequired(false);
+    useUIStore.getState().setSettingsPage('general');
+    useUIStore.getState().setSettingsDialogOpen(true);
+  }, []);
+
   const cancel = React.useCallback(() => {
     if (busy) return;
     close(null);
@@ -153,7 +162,11 @@ export function useWorkspaceReauth(options?: WorkspaceReauthOptions): WorkspaceR
         {error ? <p className="typography-meta text-[var(--status-error)]" role="alert">{error}</p> : null}
         <DialogFooter>
           <Button variant="ghost" onClick={cancel} disabled={busy}>{t('settings.common.actions.cancel')}</Button>
-          {setupRequired ? null : <Button size="sm" onClick={() => void confirm()} disabled={busy}>{t('settings.workspaces.reauth.confirm')}</Button>}
+          {setupRequired ? (
+            <Button size="sm" onClick={openCredentialSettings}>{t('settings.workspaces.reauth.openPasswordSettings')}</Button>
+          ) : (
+            <Button size="sm" onClick={() => void confirm()} disabled={busy}>{t('settings.workspaces.reauth.confirm')}</Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

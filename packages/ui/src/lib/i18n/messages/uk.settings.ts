@@ -260,6 +260,7 @@ export const settingsDict = {
   "settings.workspaces.remediation.apple.unsupportedPlatform": "Apple Container доступний лише на macOS.",
   "settings.workspaces.remediation.apple.managedEgress": "Apple Container наразі потребує режиму вихідного трафіку через зовнішній проксі.",
   "settings.workspaces.reauth.setupRequired": "Привілейовані дії з робочими просторами потребують незалежного пароля інтерфейсу OpenChamber, який ще не налаштовано на цьому сервері. Установіть пароль інтерфейсу (або зареєструйте ключ доступу) і спробуйте ще раз.",
+  "settings.workspaces.reauth.openPasswordSettings": "Налаштувати",
   "settings.workspaces.reauth.op.workspaceCreate": "Створити Secure Workspace",
   "settings.workspaces.reauth.op.sessionStart": "Почати сесію в Secure Workspace",
   "settings.workspaces.reauth.op.cleanup": "Видалити робочий простір",

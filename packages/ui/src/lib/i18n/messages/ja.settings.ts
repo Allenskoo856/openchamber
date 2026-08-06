@@ -260,6 +260,7 @@ export const settingsDict = {
   'settings.workspaces.remediation.apple.unsupportedPlatform': 'Apple Container は macOS でのみ利用できます。',
   'settings.workspaces.remediation.apple.managedEgress': 'Apple Container は現在、外部プロキシのエグレスモードが必要です。',
   'settings.workspaces.reauth.setupRequired': '特権的なワークスペース操作には独立した OpenChamber UI パスワードが必要ですが、このサーバーではまだ設定されていません。UI パスワードを設定するか、パスキーを登録してから、もう一度お試しください。',
+  'settings.workspaces.reauth.openPasswordSettings': "設定する",
   'settings.workspaces.reauth.op.workspaceCreate': 'Secure Workspace を作成',
   'settings.workspaces.reauth.op.sessionStart': 'Secure Workspace でセッションを開始',
   'settings.workspaces.reauth.op.cleanup': 'ワークスペースを削除',

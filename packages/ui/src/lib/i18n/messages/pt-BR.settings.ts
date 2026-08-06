@@ -260,6 +260,7 @@ export const settingsDict = {
   "settings.workspaces.remediation.apple.unsupportedPlatform": "O Apple Container está disponível apenas no macOS.",
   "settings.workspaces.remediation.apple.managedEgress": "O Apple Container atualmente requer o modo de saída por proxy externo.",
   "settings.workspaces.reauth.setupRequired": "Ações privilegiadas de espaços de trabalho exigem uma senha independente da interface do OpenChamber, que ainda não foi configurada neste servidor. Defina a senha da interface (ou registre uma chave de acesso) e tente novamente.",
+  "settings.workspaces.reauth.openPasswordSettings": "Configurar",
   "settings.workspaces.reauth.op.workspaceCreate": "Criar um Secure Workspace",
   "settings.workspaces.reauth.op.sessionStart": "Iniciar uma sessão em um Secure Workspace",
   "settings.workspaces.reauth.op.cleanup": "Excluir um espaço de trabalho",

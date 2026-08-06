@@ -257,6 +257,7 @@
   'settings.workspaces.remediation.apple.unsupportedPlatform': 'Apple Container 僅適用於 macOS。',
   'settings.workspaces.remediation.apple.managedEgress': 'Apple Container 目前需要外部代理輸出模式。',
   'settings.workspaces.reauth.setupRequired': '特權工作區操作需要獨立的 OpenChamber 介面密碼，此伺服器尚未設定。請先設定介面密碼（或註冊通行金鑰），然後再試一次。',
+  'settings.workspaces.reauth.openPasswordSettings': "去設定",
   'settings.workspaces.reauth.op.workspaceCreate': '建立 Secure Workspace',
   'settings.workspaces.reauth.op.sessionStart': '在 Secure Workspace 中開始工作階段',
   'settings.workspaces.reauth.op.cleanup': '刪除工作區',
