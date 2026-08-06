@@ -1,4 +1,5 @@
-import { spawn, spawnSync } from 'child_process';
+import { spawn } from 'child_process';
+import { probeExecutable } from './tunnels/probe-executable.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -25,12 +26,7 @@ export async function checkCloudflaredAvailable() {
   const target = resolveExecutableLaunchTarget('cloudflared');
   if (target) {
     try {
-      const result = spawnSync(target.command, ['--version'], {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-        env: target.env,
-      });
+      const result = await probeExecutable(target.command, ['--version'], { env: target.env });
       if (result.status === 0) {
         return { available: true, path: target.command, version: result.stdout.trim() };
       }
