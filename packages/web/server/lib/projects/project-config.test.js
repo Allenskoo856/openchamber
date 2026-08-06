@@ -695,4 +695,30 @@ describe('project-config loop reconciliation', () => {
       await cleanup();
     }
   }, 15_000);
+
+  it('recovers from an unparseable lock using mtime age', async () => {
+    const { runtime, cleanup } = await createRuntime();
+    const fsPromises = await import('fs/promises');
+    try {
+      const projectID = 'stale-unparseable';
+      const configPath = runtime.resolveProjectConfigPath(projectID);
+      const lockPath = `${configPath}.lock`;
+      await fsPromises.mkdir(path.dirname(configPath), { recursive: true });
+      // Simulate crash between open(wx) and writeFile / partial payload.
+      await writeFile(lockPath, '{not-json');
+      const staleMtime = new Date(Date.now() - 120_000);
+      await fsPromises.utimes(lockPath, staleMtime, staleMtime);
+
+      const created = await runtime.upsertScheduledTask(projectID, {
+        name: 'after-unparseable',
+        enabled: true,
+        schedule: { kind: 'daily', time: '09:00', timezone: 'UTC' },
+        execution: { prompt: 'Run', providerID: 'openai', modelID: 'gpt-4.1' },
+      });
+      expect(created.created).toBe(true);
+      await expect(fsPromises.access(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await cleanup();
+    }
+  });
 });

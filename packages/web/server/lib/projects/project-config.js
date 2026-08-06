@@ -463,7 +463,17 @@ export const createProjectConfigRuntime = (deps) => {
             continue;
           }
         } catch {
-          // Unreadable lock — retry after a short wait; next loop may create it.
+          // Crash between open(wx) and writeFile (or a partial write) leaves an
+          // unparseable lock. Fall back to mtime age so recovery is not wedged.
+          try {
+            const stat = await fsPromises.stat(lockPath);
+            const mtimeMs = Number(stat?.mtimeMs);
+            if (Number.isFinite(mtimeMs) && (Date.now() - mtimeMs) > PROJECT_FILE_LOCK_STALE_MS) {
+              await fsPromises.unlink(lockPath).catch(() => {});
+              continue;
+            }
+          } catch {
+          }
         }
 
         await new Promise((resolve) => {

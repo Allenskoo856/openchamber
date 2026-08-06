@@ -234,6 +234,58 @@ describe('issue 2710: daily scheduled task double execution at the configured ti
     runtime.stop();
   });
 
+  it('completion state write failure releases the running slot', async () => {
+    vi.setSystemTime(UTC(2026, 0, 1, 14, 0, 0));
+    const projectConfigRuntime = createSharedProjectConfigRuntime(
+      makeTask({ kind: 'daily', times: ['15:00'] }),
+    );
+    const originalUpdate = projectConfigRuntime.updateScheduledTaskState;
+    let completionWrites = 0;
+    projectConfigRuntime.updateScheduledTaskState = vi.fn(async (pid, tid, patch) => {
+      // syncTaskSchedule + claim path may write; fail the post-run completion write.
+      if (patch?.lastStatus === 'success' || patch?.lastStatus === 'error') {
+        completionWrites += 1;
+        throw new Error('timeout acquiring project config lock for p1');
+      }
+      return originalUpdate(pid, tid, patch);
+    });
+
+    const runtime = createScheduledTasksRuntime(createRuntimeDeps(projectConfigRuntime));
+    await runtime.start();
+    await vi.advanceTimersByTimeAsync(HOUR + 3_000);
+
+    expect(completionWrites).toBeGreaterThan(0);
+    expect(sdk.sessionCreates.length).toBe(1);
+    expect(runtime.getStatus().runningScheduledTasksCount).toBe(0);
+
+    const manual = await runtime.runNow('p1', 'task-1');
+    expect(manual.ok || manual.reason === 'completion-state-failed' || manual.reason === 'start-state-failed').toBeTruthy();
+    expect(runtime.getStatus().runningScheduledTasksCount).toBe(0);
+
+    runtime.stop();
+  });
+
+  it('manual start state write failure releases the running slot', async () => {
+    vi.setSystemTime(UTC(2026, 0, 1, 14, 0, 0));
+    const projectConfigRuntime = createSharedProjectConfigRuntime(
+      makeTask({ kind: 'daily', times: ['15:00'] }),
+    );
+    const runtime = createScheduledTasksRuntime(createRuntimeDeps(projectConfigRuntime));
+    await runtime.start();
+
+    projectConfigRuntime.updateScheduledTaskState = vi.fn(async () => {
+      throw new Error('timeout acquiring project config lock for p1');
+    });
+
+    const manual = await runtime.runNow('p1', 'task-1');
+    expect(manual.ok).toBe(false);
+    expect(manual.reason).toBe('start-state-failed');
+    expect(sdk.sessionCreates.length).toBe(0);
+    expect(runtime.getStatus().runningScheduledTasksCount).toBe(0);
+
+    runtime.stop();
+  });
+
   it('armed instance still fires when another instance syncs inside the due-slack window', async () => {
     // Instance A arms for 15:00 outside the slack window. Instance B then starts
     // inside TASK_DUE_SLACK_MS and syncTaskSchedule advances disk nextRunAt to
@@ -253,6 +305,33 @@ describe('issue 2710: daily scheduled task double execution at the configured ti
     await vi.advanceTimersByTimeAsync(5_000);
 
     expect(sdk.sessionCreates.length).toBe(1);
+
+    runtimeA.stop();
+    runtimeB.stop();
+  });
+
+  it('armed instance still fires on a later day when lastScheduledFor is already set', async () => {
+    // After day 1 has claimed, lastScheduledFor is finite. On day 2 a second
+    // instance syncing inside the due-slack window must not suppress the armed fire.
+    vi.setSystemTime(UTC(2026, 0, 1, 14, 0, 0));
+    const task = makeTask({ kind: 'daily', times: ['15:00'] });
+    const projectConfigRuntime = createSharedProjectConfigRuntime(task);
+
+    const runtimeA = createScheduledTasksRuntime(createRuntimeDeps(projectConfigRuntime));
+    await runtimeA.start();
+    await vi.advanceTimersByTimeAsync(HOUR + 3_000);
+    expect(sdk.sessionCreates.length).toBe(1);
+
+    // Advance to day-2 afternoon, still outside slack, so A re-arms for 15:00.
+    await vi.advanceTimersByTimeAsync((23 * HOUR) - 3_000);
+    // Enter day-2 due-slack window and sync instance B (advances nextRunAt).
+    await vi.advanceTimersByTimeAsync(HOUR - 2_000);
+    const runtimeB = createScheduledTasksRuntime(createRuntimeDeps(projectConfigRuntime));
+    await runtimeB.start();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(sdk.sessionCreates.length).toBe(2);
 
     runtimeA.stop();
     runtimeB.stop();

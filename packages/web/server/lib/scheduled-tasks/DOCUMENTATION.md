@@ -25,13 +25,15 @@ in shared project config under the project write lock:
   from the winner's persisted `nextRunAt`.
 - Project config writes also take a cross-process `.json.lock` file so the
   read-modify-write is serialized across processes, not only within one process.
-- Claim failures (lock timeout, filesystem errors) release the in-process running
-  slot and skip the dispatch; they must not leave the task permanently "running"
+- Lock timeout / filesystem errors on claim, manual-start, or completion state
+  writes always release the in-process running slot (via `finally`) and best-effort
+  re-arm the next occurrence; they must not leave the task permanently "running"
   or reject unhandled from the queue pump.
-- The claim predicate rejects a duplicate via `lastScheduledFor`. It only consults
-  an advanced on-disk `nextRunAt` after an occurrence has already been claimed, so
-  a second instance syncing inside `TASK_DUE_SLACK_MS` cannot silently suppress an
-  already-armed timer.
+- The claim predicate rejects a duplicate solely via `lastScheduledFor` within
+  slack of this occurrence. It does not consult advanced on-disk `nextRunAt`
+  (that field is routinely overwritten by a second instance syncing inside
+  `TASK_DUE_SLACK_MS`, including on later days when `lastScheduledFor` is already
+  set from a prior claim).
 
 Manual `runNow` does not claim a schedule occurrence.
 
