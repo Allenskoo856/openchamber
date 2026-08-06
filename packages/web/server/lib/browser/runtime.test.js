@@ -74,7 +74,7 @@ describeBrowser('createBrowserRuntime (real Chrome)', () => {
 
   it('creates a tab, navigates, and reads the title', async () => {
     const created = await runtime.executeAction('tab.create', { url: baseUrl });
-    expect(created.tab.id).toBeString();
+    expect(typeof created.tab.id).toBe('string');
     expect(created.tab.url).toBe(baseUrl);
     const state = runtime.state();
     expect(state.running).toBe(true);

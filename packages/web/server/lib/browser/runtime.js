@@ -28,7 +28,7 @@ const IDLE_SHUTDOWN_MS = 15 * 60 * 1000;
 
 // Named responsive presets the UI exposes; width/height drive both the emulated
 // device metrics and the screencast bounds so the preview matches the surface.
-export const BROWSER_VIEWPORT_PRESETS = Object.freeze({
+const BROWSER_VIEWPORT_PRESETS = Object.freeze({
   desktop: { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false },
   laptop: { width: 1024, height: 640, deviceScaleFactor: 1, mobile: false },
   tablet: { width: 820, height: 1180, deviceScaleFactor: 2, mobile: true },

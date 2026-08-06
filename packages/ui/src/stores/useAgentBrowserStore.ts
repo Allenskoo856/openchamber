@@ -13,7 +13,7 @@ import {
   type BrowserTab,
 } from '@/lib/browser/agentBrowserApi';
 
-export type BrowserConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed';
+type BrowserConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed';
 
 type AgentBrowserStoreState = {
   supported: boolean;

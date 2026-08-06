@@ -1,5 +1,5 @@
 export const BROWSER_WS_PATH = '/api/browser/ws';
-export const BROWSER_WS_CONTROL_TAG_JSON = 0x01;
+const BROWSER_WS_CONTROL_TAG_JSON = 0x01;
 // Inbound client frames are small control messages (attach/watch/input).
 export const BROWSER_WS_MAX_PAYLOAD_BYTES = 64 * 1024;
 
