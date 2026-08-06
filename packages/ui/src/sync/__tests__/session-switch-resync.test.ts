@@ -44,7 +44,7 @@ mock.module("@/stores/useConfigStore", () => ({
 mock.module("@/stores/useTodosPersistStore", () => ({
   useTodosPersistStore: {
     getState: () => ({
-      setSessionTodos: (sessionID: string, todos: unknown) => {
+      setSessionTodos: (_directory: string, sessionID: string, todos: unknown) => {
         todoPersistWrites.push({ sessionID, todos })
       },
     }),
@@ -66,6 +66,7 @@ mock.module("@/components/ui", () => ({
 
 import { INITIAL_STATE, type State } from "../types"
 import { ChildStoreManager, type DirectoryStore } from "../child-store"
+import { getRuntimeKey } from "@/lib/runtime-switch"
 const {
   createEventRoutingIndex,
   handleEvent,
@@ -257,7 +258,7 @@ describe("resyncBlockingRequestsForDirectory", () => {
       storeWrites += 1
     })
     setActiveSession("/target", "ses_a")
-    handleEvent("global", event, childStores, routingIndex)
+    handleEvent("global", event, childStores, routingIndex, getRuntimeKey())
 
     expect(store.getState().todo.ses_a).toEqual(todos)
     expect(todoPersistWrites).toEqual([{ sessionID: "ses_a", todos }])
@@ -272,7 +273,7 @@ describe("resyncBlockingRequestsForDirectory", () => {
     expect(duplicateTodos).not.toBe(todos)
     expect(duplicateTodos).toEqual(todos)
 
-    handleEvent("global", duplicateEvent, childStores, routingIndex)
+    handleEvent("global", duplicateEvent, childStores, routingIndex, getRuntimeKey())
 
     expect(store.getState()).toBe(stateAfterFirstSnapshot)
     expect(todoPersistWrites).toEqual([{ sessionID: "ses_a", todos }])
