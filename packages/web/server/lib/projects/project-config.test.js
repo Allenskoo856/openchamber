@@ -471,4 +471,47 @@ describe('project-config loop reconciliation', () => {
       await cleanup();
     }
   });
+
+  it('conditionally updates state only when the predicate passes (occurrence claim)', async () => {
+    const { runtime, cleanup } = await createRuntime();
+    try {
+      const created = await runtime.upsertScheduledTask('project-test', {
+        name: 'claim-me',
+        enabled: true,
+        schedule: { kind: 'daily', time: '15:00', timezone: 'UTC' },
+        execution: { prompt: 'Run once', providerID: 'openai', modelID: 'gpt-4.1' },
+      });
+
+      const scheduledFor = Date.UTC(2026, 0, 1, 15, 0, 0);
+      const first = await runtime.updateScheduledTaskStateIf(
+        'project-test',
+        created.task.id,
+        (task) => !Number.isFinite(task.state?.lastScheduledFor),
+        {
+          lastScheduledFor: scheduledFor,
+          lastStatus: 'running',
+          nextRunAt: scheduledFor + 86_400_000,
+        },
+      );
+      expect(first.updated).toBe(true);
+      expect(first.task.state.lastScheduledFor).toBe(scheduledFor);
+
+      const second = await runtime.updateScheduledTaskStateIf(
+        'project-test',
+        created.task.id,
+        (task) => task.state?.lastScheduledFor !== scheduledFor,
+        {
+          lastScheduledFor: scheduledFor,
+          lastStatus: 'running',
+        },
+      );
+      expect(second.updated).toBe(false);
+      expect(second.task.state.lastScheduledFor).toBe(scheduledFor);
+
+      const reloaded = await runtime.listScheduledTasks('project-test');
+      expect(reloaded[0].state.lastScheduledFor).toBe(scheduledFor);
+    } finally {
+      await cleanup();
+    }
+  });
 });

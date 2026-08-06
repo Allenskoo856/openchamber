@@ -327,7 +327,7 @@ export const createScheduledTasksRuntime = (deps) => {
       if (!task || !task.enabled) {
         return;
       }
-      queueTaskRun(projectID, taskID, 'scheduled');
+      queueTaskRun(projectID, taskID, 'scheduled', nextRunAt);
       pumpQueue();
     }, boundedDelay);
 
@@ -429,13 +429,18 @@ export const createScheduledTasksRuntime = (deps) => {
     }
   };
 
-  const queueTaskRun = (projectID, taskID, reason) => {
+  const queueTaskRun = (projectID, taskID, reason, scheduledFor) => {
     const taskKey = buildTaskKey(projectID, taskID);
     if (queuedTaskKeys.has(taskKey) || runningTaskKeys.has(taskKey)) {
       return;
     }
     queuedTaskKeys.add(taskKey);
-    queue.push({ projectID, taskID, reason });
+    queue.push({
+      projectID,
+      taskID,
+      reason,
+      ...(Number.isFinite(scheduledFor) ? { scheduledFor } : {}),
+    });
   };
 
   const canRunTask = (projectID) => {
@@ -605,7 +610,7 @@ export const createScheduledTasksRuntime = (deps) => {
     };
   };
 
-  const runTask = async (projectID, taskID, reason) => {
+  const runTask = async (projectID, taskID, reason, scheduledFor) => {
     const taskMap = tasksByProject.get(projectID);
     const task = taskMap?.get(taskID);
     if (!task || !task.enabled) {
@@ -622,16 +627,98 @@ export const createScheduledTasksRuntime = (deps) => {
     runningCountByProject.set(projectID, (runningCountByProject.get(projectID) || 0) + 1);
 
     const runStartedAt = Date.now();
-    await projectConfigRuntime.updateScheduledTaskState(projectID, taskID, {
-      lastRunAt: runStartedAt,
-      lastStatus: 'running',
-      lastError: undefined,
-      updatedAt: runStartedAt,
-    }).then((result) => {
-      if (result.task) {
-        updateInMemoryTask(projectID, result.task);
+
+    // Scheduled dispatches must claim the occurrence in shared project config
+    // before creating a session. Two server instances (e.g. CLI serve + desktop)
+    // each arm their own timer; without this claim both would run (#2710).
+    if (reason === 'scheduled') {
+      if (!Number.isFinite(scheduledFor)) {
+        runningTaskKeys.delete(taskKey);
+        runningGlobalCount = Math.max(0, runningGlobalCount - 1);
+        const nextProjectCount = Math.max(0, (runningCountByProject.get(projectID) || 1) - 1);
+        if (nextProjectCount === 0) {
+          runningCountByProject.delete(projectID);
+        } else {
+          runningCountByProject.set(projectID, nextProjectCount);
+        }
+        return { ok: false, skipped: true, reason: 'missing-scheduled-for' };
       }
-    });
+
+      const nextAfterClaim = computeNextRunAt(task, Math.max(runStartedAt, scheduledFor + 1));
+      const claimPatch = {
+        lastScheduledFor: Math.round(scheduledFor),
+        lastRunAt: runStartedAt,
+        lastStatus: 'running',
+        lastError: undefined,
+        updatedAt: runStartedAt,
+        ...(Number.isFinite(nextAfterClaim) ? { nextRunAt: nextAfterClaim } : {}),
+      };
+
+      const canClaimOccurrence = (candidate) => {
+        if (!candidate?.enabled) {
+          return false;
+        }
+        const lastScheduledFor = candidate.state?.lastScheduledFor;
+        if (
+          Number.isFinite(lastScheduledFor)
+          && Math.abs(lastScheduledFor - scheduledFor) <= TASK_DUE_SLACK_MS
+        ) {
+          return false;
+        }
+        const diskNext = candidate.state?.nextRunAt;
+        if (Number.isFinite(diskNext) && diskNext > scheduledFor + TASK_DUE_SLACK_MS) {
+          return false;
+        }
+        return true;
+      };
+
+      let claimResult;
+      if (typeof projectConfigRuntime.updateScheduledTaskStateIf === 'function') {
+        claimResult = await projectConfigRuntime.updateScheduledTaskStateIf(
+          projectID,
+          taskID,
+          canClaimOccurrence,
+          claimPatch,
+        );
+      } else {
+        // Fallback for older test doubles: unconditional update (single-instance only).
+        claimResult = await projectConfigRuntime.updateScheduledTaskState(projectID, taskID, claimPatch);
+        claimResult = { ...claimResult, updated: Boolean(claimResult?.task) };
+      }
+
+      if (!claimResult?.updated) {
+        if (claimResult?.task) {
+          updateInMemoryTask(projectID, claimResult.task);
+          if (claimResult.task.enabled && Number.isFinite(claimResult.task.state?.nextRunAt)) {
+            scheduleTask(projectID, taskID, claimResult.task.state.nextRunAt);
+          }
+        }
+        runningTaskKeys.delete(taskKey);
+        runningGlobalCount = Math.max(0, runningGlobalCount - 1);
+        const nextProjectCount = Math.max(0, (runningCountByProject.get(projectID) || 1) - 1);
+        if (nextProjectCount === 0) {
+          runningCountByProject.delete(projectID);
+        } else {
+          runningCountByProject.set(projectID, nextProjectCount);
+        }
+        return { ok: false, skipped: true, reason: 'occurrence-claimed' };
+      }
+
+      if (claimResult.task) {
+        updateInMemoryTask(projectID, claimResult.task);
+      }
+    } else {
+      await projectConfigRuntime.updateScheduledTaskState(projectID, taskID, {
+        lastRunAt: runStartedAt,
+        lastStatus: 'running',
+        lastError: undefined,
+        updatedAt: runStartedAt,
+      }).then((result) => {
+        if (result.task) {
+          updateInMemoryTask(projectID, result.task);
+        }
+      });
+    }
 
     let status = 'success';
     let sessionID;
@@ -761,7 +848,7 @@ export const createScheduledTasksRuntime = (deps) => {
       queuedTaskKeys.delete(taskKey);
       consumed = true;
 
-      void runTask(item.projectID, item.taskID, item.reason).finally(() => {
+      void runTask(item.projectID, item.taskID, item.reason, item.scheduledFor).finally(() => {
         pumpQueue();
       });
     }
