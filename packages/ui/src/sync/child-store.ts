@@ -1,6 +1,6 @@
 import { create, type StoreApi } from "zustand"
 import type { DirState, State } from "./types"
-import { INITIAL_STATE, MAX_DIR_STORES, DIR_IDLE_TTL_MS } from "./types"
+import { INITIAL_STATE, MAX_DIR_STORES, DIR_IDLE_TTL_MS, EVICTION_GRACE_MS } from "./types"
 import { pickDirectoriesToEvict, canDisposeDirectory, hasPendingBlockingRequests } from "./eviction"
 import { readDirCache, persistVcs, persistProjectMeta, persistIcon, persistSessions } from "./persist-cache"
 import { normalizePath } from "@/lib/pathNormalization"
@@ -14,8 +14,10 @@ export type DirectoryStore = State & {
   replace: (next: State) => void
 }
 
-type PermissionSubscriber = () => void
-const permissionSubscribersByStore = new WeakMap<StoreApi<DirectoryStore>, Map<string, Set<PermissionSubscriber>>>()
+type BlockingRequestSubscriber = () => void
+type BlockingRequestSubscribers = WeakMap<StoreApi<DirectoryStore>, Map<string, Set<BlockingRequestSubscriber>>>
+const permissionSubscribersByStore: BlockingRequestSubscribers = new WeakMap()
+const questionSubscribersByStore: BlockingRequestSubscribers = new WeakMap()
 
 type SessionMessageChange = {
   messagesChanged: boolean
@@ -72,12 +74,42 @@ export function markDirectorySessionPartChanged(
 export function subscribeDirectoryPermission(
   store: StoreApi<DirectoryStore>,
   sessionID: string,
-  listener: PermissionSubscriber,
+  listener: BlockingRequestSubscriber,
 ): () => void {
-  let bySession = permissionSubscribersByStore.get(store)
+  return subscribeBlockingRequest(permissionSubscribersByStore, store, sessionID, listener)
+}
+
+export function subscribeDirectoryQuestion(
+  store: StoreApi<DirectoryStore>,
+  sessionID: string,
+  listener: BlockingRequestSubscriber,
+): () => void {
+  return subscribeBlockingRequest(questionSubscribersByStore, store, sessionID, listener)
+}
+
+export function subscribeDirectoryQuestions(
+  store: StoreApi<DirectoryStore>,
+  sessionIDs: readonly string[],
+  listener: BlockingRequestSubscriber,
+): () => void {
+  const unsubscribers = [...new Set(sessionIDs.filter(Boolean))].map((sessionID) => (
+    subscribeBlockingRequest(questionSubscribersByStore, store, sessionID, listener)
+  ))
+  return () => {
+    for (const unsubscribe of unsubscribers) unsubscribe()
+  }
+}
+
+function subscribeBlockingRequest(
+  subscribersByStore: BlockingRequestSubscribers,
+  store: StoreApi<DirectoryStore>,
+  sessionID: string,
+  listener: BlockingRequestSubscriber,
+): () => void {
+  let bySession = subscribersByStore.get(store)
   if (!bySession) {
     bySession = new Map()
-    permissionSubscribersByStore.set(store, bySession)
+    subscribersByStore.set(store, bySession)
   }
   let listeners = bySession.get(sessionID)
   if (!listeners) {
@@ -88,24 +120,28 @@ export function subscribeDirectoryPermission(
   return () => {
     listeners?.delete(listener)
     if (listeners?.size === 0) bySession?.delete(sessionID)
-    if (bySession?.size === 0) permissionSubscribersByStore.delete(store)
+    if (bySession?.size === 0) subscribersByStore.delete(store)
   }
 }
 
-const notifyChangedPermissions = (
+const notifyChangedBlockingRequests = <T,>(
+  subscribersByStore: BlockingRequestSubscribers,
+  counter: "permissionChangeCallbacks" | "questionChangeCallbacks",
   store: StoreApi<DirectoryStore>,
-  current: State["permission"],
-  previous: State["permission"],
+  current: Record<string, T>,
+  previous: Record<string, T>,
 ): void => {
   if (current === previous) return
-  const subscribers = permissionSubscribersByStore.get(store)
+  const subscribers = subscribersByStore.get(store)
   if (!subscribers || subscribers.size === 0) return
+  const changedListeners = new Set<BlockingRequestSubscriber>()
   for (const [sessionID, listeners] of subscribers) {
     if (current[sessionID] === previous[sessionID]) continue
-    for (const listener of listeners) {
-      countSyncPerformance("permissionChangeCallbacks")
-      listener()
-    }
+    for (const listener of listeners) changedListeners.add(listener)
+  }
+  for (const listener of changedListeners) {
+    countSyncPerformance(counter)
+    listener()
   }
 }
 
@@ -239,7 +275,8 @@ function createDirectoryStore(directory: string): StoreApi<DirectoryStore> {
     if (state.projectMeta !== prev.projectMeta) persistProjectMeta(directory, state.projectMeta)
     if (state.icon !== prev.icon) persistIcon(directory, state.icon)
     if (state.session !== prev.session) persistSessions(directory, state.session)
-    notifyChangedPermissions(store, state.permission, prev.permission)
+    notifyChangedBlockingRequests(permissionSubscribersByStore, "permissionChangeCallbacks", store, state.permission, prev.permission)
+    notifyChangedBlockingRequests(questionSubscribersByStore, "questionChangeCallbacks", store, state.question, prev.question)
     notifyChangedSessionMessages(store, state, prev)
   })
 
@@ -250,6 +287,7 @@ export class ChildStoreManager {
   readonly children = new Map<string, StoreApi<DirectoryStore>>()
   private readonly lifecycle = new Map<string, DirState>()
   private readonly pins = new Map<string, number>()
+  private evictionScheduled = false
   private readonly disposers = new Map<string, () => void>()
   private readonly registrySubscribers = new Set<() => void>()
   private readonly bootstrapSubscribers = new Set<() => void>()
@@ -308,7 +346,25 @@ export class ChildStoreManager {
   mark(directory: string) {
     if (!directory) return
     this.lifecycle.set(directory, { lastAccessAt: Date.now() })
-    this.runEviction(directory)
+    this.scheduleEviction()
+  }
+
+  /**
+   * Coalesce eviction into one pass per tick.
+   *
+   * `ensureChild` runs during render, once per sidebar row, and used to sort
+   * and scan every directory synchronously on each call. Deferring the pass
+   * also lets a whole render commit — and with it every pin effect — settle
+   * before anything is considered for disposal.
+   */
+  private scheduleEviction() {
+    if (this.evictionScheduled || this.disposed) return
+    this.evictionScheduled = true
+    queueMicrotask(() => {
+      this.evictionScheduled = false
+      if (this.disposed) return
+      this.runEviction()
+    })
   }
 
   pin(directory: string) {
@@ -327,6 +383,8 @@ export class ChildStoreManager {
       return
     }
     this.pins.delete(normalizedDirectory)
+    // Releasing the final consumer is an explicit lifecycle edge, not a render-
+    // path access, so this pass stays synchronous.
     this.runEviction()
   }
 
@@ -621,6 +679,7 @@ export class ChildStoreManager {
       pins: new Set(stores.filter((d) => this.pinned(d))),
       max: MAX_DIR_STORES,
       ttl: DIR_IDLE_TTL_MS,
+      graceMs: EVICTION_GRACE_MS,
       now: Date.now(),
       hasPendingBlockingRequests: (dir) => this.hasPendingBlockingRequestsForDirectory(dir),
     }).filter((d) => d !== skip)

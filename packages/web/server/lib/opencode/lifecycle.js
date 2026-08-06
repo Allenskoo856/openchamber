@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import net from 'node:net';
+import { stripAppImageArgv0Leak } from '../inherited-env.js';
 import { registerManagedProcess, unregisterManagedProcess, reapOrphanedProcesses } from './managed-process-registry.js';
 import { recordStartupPerformance } from './startup-performance.js';
 
@@ -47,6 +48,7 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
     getActiveSessionCount = () => 0,
     reapManagedOrphanedProcesses = reapOrphanedProcesses,
     getWarmupDirectories = async () => [],
+    onOpenCodeRestarted = null,
     now = Date.now,
   } = deps;
 
@@ -69,7 +71,9 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
     }
   };
 
-  const hasChildProcessExited = (child) => !child || child.exitCode !== null || child.signalCode !== null;
+  const hasChildProcessExited = (child) => !child
+    || (child.exitCode !== null && child.exitCode !== undefined)
+    || (child.signalCode !== null && child.signalCode !== undefined);
 
   const isManagedOpenCodeProcessAlive = () => {
     const child = state.openCodeProcess;
@@ -365,6 +369,12 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
     return {
       url,
       pid: child.pid || null,
+      get exitCode() {
+        return child.exitCode;
+      },
+      get signalCode() {
+        return child.signalCode;
+      },
       async close() {
         await closeManagedOpenCodeChild(child);
       },
@@ -519,14 +529,14 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
         timeout: 30000,
         cwd: state.openCodeWorkingDirectory,
         shellEnvKeysCount: Object.keys(shellEnv).length,
-        env: {
+        env: stripAppImageArgv0Leak({
           ...shellEnv,
           ...process.env,
           ...managedOpenCodeEnv,
           PATH: envPath,
           OPENCODE_SERVER_PASSWORD: openCodePassword,
           OPENCODE_EXPERIMENTAL_WORKSPACES: 'true',
-        },
+        }),
       });
 
       if (!serverInstance || !serverInstance.url) {
@@ -690,6 +700,17 @@ export const createOpenCodeLifecycleRuntime = (deps) => {
       if (state.expressApp) {
         setupProxy(state.expressApp);
         ensureOpenCodeApiPrefix();
+      }
+
+      // The restart may have landed on a NEW port (the old one can remain
+      // occupied by an orphaned process, e.g. Windows killProcessOnPort is a
+      // no-op). Upstream event readers pinned to the old process would keep
+      // the UI silent forever, so rebind them to the current port. Best
+      // effort: a failure here must not fail the restart itself.
+      try {
+        onOpenCodeRestarted?.();
+      } catch (error) {
+        console.warn('Failed to rebind event stream after OpenCode restart:', error?.message ?? error);
       }
     })();
 

@@ -84,7 +84,11 @@ const createLifecycleState = () => ({
   resolvedWslDistro: null,
 });
 
-const createRuntime = (overrides = {}, stateOverrides = {}) => {
+
+// main's signature, which adds env overrides, over this branch's extracted state.
+const createRuntime = (overrides = {}, stateOverrides = {}, envOverrides = {}) => {
+  // Passed by reference when a caller supplies one: those tests assert that the runtime
+  // mutated their object, which a copy would silently defeat.
   const state = overrides.state ?? {
     ...createLifecycleState(),
     ...stateOverrides,
@@ -98,6 +102,7 @@ const createRuntime = (overrides = {}, stateOverrides = {}) => {
       ENV_EFFECTIVE_PORT: 3001,
       ENV_CONFIGURED_OPENCODE_HOSTNAME: '127.0.0.1',
       ENV_SKIP_OPENCODE_START: false,
+      ...envOverrides,
     },
     syncToHmrState: vi.fn(),
     syncFromHmrState: vi.fn(),
@@ -329,6 +334,30 @@ describe('OpenCode lifecycle', () => {
     warn.mockRestore();
   });
 
+  it('does not mistake a live managed process wrapper for an exited child', async () => {
+    const close = vi.fn(async () => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      json: async () => null,
+    }));
+    const runtime = createRuntime({}, {
+      openCodePort: 45678,
+      openCodeProcess: {
+        pid: process.pid,
+        close,
+      },
+      isOpenCodeReady: true,
+    });
+
+    await runtime.triggerHealthCheck();
+
+    expect(close).not.toHaveBeenCalled();
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('(1/20)'));
+    warn.mockRestore();
+  });
+
   it('restarts an exited managed process without waiting for the failure interval', async () => {
     const close = vi.fn(async () => {});
     const replacement = createMockChild();
@@ -358,6 +387,70 @@ describe('OpenCode lifecycle', () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
   });
 
+  it('calls onOpenCodeRestarted after a successful managed restart', async () => {
+    const close = vi.fn(async () => {});
+    const replacement = createMockChild();
+    const onOpenCodeRestarted = vi.fn();
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      json: async () => null,
+    }));
+    spawnMock.mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        replacement.stdout.emit('data', 'opencode server listening on http://127.0.0.1:45678\n');
+      });
+      return replacement;
+    });
+    const runtime = createRuntime({ onOpenCodeRestarted }, {
+      openCodePort: 45678,
+      openCodeProcess: {
+        pid: null,
+        exitCode: 1,
+        signalCode: null,
+        close,
+      },
+    });
+
+    await runtime.triggerHealthCheck();
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    // The restart completed on a (possibly new) port — the event-stream
+    // upstreams must rebind so the UI keeps receiving events (#2638).
+    expect(onOpenCodeRestarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onOpenCodeRestarted when a managed restart fails', async () => {
+    const close = vi.fn(async () => {});
+    const onOpenCodeRestarted = vi.fn();
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      json: async () => null,
+    }));
+    spawnMock.mockImplementation(() => {
+      const child = createMockChild();
+      queueMicrotask(() => {
+        child.emit('error', new Error('spawn failed'));
+      });
+      return child;
+    });
+    const runtime = createRuntime({ onOpenCodeRestarted }, {
+      openCodePort: 45678,
+      openCodeProcess: {
+        pid: null,
+        exitCode: 1,
+        signalCode: null,
+        close,
+      },
+    });
+
+    // triggerHealthCheck logs instead of rethrowing; call restartOpenCode
+    // directly to observe the failure result.
+    await expect(runtime.restartOpenCode()).rejects.toThrow();
+
+    expect(onOpenCodeRestarted).not.toHaveBeenCalled();
+  });
+
   it('launches managed OpenCode with the managed PATH', async () => {
     delete process.env.OPENCODE_BINARY;
     const child = createMockChild();
@@ -378,8 +471,66 @@ describe('OpenCode lifecycle', () => {
     expect(options.env.SHELL_ONLY).toBe('yes');
     expect(options.env.OPENCODE_SERVER_PASSWORD).toBe('password');
     expect(options.env.OPENCODE_EXPERIMENTAL_WORKSPACES).toBe('true');
+    expect(server.exitCode).toBeNull();
+    expect(server.signalCode).toBeNull();
 
     await server.close();
+    expect(server.signalCode).toBe('SIGTERM');
+  });
+
+  it('launches managed OpenCode on the configured bind hostname', async () => {
+    delete process.env.OPENCODE_BINARY;
+    const child = createMockChild();
+    spawnMock.mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        child.stdout.emit('data', 'opencode server listening on http://0.0.0.0:45678\n');
+      });
+      return child;
+    });
+
+    const runtime = createRuntime({}, {}, { ENV_CONFIGURED_OPENCODE_HOSTNAME: '0.0.0.0' });
+    const server = await runtime.startOpenCode();
+    const [binary, args] = spawnMock.mock.calls[0];
+
+    expect(binary).toBe('opencode');
+    expect(args).toEqual(['serve', '--hostname', '0.0.0.0', '--port', '45678']);
+
+    await server.close();
+    expect(server.signalCode).toBe('SIGTERM');
+  });
+
+  it('strips AppImage ARGV0 from managed OpenCode launch env', async () => {
+    delete process.env.OPENCODE_BINARY;
+    const previousArgv0 = process.env.ARGV0;
+    process.env.ARGV0 = '/path/to/OpenChamber/OpenChamber-1.17.2-linux-x86_64.AppImage';
+    const child = createMockChild();
+    spawnMock.mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        child.stdout.emit('data', 'opencode server listening on http://127.0.0.1:45678\n');
+      });
+      return child;
+    });
+
+    try {
+      const runtime = createRuntime({
+        getManagedOpenCodeShellEnvSnapshot: vi.fn(() => ({
+          PATH: '/home/user/.bun/bin:/usr/local/bin:/usr/bin',
+          ARGV0: '/leaked/from/shell/snapshot.AppImage',
+          SHELL_ONLY: 'yes',
+        })),
+      });
+      const server = await runtime.startOpenCode();
+      const [, , options] = spawnMock.mock.calls[0];
+
+      expect(options.env).not.toHaveProperty('ARGV0');
+      expect(options.env.SHELL_ONLY).toBe('yes');
+      expect(options.env.PATH).toBe('/home/user/.bun/bin:/usr/local/bin:/usr/bin');
+
+      await server.close();
+    } finally {
+      if (previousArgv0 === undefined) delete process.env.ARGV0;
+      else process.env.ARGV0 = previousArgv0;
+    }
   });
 
   it('adds managed OpenChamber tool environment without allowing it to replace launch invariants', async () => {

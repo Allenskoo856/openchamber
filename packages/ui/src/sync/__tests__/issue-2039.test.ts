@@ -6,11 +6,16 @@ const createSessionCalls: Array<{ title?: string; directory: string | null; pare
 const permissionAutoAcceptCalls: Array<[string, boolean]> = []
 const confirmedWorkspaceRoutes: Array<[string, string]> = []
 let registeredRuntimeAPIs: Record<string, unknown> | null = null
+let createdSessionDirectory: string | undefined
 
 const getMockCalls = (fn: unknown): unknown[][] => ((fn as { mock?: { calls: unknown[][] } }).mock?.calls ?? [])
 
 mock.module("zustand", () => ({
-  create: () => (initializer: (set: (patch: unknown | ((state: unknown) => unknown)) => void, get: () => unknown) => Record<string, unknown>) => {
+  create: () => (initializer: (
+    set: (patch: unknown | ((state: unknown) => unknown)) => void,
+    get: () => unknown,
+    api?: unknown,
+  ) => Record<string, unknown>) => {
     let state: Record<string, unknown>
     const get = () => state
     const set = (patch: unknown | ((current: Record<string, unknown>) => unknown)) => {
@@ -18,7 +23,12 @@ mock.module("zustand", () => ({
       state = next && typeof next === "object" ? { ...state, ...(next as Record<string, unknown>) } : state
     }
 
-    state = initializer(set, get)
+    state = initializer(set, get, {
+      setState: set,
+      getState: get,
+      getInitialState: get,
+      subscribe: () => () => undefined,
+    } as never)
 
     const store = ((selector?: (current: Record<string, unknown>) => unknown) => (
       typeof selector === "function" ? selector(state) : state
@@ -56,9 +66,9 @@ const deferredStorage: Storage = {
 mock.module("@/stores/utils/safeStorage", () => ({
   getDeferredSafeStorage: () => deferredStorage,
   createDeferredSafeJSONStorage: () => ({
-    getItem: () => null,
-    setItem: () => undefined,
-    removeItem: () => undefined,
+    getItem: async () => null,
+    setItem: async () => undefined,
+    removeItem: async () => undefined,
   }),
 }))
 
@@ -253,15 +263,20 @@ mock.module("../sync-refs", () => ({
   getSyncMessages: () => [],
   getSyncParts: () => [],
   getAllSyncSessions: () => [],
+  getSyncSessionDirectory: () => null,
 }))
 
 mock.module("../session-actions", () => ({
   createSession: mock(async (title: string | undefined, directory: string | null, parentID: string | null, metadata?: unknown) => {
     createSessionCalls.push({ title, directory, parentID, metadata })
-    return { id: "ses_issue_2039", directory }
+    return { id: "ses_issue_2039", directory: createdSessionDirectory ?? directory }
   }),
   deleteSession: mock(async () => true),
+  deleteSessions: mock(async () => ({ deletedIds: [], failedIds: [] })),
   archiveSession: mock(async () => true),
+  archiveSessions: mock(async () => ({ archivedIds: [], failedIds: [] })),
+  unarchiveSession: mock(async () => true),
+  unarchiveSessions: mock(async () => ({ restoredIds: [], failedIds: [] })),
   updateSessionTitle: mock(async () => undefined),
   shareSession: mock(async () => undefined),
   unshareSession: mock(async () => undefined),
@@ -272,6 +287,8 @@ mock.module("../session-actions", () => ({
   forkFromMessage: mock(async () => undefined),
   fetchMessagesForSession: mock(async () => undefined),
   getSessionLastAssistantModel: () => null,
+  patchSessionMetadata: mock(async () => undefined),
+  abortCurrentOperation: mock(async () => undefined),
 }))
 
 const { materializeOpenDraftSession, useSessionUIStore } = await import("../session-ui-store")
@@ -330,6 +347,7 @@ describe("issue 2039 draft auto-accept", () => {
     permissionAutoAcceptCalls.length = 0
     confirmedWorkspaceRoutes.length = 0
     registeredRuntimeAPIs = null
+    createdSessionDirectory = undefined
 
     useSessionUIStore.setState({
       currentSessionId: null,
@@ -456,5 +474,46 @@ describe("issue 2039 draft auto-accept", () => {
       directory: "/secure/project",
       title: "Secure task",
     })
+  })
+
+  test("uses the server-authoritative directory after worktree session creation", async () => {
+    createdSessionDirectory = "/canonical/worktree"
+    useSessionUIStore.getState().openNewSessionDraft({
+      directoryOverride: "/requested/worktree",
+    })
+
+    const result = await materializeOpenDraftSession({
+      providerID: "provider",
+      modelID: "model",
+    })
+
+    expect(createSessionCalls[0]?.directory).toBe("/requested/worktree")
+    expect(result?.directory).toBe("/canonical/worktree")
+    expect(useSessionUIStore.getState().currentSessionDirectory).toBe("/canonical/worktree")
+  })
+
+  test("routes the session by the canonical directory, not the requested worktree path", async () => {
+    createdSessionDirectory = "/canonical/worktree"
+    useSessionUIStore.getState().openNewSessionDraft({
+      directoryOverride: "/requested/worktree",
+    })
+
+    const created = await materializeOpenDraftSession({
+      providerID: "provider",
+      modelID: "model",
+    })
+    const sessionId = created?.sessionId ?? ""
+
+    // The worktree attachment still holds the path this client asked for. The
+    // directory every send, queue key, and confirmation lookup is routed by
+    // must be the canonical one the server returned.
+    useSessionUIStore.getState().setWorktreeMetadata(sessionId, {
+      path: "/requested/worktree",
+      projectDirectory: "/repo",
+      branch: "feature",
+      label: "feature",
+    })
+
+    expect(useSessionUIStore.getState().getDirectoryForSession(sessionId)).toBe("/canonical/worktree")
   })
 })
