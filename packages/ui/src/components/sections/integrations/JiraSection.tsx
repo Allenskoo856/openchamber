@@ -115,7 +115,12 @@ function DirectorySelect({
       onValueChange={(next) => onChange(next === NO_DIRECTORY_VALUE ? null : next)}
     >
       <SelectTrigger aria-label={ariaLabel} className="h-8 w-full">
-        <SelectValue placeholder={noneLabel} />
+        <SelectValue placeholder={noneLabel}>
+          {(selected) => {
+            if (!selected || selected === NO_DIRECTORY_VALUE) return noneLabel;
+            return options.find((option) => option.path === selected)?.label ?? selected;
+          }}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {allowNone ? <SelectItem value={NO_DIRECTORY_VALUE}>{noneLabel}</SelectItem> : null}
@@ -274,7 +279,11 @@ export const JiraSection: React.FC = () => {
         <div className={fieldLabelClass}>{t('settings.integrations.jira.connect.deployment')}</div>
         <Select value={deployment} onValueChange={(next) => setDeployment(next === 'server' ? 'server' : 'cloud')}>
           <SelectTrigger aria-label={t('settings.integrations.jira.connect.deployment')} className="h-8 w-full max-w-[24rem]">
-            <SelectValue />
+            <SelectValue>
+              {(selected) => (selected === 'server'
+                ? t('settings.integrations.jira.connect.deploymentServer')
+                : t('settings.integrations.jira.connect.deploymentCloud'))}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="cloud">{t('settings.integrations.jira.connect.deploymentCloud')}</SelectItem>
