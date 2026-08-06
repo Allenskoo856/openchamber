@@ -437,6 +437,10 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
           setWorkspaceError(t('settings.workspaces.reauth.failed'));
           return;
         }
+        // The confirmation has done its job once it is confirmed. Leaving it up during a
+        // removal that takes a while left a dialog of dead buttons in front of the panel,
+        // dimming the progress banner that reports what is actually happening.
+        setRemoveWorkspaceID(null);
         const result = await runtimeAPIs.workspaces.cleanup({ ...payload, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
       setWorkspaceDiagnostics([...(result.diagnostics ?? []), ...(result.remainingResources ?? [])]);
       if (!result.cleaned) {

@@ -1619,6 +1619,8 @@ export const dict: Record<I18nKey, string> = {
   'header.sessions.title': '會話',
   'header.changes.availableAria': '有可用變更',
   'session.githubIssuePicker.error.noActiveProject': '沒有活動專案',
+  'session.workspaceBadge.fallback': "隔離工作區",
+  'session.workspaceBadge.hint': "此聊天在 {runtime} 上的隔離工作區中執行。只有在您檢閱並套用後，檔案才會變更。",
   'session.githubIssuePicker.error.runtimeUnavailable': 'GitHub 執行時 API 無法使用',
   'session.githubIssuePicker.error.notConnected': 'GitHub 未連線',
   'session.githubIssuePicker.error.repoNotResolvable': '無法解析儲存庫',

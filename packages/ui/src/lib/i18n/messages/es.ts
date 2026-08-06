@@ -1627,6 +1627,8 @@ export const dict: Record<I18nKey, string> = {
   "header.sessions.title": "Sesiones",
   "header.changes.availableAria": "Cambios disponibles",
   "session.githubIssuePicker.error.noActiveProject": "No hay ningún proyecto activo",
+  "session.workspaceBadge.fallback": "Espacio aislado",
+  "session.workspaceBadge.hint": "Este chat se ejecuta en un espacio aislado en {runtime}. Tus archivos cambian solo tras revisar y aplicar.",
   "session.githubIssuePicker.error.runtimeUnavailable": "API de runtime de GitHub no disponible",
   "session.githubIssuePicker.error.notConnected": "GitHub no está conectado",
   "session.githubIssuePicker.error.repoNotResolvable": "No se pudo resolver el repositorio",

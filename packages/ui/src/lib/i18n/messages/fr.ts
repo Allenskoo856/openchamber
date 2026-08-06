@@ -1468,6 +1468,8 @@ export const dict = {
   'header.sessions.title': 'Sessions',
   'header.changes.availableAria': 'Modifications disponibles',
   'session.githubIssuePicker.error.noActiveProject': 'Aucun projet actif',
+  'session.workspaceBadge.fallback': "Espace isolé",
+  'session.workspaceBadge.hint': "Ce chat s’exécute dans un espace isolé sur {runtime}. Vos fichiers ne changent qu’après examen et application.",
   'session.githubIssuePicker.error.runtimeUnavailable': 'Exécution GitHub API indisponible',
   'session.githubIssuePicker.error.notConnected': 'GitHub non connecté',
   'session.githubIssuePicker.error.repoNotResolvable': 'Repo non résoluble',

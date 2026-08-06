@@ -1645,6 +1645,8 @@ export const dict: Record<I18nKey, string> = {
   'header.sessions.title': 'セッション',
   'header.changes.availableAria': '変更が利用可能',
   'session.githubIssuePicker.error.noActiveProject': 'アクティブなプロジェクトがありません',
+  'session.workspaceBadge.fallback': "隔離ワークスペース",
+  'session.workspaceBadge.hint': "このチャットは {runtime} 上の隔離ワークスペースで動作します。確認して適用するまでファイルは変更されません。",
   'session.githubIssuePicker.error.runtimeUnavailable': 'GitHubランタイムAPIは利用できません',
   'session.githubIssuePicker.error.notConnected': 'GitHubに接続されていません',
   'session.githubIssuePicker.error.repoNotResolvable': 'リポジトリを解決できません',

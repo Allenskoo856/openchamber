@@ -1651,6 +1651,8 @@ export const dict: Record<I18nKey, string> = {
   'header.sessions.title': '세션',
   'header.changes.availableAria': '변경사항 있음',
   'session.githubIssuePicker.error.noActiveProject': '활성 프로젝트가 없습니다',
+  'session.workspaceBadge.fallback': "격리 작업 공간",
+  'session.workspaceBadge.hint': "이 채팅은 {runtime}의 격리 작업 공간에서 실행됩니다. 검토하고 적용해야만 파일이 변경됩니다.",
   'session.githubIssuePicker.error.runtimeUnavailable': 'GitHub 런타임 API를 사용할 수 없습니다',
   'session.githubIssuePicker.error.notConnected': 'GitHub에 연결되어 있지 않습니다',
   'session.githubIssuePicker.error.repoNotResolvable': '저장소를 확인할 수 없습니다',

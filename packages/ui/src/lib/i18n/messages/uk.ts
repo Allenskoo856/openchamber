@@ -1627,6 +1627,8 @@ export const dict: Record<I18nKey, string> = {
   "header.sessions.title": "Сесії",
   "header.changes.availableAria": "Доступні зміни",
   "session.githubIssuePicker.error.noActiveProject": "Немає активного проєкту",
+  "session.workspaceBadge.fallback": "Ізольований простір",
+  "session.workspaceBadge.hint": "Цей чат працює в ізольованому просторі на {runtime}. Ваші файли зміняться лише після перегляду й застосування.",
   "session.githubIssuePicker.error.runtimeUnavailable": "GitHub API недоступний",
   "session.githubIssuePicker.error.notConnected": "GitHub не підключено",
   "session.githubIssuePicker.error.repoNotResolvable": "Не вдалося визначити репозиторій",

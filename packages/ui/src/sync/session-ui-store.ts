@@ -30,6 +30,7 @@ import { useSkillsStore } from "@/stores/useSkillsStore"
 import { getDeferredSafeStorage } from "@/stores/utils/safeStorage"
 import { markPendingUserSendAnimation } from "@/lib/userSendAnimation"
 import { normalizePath } from "@/lib/pathNormalization"
+import { resolveSessionDirectoryKey } from "./session-directory"
 import { flattenAssistantTextParts } from "@/lib/messages/messageText"
 import { composeForkSessionMessage } from "@/lib/messages/executionMeta"
 import { waitForPendingDraftWorktreeRequest } from "@/lib/worktrees/pendingDraftWorktree"
@@ -362,15 +363,6 @@ export type SessionUIState = {
 // ---------------------------------------------------------------------------
 
 
-const resolveDirectoryKey = (session: Session): string | null => {
-  const sessionRecord = session as Session & {
-    directory?: string | null
-    project?: { worktree?: string | null } | null
-  }
-  return normalizePath(sessionRecord.directory ?? null)
-    ?? normalizePath(sessionRecord.project?.worktree ?? null)
-}
-
 const safeStorage = getDeferredSafeStorage()
 const DRAFT_TARGET_STORAGE_KEY = "oc.chatInput.lastDraftTarget"
 
@@ -419,7 +411,7 @@ const resolveSessionDirectory = (
   const sessions = getAllSyncSessions()
   const target = sessions.find((s) => s.id === sessionId)
   if (!target) return null
-  return resolveDirectoryKey(target)
+  return resolveSessionDirectoryKey(target)
 }
 
 const activateConfigForDirectory = async (directory: string | null | undefined): Promise<void> => {
@@ -1619,7 +1611,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const nd = normalizePath(directory)
     if (!nd) return []
     const sessions = getAllSyncSessions()
-    return sessions.filter((s) => resolveDirectoryKey(s) === nd)
+    return sessions.filter((s) => resolveSessionDirectoryKey(s) === nd)
   },
 
   getDirectoryForSession: (sessionId) => {
@@ -1632,7 +1624,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     if (attachmentDirectory) return attachmentDirectory
     const sessions = getAllSyncSessions()
     const session = sessions.find((s) => s.id === sessionId)
-    if (session) return resolveDirectoryKey(session)
+    if (session) return resolveSessionDirectoryKey(session)
     const globalStore = useGlobalSessionsStore.getState()
     const globalSession = [...globalStore.activeSessions, ...globalStore.archivedSessions]
       .find((s) => s.id === sessionId)

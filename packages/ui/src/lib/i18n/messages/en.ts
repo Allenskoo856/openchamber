@@ -1649,6 +1649,8 @@ export const dict = {
   'header.sessions.title': 'Sessions',
   'header.changes.availableAria': 'Changes available',
   'session.githubIssuePicker.error.noActiveProject': 'No active project',
+  'session.workspaceBadge.fallback': "Isolated workspace",
+  'session.workspaceBadge.hint': "This chat runs in an isolated workspace on {runtime}. Your files change only after you review and apply.",
   'session.githubIssuePicker.error.runtimeUnavailable': 'GitHub runtime API unavailable',
   'session.githubIssuePicker.error.notConnected': 'GitHub not connected',
   'session.githubIssuePicker.error.repoNotResolvable': 'Repo not resolvable',

@@ -2511,6 +2511,8 @@ export const dict: Record<I18nKey, string> = {
   'session.githubIssuePicker.empty.runtimeUnavailable': 'API środowiska GitHub jest niedostępne.',
   'session.githubIssuePicker.error.issueNotFound': 'Nie znaleziono zgłoszenia',
   'session.githubIssuePicker.error.noActiveProject': 'Brak aktywnego projektu',
+  'session.workspaceBadge.fallback': "Izolowany obszar",
+  'session.workspaceBadge.hint': "Ten czat działa w izolowanym obszarze na {runtime}. Twoje pliki zmienią się dopiero po przejrzeniu i zastosowaniu.",
   'session.githubIssuePicker.error.noModelSelected': 'Nie wybrano modelu',
   'session.githubIssuePicker.error.notConnected': 'GitHub nie jest połączony',
   'session.githubIssuePicker.error.repoMustBeGithub': 'remote origin musi być adresem URL GitHub',
