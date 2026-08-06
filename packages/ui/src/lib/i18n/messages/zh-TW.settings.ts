@@ -131,6 +131,8 @@
   'settings.workspaces.lifecycle.reconcileFailed': '工作區協調失敗。',
   'settings.workspaces.lifecycle.cleanupIncomplete': '清理未完成。工作區記錄已保留以便重試。',
   'settings.workspaces.lifecycle.confirmDeleteTitle': '移除安全工作區？',
+  'settings.workspaces.lifecycle.confirmDeleteNamed': "將刪除「{name}」。",
+  'settings.workspaces.lifecycle.actionsFor': "{name} 的操作",
   'settings.workspaces.lifecycle.confirmDeletePreserve': '執行階段與存取資源將移除，但儲存空間會保留，之後需要管理員清理。',
   'settings.workspaces.export.download': '下載成品',
   'settings.workspaces.export.discard': '捨棄成品',

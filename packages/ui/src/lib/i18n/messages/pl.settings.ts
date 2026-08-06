@@ -1292,6 +1292,8 @@ export const settingsDict = {
   'settings.workspaces.lifecycle.reconcileFailed': 'Uzgadnianie nie powiodło się.',
   'settings.workspaces.lifecycle.cleanupIncomplete': 'Czyszczenie jest niepełne. Rekord zachowano do ponowienia.',
   'settings.workspaces.lifecycle.confirmDeleteTitle': 'Usunąć bezpieczny obszar?',
+  'settings.workspaces.lifecycle.confirmDeleteNamed': "„{name}” zostanie usunięty.",
+  'settings.workspaces.lifecycle.actionsFor': "Akcje dla {name}",
   'settings.workspaces.lifecycle.confirmDeletePreserve': 'Środowisko i dostęp zostaną usunięte, ale pamięć zostanie zachowana do późniejszego czyszczenia przez administratora.',
   'settings.workspaces.export.download': 'Pobierz artefakt',
   'settings.workspaces.export.discard': 'Odrzuć artefakt',

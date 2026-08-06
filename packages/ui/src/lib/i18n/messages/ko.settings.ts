@@ -134,6 +134,8 @@ export const settingsDict = {
   'settings.workspaces.lifecycle.reconcileFailed': '워크스페이스 조정에 실패했습니다.',
   'settings.workspaces.lifecycle.cleanupIncomplete': '정리가 완료되지 않았습니다. 재시도할 수 있도록 레코드를 보존했습니다.',
   'settings.workspaces.lifecycle.confirmDeleteTitle': '보안 워크스페이스를 제거할까요?',
+  'settings.workspaces.lifecycle.confirmDeleteNamed': "‘{name}’을(를) 삭제합니다.",
+  'settings.workspaces.lifecycle.actionsFor': "{name} 작업",
   'settings.workspaces.lifecycle.confirmDeletePreserve': '런타임과 접근 리소스는 제거되지만 저장소는 보존되며 나중에 관리자가 정리해야 합니다.',
   'settings.workspaces.export.download': '아티팩트 다운로드',
   'settings.workspaces.export.discard': '아티팩트 폐기',

@@ -134,6 +134,8 @@ export const settingsDict = {
   'settings.workspaces.lifecycle.reconcileFailed': 'ワークスペースの整合に失敗しました。',
   'settings.workspaces.lifecycle.cleanupIncomplete': 'クリーンアップが未完了です。再試行できるようレコードを保持しました。',
   'settings.workspaces.lifecycle.confirmDeleteTitle': 'セキュアワークスペースを削除しますか？',
+  'settings.workspaces.lifecycle.confirmDeleteNamed': "「{name}」を削除します。",
+  'settings.workspaces.lifecycle.actionsFor': "{name} の操作",
   'settings.workspaces.lifecycle.confirmDeletePreserve': '実行環境とアクセスは削除されますが、ストレージは保持され、後で管理者の削除が必要です。',
   'settings.workspaces.export.download': '成果物をダウンロード',
   'settings.workspaces.export.discard': '成果物を破棄',

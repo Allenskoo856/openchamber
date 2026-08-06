@@ -134,6 +134,8 @@ export const settingsDict = {
   "settings.workspaces.lifecycle.reconcileFailed": "Не вдалося узгодити робочий простір.",
   "settings.workspaces.lifecycle.cleanupIncomplete": "Очищення не завершено. Запис збережено для повторної спроби.",
   "settings.workspaces.lifecycle.confirmDeleteTitle": "Видалити безпечний робочий простір?",
+  "settings.workspaces.lifecycle.confirmDeleteNamed": "«{name}» буде видалено.",
+  "settings.workspaces.lifecycle.actionsFor": "Дії для {name}",
   "settings.workspaces.lifecycle.confirmDeletePreserve": "Середовище й доступ буде видалено, але сховище збережеться для подальшого очищення адміністратором.",
   "settings.workspaces.export.download": "Завантажити артефакт",
   "settings.workspaces.export.discard": "Відкинути артефакт",

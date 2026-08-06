@@ -289,7 +289,10 @@ export function buildPluginOptions(settings, { requireComplete = false } = {}) {
   };
   if (requireComplete) {
     if (options.allowedImages.length && !options.allowedImages.includes(options.defaultImage)) fail('Workspace runtime image is not in the exact image allowlist');
-    if (settings.defaultProvider === 'kubernetes' && settings.egressDnsCIDRs.length === 0) fail('Kubernetes workspace egress requires at least one DNS CIDR');
+    // No DNS requirement for Kubernetes: the provider resolves the cluster's DNS service
+    // address from the cluster itself and says what to ask for when RBAC hides it. Demanding
+    // it here refused to save the settings at all — including a change that had nothing to do
+    // with DNS — and the whole update rolled back, so the fix landed nowhere.
     if (settings.egressMode === 'external') {
       if (!settings.egressProxyUrl) fail('External workspace egress requires a proxy URL');
       if (settings.defaultProvider === 'kubernetes' && !settings.egressProxyCIDR) fail('Kubernetes external workspace egress requires a proxy CIDR');

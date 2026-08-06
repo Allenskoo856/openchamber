@@ -134,6 +134,8 @@ export const settingsDict = {
   'settings.workspaces.lifecycle.reconcileFailed': '工作区协调失败。',
   'settings.workspaces.lifecycle.cleanupIncomplete': '清理未完成。工作区记录已保留，以便重试。',
   'settings.workspaces.lifecycle.confirmDeleteTitle': '移除安全工作区？',
+  'settings.workspaces.lifecycle.confirmDeleteNamed': "将删除“{name}”。",
+  'settings.workspaces.lifecycle.actionsFor': "{name} 的操作",
   'settings.workspaces.lifecycle.confirmDeletePreserve': '运行时和访问资源将被移除，但存储会保留，之后需要管理员清理。',
   'settings.workspaces.export.download': '下载制品',
   'settings.workspaces.export.discard': '丢弃制品',

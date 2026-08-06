@@ -134,6 +134,8 @@ export const settingsDict = {
   'settings.workspaces.lifecycle.reconcileFailed': 'Workspace reconciliation failed.',
   'settings.workspaces.lifecycle.cleanupIncomplete': 'Cleanup is incomplete. The workspace record was preserved so cleanup can be retried.',
   'settings.workspaces.lifecycle.confirmDeleteTitle': 'Remove secure workspace?',
+  'settings.workspaces.lifecycle.confirmDeleteNamed': "“{name}” will be removed.",
+  'settings.workspaces.lifecycle.actionsFor': "Actions for {name}",
   'settings.workspaces.lifecycle.confirmDeletePreserve': 'The runtime and access resources will be removed, but workspace storage will be preserved. This requires administrator cleanup later.',
   'settings.workspaces.export.download': 'Download artifact',
   'settings.workspaces.export.discard': 'Discard artifact',

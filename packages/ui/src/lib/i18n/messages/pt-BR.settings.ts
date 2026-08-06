@@ -134,6 +134,8 @@ export const settingsDict = {
   "settings.workspaces.lifecycle.reconcileFailed": "Falha na reconciliação.",
   "settings.workspaces.lifecycle.cleanupIncomplete": "A limpeza está incompleta. O registro foi preservado para nova tentativa.",
   "settings.workspaces.lifecycle.confirmDeleteTitle": "Remover workspace seguro?",
+  "settings.workspaces.lifecycle.confirmDeleteNamed": "“{name}” será removido.",
+  "settings.workspaces.lifecycle.actionsFor": "Ações para {name}",
   "settings.workspaces.lifecycle.confirmDeletePreserve": "A execução e os acessos serão removidos, mas o armazenamento será preservado para limpeza administrativa posterior.",
   "settings.workspaces.export.download": "Baixar artefato",
   "settings.workspaces.export.discard": "Descartar artefato",

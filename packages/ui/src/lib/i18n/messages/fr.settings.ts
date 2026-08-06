@@ -1930,6 +1930,8 @@ export const settingsDict = {
   'settings.workspaces.lifecycle.reconcileFailed': 'Échec de la réconciliation.',
   'settings.workspaces.lifecycle.cleanupIncomplete': 'Le nettoyage est incomplet. L’enregistrement est conservé pour réessayer.',
   'settings.workspaces.lifecycle.confirmDeleteTitle': 'Supprimer l’espace sécurisé ?',
+  'settings.workspaces.lifecycle.confirmDeleteNamed': "« {name} » sera supprimé.",
+  'settings.workspaces.lifecycle.actionsFor': "Actions pour {name}",
   'settings.workspaces.lifecycle.confirmDeletePreserve': 'L’exécution et les accès seront supprimés, mais le stockage sera conservé pour un nettoyage administratif ultérieur.',
   'settings.workspaces.export.download': 'Télécharger l’artefact',
   'settings.workspaces.export.discard': 'Écarter l’artefact',

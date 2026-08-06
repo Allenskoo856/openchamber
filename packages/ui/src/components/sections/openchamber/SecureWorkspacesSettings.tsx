@@ -232,6 +232,41 @@ export const SecureWorkspacesSettings: React.FC = () => {
     setSettings(updater);
   }
 
+  /**
+   * Writes a change immediately instead of staging it for the Save button. Editing a
+   * text field is a draft the operator is still composing, but pressing a button that
+   * names an outcome is not: it left values on screen that were never written, and the
+   * next action still used what was on disk.
+   */
+  async function applyNow(changes: Partial<SecureWorkspaceSettingsPayload>) {
+    const merged = { ...settings, ...changes };
+    setSettings(merged);
+    let proof: WorkspaceReauthProofResult | null;
+    try {
+      proof = await reauthenticate('workspace.configure', 'host', { activate: false, changes: merged });
+    } catch (error) {
+      setActivationMessage(error instanceof Error ? error.message : t('settings.workspaces.reauth.failed'));
+      return false;
+    }
+    if (!proof) return false;
+    setSaving(true);
+    reportSettingsSaveState('saving');
+    try {
+      const configured = await runtimeAPIs.workspaces?.updateSettings({ changes: merged, activate: false, reauthProof: proof.proof, reauthNonce: proof.nonce });
+      if (!configured) throw new Error(t('settings.workspaces.compatibility.failed'));
+      dirtyRef.current = false;
+      reportSettingsSaveState('saved');
+      if (configured.compatibility) setReadiness((current) => (current ? { ...current, ...configured.compatibility } : current));
+      return true;
+    } catch (error) {
+      reportSettingsSaveState('error');
+      setActivationMessage(error instanceof Error ? error.message : t('settings.workspaces.compatibility.failed'));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function applySettings() {
     const changes = settings;
     const configurePayload = { activate: false, changes };
@@ -302,10 +337,11 @@ export const SecureWorkspacesSettings: React.FC = () => {
   /** Selecting a cluster carries its namespace, because kubeconfig binds the two. */
   async function selectCluster(name: string) {
     const chosen = clusters?.contexts.find((entry) => entry.name === name);
-    const changes: Record<string, string> = { secureWorkspacesKubernetesContext: name };
+    const changes: Partial<SecureWorkspaceSettingsPayload> = { secureWorkspacesKubernetesContext: name };
     if (chosen?.namespace) changes.secureWorkspacesKubernetesNamespace = chosen.namespace;
-    await save(changes);
-    await refreshCompatibility(opencodeClient.getDirectory() ?? undefined);
+    // Persisted before re-reading readiness, which would otherwise report on the cluster
+    // that was still stored rather than the one just chosen.
+    if (await applyNow(changes)) await refreshCompatibility(opencodeClient.getDirectory() ?? undefined);
   }
 
   async function activateWorkspaces() {
@@ -379,7 +415,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
             description={settings.secureWorkspacesEnabled ? undefined : t('settings.workspaces.setup.stepEnableHint')}
           >
             {settings.secureWorkspacesEnabled ? doneMark : (
-              <Button size="sm" onClick={() => void save({ secureWorkspacesEnabled: true })}>{t('settings.workspaces.setup.turnOn')}</Button>
+              <Button size="sm" onClick={() => void applyNow({ secureWorkspacesEnabled: true })}>{t('settings.workspaces.setup.turnOn')}</Button>
             )}
           </SettingsFieldRow>
           <SettingsFieldRow
@@ -538,7 +574,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
               </SettingsTwoColumn>
               {usesCustomImages ? (
                 <SettingsFieldRow label={t('settings.workspaces.advanced.customImages')} description={t('settings.workspaces.advanced.customImagesHint')}>
-                  <Button size="sm" variant="outline" onClick={() => void save({ secureWorkspacesImage: '', secureWorkspacesGatewayImage: '', secureWorkspacesAllowedImages: '' })}>
+                  <Button size="sm" variant="outline" onClick={() => void applyNow({ secureWorkspacesImage: '', secureWorkspacesGatewayImage: '', secureWorkspacesAllowedImages: '' }).then((ok) => { if (ok) void refreshCompatibility(opencodeClient.getDirectory() ?? undefined); })}>
                     {t('settings.workspaces.advanced.useBuiltInImages')}
                   </Button>
                 </SettingsFieldRow>

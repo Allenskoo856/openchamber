@@ -21,12 +21,19 @@ describe('workspace release defaults', () => {
     expect(options.egress.gatewayImage).toBe('ghcr.io/openchamber/workspace-egress-gateway@sha256:e12d6c43d598a994cd1825eb0b1f838df7a57c2186b9c4e013c61c30ef7e1b94');
   });
 
-  it('requires controlled DNS CIDRs only for Kubernetes', () => {
-    const appleSettings = readWorkspaceSettings({ secureWorkspacesDefaultProvider: 'apple-container' });
-    expect(() => buildPluginOptions(appleSettings, { requireComplete: true })).not.toThrow();
-
+  it('saves a Kubernetes configuration that leaves DNS to be discovered from the cluster', () => {
+    // The provider reads the cluster's DNS service address itself. Refusing to save
+    // without it rejected the entire settings update — including changes about
+    // something else entirely — and rolled every one of them back.
     const kubernetesSettings = readWorkspaceSettings({ secureWorkspacesDefaultProvider: 'kubernetes' });
-    expect(() => buildPluginOptions(kubernetesSettings, { requireComplete: true })).toThrow('Kubernetes workspace egress requires at least one DNS CIDR');
+    expect(() => buildPluginOptions(kubernetesSettings, { requireComplete: true })).not.toThrow();
+    expect(buildPluginOptions(kubernetesSettings, { requireComplete: true }).egress.dnsCIDRs).toEqual([]);
+  });
+
+  it('still passes a configured DNS range through to the provider', () => {
+    const settings = readWorkspaceSettings({ secureWorkspacesDefaultProvider: 'kubernetes', secureWorkspacesEgressDnsCIDRs: '10.43.0.10/32' });
+
+    expect(buildPluginOptions(settings, { requireComplete: true }).egress.dnsCIDRs).toEqual(['10.43.0.10/32']);
   });
 
   it('requires an external proxy CIDR only for Kubernetes', () => {

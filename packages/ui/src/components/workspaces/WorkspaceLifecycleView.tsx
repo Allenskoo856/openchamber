@@ -517,6 +517,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
 
   const selectedWorkspace = workspaceList.find((workspace) => workspace.id === selectedWorkspaceID) ?? null;
   const selectedStatus = selectedWorkspace ? workspaceStatuses[selectedWorkspace.id] : undefined;
+  const removeWorkspaceName = workspaceList.find((item) => item.id === removeWorkspaceID)?.name || removeWorkspaceID || '';
   const selectionFor = (fileID: string) => selections.find((selection) => selection.fileID === fileID);
   const adminBlocked = missingCapabilities.includes('workspace.admin');
   const applyBlocked = missingCapabilities.includes('host.apply');
@@ -637,8 +638,13 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
           <section className="min-w-0 space-y-5">
             {selectedWorkspace ? (
               <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="mr-auto typography-ui-label font-semibold text-foreground">{selectedWorkspace.name || selectedWorkspace.id}</h2>
+                {/* No heading here: it repeated the highlighted row directly above, and
+                    the identity matters at the irreversible step, which now carries it. */}
+                <div
+                  className="flex flex-wrap items-center gap-2"
+                  role="group"
+                  aria-label={t('settings.workspaces.lifecycle.actionsFor', { name: selectedWorkspace.name || selectedWorkspace.id })}
+                >
                   <Button size="sm" data-testid="workspace-start-session" onClick={() => void startSession()} disabled={busy || selectedStatus !== 'connected'}>{t('settings.workspaces.lifecycle.startSession')}</Button>
                   <Button size="sm" variant="destructive" data-testid="workspace-delete" onClick={() => setRemoveWorkspaceID(selectedWorkspace.id)} disabled={busy || adminBlocked}>{t('settings.workspaces.lifecycle.delete')}</Button>
                 </div>
@@ -739,7 +745,12 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
       {reauth.dialog}
       <Dialog open={removeWorkspaceID !== null} onOpenChange={(open) => { if (!open && !busy) setRemoveWorkspaceID(null); }}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>{t('settings.workspaces.lifecycle.confirmDeleteTitle')}</DialogTitle><DialogDescription>{policy.preserveOnDelete ? t('settings.workspaces.lifecycle.confirmDeletePreserve') : t('settings.workspaces.lifecycle.confirmDelete')}</DialogDescription></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{t('settings.workspaces.lifecycle.confirmDeleteTitle')}</DialogTitle>
+            <DialogDescription>
+              {`${t('settings.workspaces.lifecycle.confirmDeleteNamed', { name: removeWorkspaceName })} ${policy.preserveOnDelete ? t('settings.workspaces.lifecycle.confirmDeletePreserve') : t('settings.workspaces.lifecycle.confirmDelete')}`}
+            </DialogDescription>
+          </DialogHeader>
           <DialogFooter><Button variant="ghost" onClick={() => setRemoveWorkspaceID(null)} disabled={busy}>{t('settings.common.actions.cancel')}</Button><Button variant="destructive" data-testid="workspace-delete-confirm" onClick={() => void confirmRemoveWorkspace()} disabled={busy}>{t('settings.workspaces.lifecycle.delete')}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
