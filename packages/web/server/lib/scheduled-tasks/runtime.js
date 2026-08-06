@@ -610,6 +610,17 @@ export const createScheduledTasksRuntime = (deps) => {
     };
   };
 
+  const releaseRunningSlot = (projectID, taskKey) => {
+    runningTaskKeys.delete(taskKey);
+    runningGlobalCount = Math.max(0, runningGlobalCount - 1);
+    const nextProjectCount = Math.max(0, (runningCountByProject.get(projectID) || 1) - 1);
+    if (nextProjectCount === 0) {
+      runningCountByProject.delete(projectID);
+    } else {
+      runningCountByProject.set(projectID, nextProjectCount);
+    }
+  };
+
   const runTask = async (projectID, taskID, reason, scheduledFor) => {
     const taskMap = tasksByProject.get(projectID);
     const task = taskMap?.get(taskID);
@@ -633,14 +644,7 @@ export const createScheduledTasksRuntime = (deps) => {
     // each arm their own timer; without this claim both would run (#2710).
     if (reason === 'scheduled') {
       if (!Number.isFinite(scheduledFor)) {
-        runningTaskKeys.delete(taskKey);
-        runningGlobalCount = Math.max(0, runningGlobalCount - 1);
-        const nextProjectCount = Math.max(0, (runningCountByProject.get(projectID) || 1) - 1);
-        if (nextProjectCount === 0) {
-          runningCountByProject.delete(projectID);
-        } else {
-          runningCountByProject.set(projectID, nextProjectCount);
-        }
+        releaseRunningSlot(projectID, taskKey);
         return { ok: false, skipped: true, reason: 'missing-scheduled-for' };
       }
 
@@ -665,25 +669,49 @@ export const createScheduledTasksRuntime = (deps) => {
         ) {
           return false;
         }
-        const diskNext = candidate.state?.nextRunAt;
-        if (Number.isFinite(diskNext) && diskNext > scheduledFor + TASK_DUE_SLACK_MS) {
-          return false;
+        // Only consult advanced disk nextRunAt after another instance has claimed
+        // an occurrence. A second instance syncing inside TASK_DUE_SLACK_MS can
+        // overwrite nextRunAt to the *following* slot before this armed timer
+        // fires; rejecting on that alone would silently drop a legitimate run.
+        if (Number.isFinite(lastScheduledFor)) {
+          const diskNext = candidate.state?.nextRunAt;
+          if (Number.isFinite(diskNext) && diskNext > scheduledFor + TASK_DUE_SLACK_MS) {
+            return false;
+          }
         }
         return true;
       };
 
       let claimResult;
-      if (typeof projectConfigRuntime.updateScheduledTaskStateIf === 'function') {
-        claimResult = await projectConfigRuntime.updateScheduledTaskStateIf(
+      try {
+        if (typeof projectConfigRuntime.updateScheduledTaskStateIf === 'function') {
+          claimResult = await projectConfigRuntime.updateScheduledTaskStateIf(
+            projectID,
+            taskID,
+            canClaimOccurrence,
+            claimPatch,
+          );
+        } else {
+          // Fallback for older test doubles: unconditional update (single-instance only).
+          claimResult = await projectConfigRuntime.updateScheduledTaskState(projectID, taskID, claimPatch);
+          claimResult = { ...claimResult, updated: Boolean(claimResult?.task) };
+        }
+      } catch (claimError) {
+        // Lock timeout / fs errors must not leave the task permanently "running"
+        // or reject unhandled from pumpQueue. Re-arm the following occurrence so
+        // a transient claim failure does not strand the in-memory timer.
+        releaseRunningSlot(projectID, taskKey);
+        const message = safeErrorMessage(claimError);
+        logger.warn?.('[ScheduledTasks] occurrence claim failed', {
           projectID,
           taskID,
-          canClaimOccurrence,
-          claimPatch,
-        );
-      } else {
-        // Fallback for older test doubles: unconditional update (single-instance only).
-        claimResult = await projectConfigRuntime.updateScheduledTaskState(projectID, taskID, claimPatch);
-        claimResult = { ...claimResult, updated: Boolean(claimResult?.task) };
+          error: message,
+        });
+        const retryNext = computeNextRunAt(task, Math.max(runStartedAt, scheduledFor + 1));
+        if (task.enabled && Number.isFinite(retryNext)) {
+          scheduleTask(projectID, taskID, retryNext);
+        }
+        return { ok: false, skipped: true, reason: 'claim-failed', error: message };
       }
 
       if (!claimResult?.updated) {
@@ -693,14 +721,7 @@ export const createScheduledTasksRuntime = (deps) => {
             scheduleTask(projectID, taskID, claimResult.task.state.nextRunAt);
           }
         }
-        runningTaskKeys.delete(taskKey);
-        runningGlobalCount = Math.max(0, runningGlobalCount - 1);
-        const nextProjectCount = Math.max(0, (runningCountByProject.get(projectID) || 1) - 1);
-        if (nextProjectCount === 0) {
-          runningCountByProject.delete(projectID);
-        } else {
-          runningCountByProject.set(projectID, nextProjectCount);
-        }
+        releaseRunningSlot(projectID, taskKey);
         return { ok: false, skipped: true, reason: 'occurrence-claimed' };
       }
 
@@ -811,14 +832,7 @@ export const createScheduledTasksRuntime = (deps) => {
     } catch {
     }
 
-    runningTaskKeys.delete(taskKey);
-    runningGlobalCount = Math.max(0, runningGlobalCount - 1);
-    const nextProjectCount = Math.max(0, (runningCountByProject.get(projectID) || 1) - 1);
-    if (nextProjectCount === 0) {
-      runningCountByProject.delete(projectID);
-    } else {
-      runningCountByProject.set(projectID, nextProjectCount);
-    }
+    releaseRunningSlot(projectID, taskKey);
 
     return {
       ok: status === 'success',
@@ -848,9 +862,18 @@ export const createScheduledTasksRuntime = (deps) => {
       queuedTaskKeys.delete(taskKey);
       consumed = true;
 
-      void runTask(item.projectID, item.taskID, item.reason, item.scheduledFor).finally(() => {
-        pumpQueue();
-      });
+      void runTask(item.projectID, item.taskID, item.reason, item.scheduledFor)
+        .catch((error) => {
+          logger.warn?.('[ScheduledTasks] queued run rejected', {
+            projectID: item.projectID,
+            taskID: item.taskID,
+            reason: item.reason,
+            error: safeErrorMessage(error),
+          });
+        })
+        .finally(() => {
+          pumpQueue();
+        });
     }
 
     if (!consumed && queue.length > 0) {

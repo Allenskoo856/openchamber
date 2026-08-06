@@ -208,4 +208,53 @@ describe('issue 2710: daily scheduled task double execution at the configured ti
 
     runtimes.forEach((runtime) => runtime.stop());
   });
+
+  it('claim failure releases the running slot and does not reject unhandled', async () => {
+    vi.setSystemTime(UTC(2026, 0, 1, 14, 0, 0));
+    const projectConfigRuntime = createSharedProjectConfigRuntime(
+      makeTask({ kind: 'daily', times: ['15:00'] }),
+    );
+    projectConfigRuntime.updateScheduledTaskStateIf = vi.fn(async () => {
+      throw new Error('timeout acquiring project config lock for p1');
+    });
+    const runtime = createScheduledTasksRuntime(createRuntimeDeps(projectConfigRuntime));
+    await runtime.start();
+
+    await vi.advanceTimersByTimeAsync(HOUR + 3_000);
+
+    expect(sdk.sessionCreates.length).toBe(0);
+    expect(runtime.getStatus().runningScheduledTasksCount).toBe(0);
+    expect(runtime.getStatus().hasRunningScheduledTasks).toBe(false);
+
+    // Manual runNow must not be stuck behind a permanently "running" claim failure.
+    const manual = await runtime.runNow('p1', 'task-1');
+    expect(manual.ok).toBe(true);
+    expect(sdk.sessionCreates.length).toBe(1);
+
+    runtime.stop();
+  });
+
+  it('armed instance still fires when another instance syncs inside the due-slack window', async () => {
+    // Instance A arms for 15:00 outside the slack window. Instance B then starts
+    // inside TASK_DUE_SLACK_MS and syncTaskSchedule advances disk nextRunAt to
+    // tomorrow. A must still claim today's occurrence.
+    vi.setSystemTime(UTC(2026, 0, 1, 14, 0, 0));
+    const task = makeTask({ kind: 'daily', times: ['15:00'] });
+    const projectConfigRuntime = createSharedProjectConfigRuntime(task);
+
+    const runtimeA = createScheduledTasksRuntime(createRuntimeDeps(projectConfigRuntime));
+    await runtimeA.start();
+
+    // Enter the due-slack window (T-5s .. T) and sync a second instance.
+    await vi.advanceTimersByTimeAsync(HOUR - 2_000);
+    const runtimeB = createScheduledTasksRuntime(createRuntimeDeps(projectConfigRuntime));
+    await runtimeB.start();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(sdk.sessionCreates.length).toBe(1);
+
+    runtimeA.stop();
+    runtimeB.stop();
+  });
 });

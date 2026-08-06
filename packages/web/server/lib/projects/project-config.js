@@ -416,17 +416,25 @@ export const createProjectConfigRuntime = (deps) => {
       let handle;
       try {
         handle = await fsPromises.open(lockPath, 'wx');
-        await handle.writeFile(JSON.stringify({
+        const lockPayload = {
           pid: process.pid,
           at: Date.now(),
-        }));
+        };
+        await handle.writeFile(JSON.stringify(lockPayload));
         return {
           release: async () => {
             try {
               await handle.close();
             } catch {
             }
+            // Only unlink if we still own the lock. A stale-recovery steal can
+            // replace the file; unlinking blindly would drop the new owner's lock.
             try {
+              const raw = await fsPromises.readFile(lockPath, 'utf8');
+              const parsed = JSON.parse(raw);
+              if (Number(parsed?.pid) !== process.pid) {
+                return;
+              }
               await fsPromises.unlink(lockPath);
             } catch {
             }
