@@ -1358,18 +1358,23 @@ export function createMessengerSyncRouter({
     const { type, token } = req.body ?? {};
     const verbosity = {
       discord: bridge.store.getVerbosityDefault?.('discord') ?? null,
+      telegram: bridge.store.getVerbosityDefault?.('telegram') ?? null,
     };
     const permissionMode = {
       discord: bridge.store.getPermissionModeDefault?.('discord') ?? null,
+      telegram: bridge.store.getPermissionModeDefault?.('telegram') ?? null,
     };
     const notifyOnComplete = {
       discord: bridge.store.getNotifyOnComplete?.('discord') ?? false,
+      telegram: bridge.store.getNotifyOnComplete?.('telegram') ?? false,
     };
     const interruptTimeoutMs = {
       discord: bridge.store.getInterruptTimeoutMs?.('discord') ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
+      telegram: bridge.store.getInterruptTimeoutMs?.('telegram') ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
     };
     const critique = {
       discord: bridge.store.getCritiqueEnabled?.('discord') ?? false,
+      telegram: bridge.store.getCritiqueEnabled?.('telegram') ?? false,
     };
     return res.json({
       ok: true,
@@ -1391,17 +1396,17 @@ export function createMessengerSyncRouter({
   /**
    * Per-messenger default verbosity (`quiet` | `normal` | `verbose`). This is
    * the same value the in-chat `/verbosity default <level>` command writes, so
-   * the OpenChamber UI and Discord stay in sync. A per-conversation
+   * the OpenChamber UI and the messengers stay in sync. A per-conversation
    * `/verbosity <level>` override always wins over this default.
    *
-   * POST body: { type: 'discord', level }  (level null clears it)
+   * POST body: { type: 'discord' | 'telegram', level }  (level null clears it)
    * GET query: ?type=discord
    */
   router.post('/bridge/verbosity', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const { type, level } = req.body ?? {};
-    if (type !== 'discord') {
-      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    if (type !== 'discord' && type !== 'telegram') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord' or 'telegram'" });
     }
     if (level == null || level === '') {
       bridge.store.setVerbosityDefault(type, null);
@@ -1420,7 +1425,7 @@ export function createMessengerSyncRouter({
   router.get('/bridge/verbosity', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const type = typeof req.query?.type === 'string' ? req.query.type : '';
-    if (type === 'discord') {
+    if (type === 'discord' || type === 'telegram') {
       return res.json({ ok: true, type, level: bridge.store.getVerbosityDefault?.(type) ?? null });
     }
     return res.json({
@@ -1428,6 +1433,7 @@ export function createMessengerSyncRouter({
       levels: VERBOSITY_LEVELS,
       verbosity: {
         discord: bridge.store.getVerbosityDefault?.('discord') ?? null,
+        telegram: bridge.store.getVerbosityDefault?.('telegram') ?? null,
       },
     });
   });
@@ -1444,8 +1450,8 @@ export function createMessengerSyncRouter({
   router.post('/bridge/permission-mode', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const { type, mode } = req.body ?? {};
-    if (type !== 'discord') {
-      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    if (type !== 'discord' && type !== 'telegram') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord' or 'telegram'" });
     }
     if (mode == null || mode === '') {
       bridge.store.setPermissionModeDefault(type, null);
@@ -1464,7 +1470,7 @@ export function createMessengerSyncRouter({
   router.get('/bridge/permission-mode', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const type = typeof req.query?.type === 'string' ? req.query.type : '';
-    if (type === 'discord') {
+    if (type === 'discord' || type === 'telegram') {
       return res.json({
         ok: true,
         type,
@@ -1476,6 +1482,7 @@ export function createMessengerSyncRouter({
       modes: PERMISSION_MODES,
       permissionMode: {
         discord: bridge.store.getPermissionModeDefault?.('discord') ?? null,
+        telegram: bridge.store.getPermissionModeDefault?.('telegram') ?? null,
       },
     });
   });
@@ -1483,8 +1490,8 @@ export function createMessengerSyncRouter({
   router.post('/bridge/notify-on-complete', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const { type, enabled } = req.body ?? {};
-    if (type !== 'discord') {
-      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    if (type !== 'discord' && type !== 'telegram') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord' or 'telegram'" });
     }
     bridge.store.setNotifyOnComplete?.(type, Boolean(enabled));
     return res.json({ ok: true, type, enabled: bridge.store.getNotifyOnComplete?.(type) ?? false });
@@ -1493,13 +1500,14 @@ export function createMessengerSyncRouter({
   router.get('/bridge/notify-on-complete', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const type = typeof req.query?.type === 'string' ? req.query.type : '';
-    if (type === 'discord') {
+    if (type === 'discord' || type === 'telegram') {
       return res.json({ ok: true, type, enabled: bridge.store.getNotifyOnComplete?.(type) ?? false });
     }
     return res.json({
       ok: true,
       notifyOnComplete: {
         discord: bridge.store.getNotifyOnComplete?.('discord') ?? false,
+        telegram: bridge.store.getNotifyOnComplete?.('telegram') ?? false,
       },
     });
   });
@@ -1514,8 +1522,8 @@ export function createMessengerSyncRouter({
   router.post('/bridge/critique', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const { type, enabled } = req.body ?? {};
-    if (type !== 'discord') {
-      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    if (type !== 'discord' && type !== 'telegram') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord' or 'telegram'" });
     }
     bridge.store.setCritiqueEnabled?.(type, Boolean(enabled));
     return res.json({ ok: true, type, enabled: bridge.store.getCritiqueEnabled?.(type) ?? false });
@@ -1524,13 +1532,14 @@ export function createMessengerSyncRouter({
   router.get('/bridge/critique', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const type = typeof req.query?.type === 'string' ? req.query.type : '';
-    if (type === 'discord') {
+    if (type === 'discord' || type === 'telegram') {
       return res.json({ ok: true, type, enabled: bridge.store.getCritiqueEnabled?.(type) ?? false });
     }
     return res.json({
       ok: true,
       critique: {
         discord: bridge.store.getCritiqueEnabled?.('discord') ?? false,
+        telegram: bridge.store.getCritiqueEnabled?.('telegram') ?? false,
       },
     });
   });
@@ -1538,8 +1547,8 @@ export function createMessengerSyncRouter({
   router.post('/bridge/interrupt-timeout', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const { type, timeoutMs } = req.body ?? {};
-    if (type !== 'discord') {
-      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    if (type !== 'discord' && type !== 'telegram') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord' or 'telegram'" });
     }
     const normalized = normalizeMessengerInterruptTimeoutMs(timeoutMs);
     bridge.store.setInterruptTimeoutMs?.(type, normalized);
@@ -1554,7 +1563,7 @@ export function createMessengerSyncRouter({
       max: MESSENGER_INTERRUPT_TIMEOUT_MAX_MS,
       default: MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
     };
-    if (type === 'discord') {
+    if (type === 'discord' || type === 'telegram') {
       return res.json({
         ok: true,
         type,
@@ -1566,6 +1575,7 @@ export function createMessengerSyncRouter({
       ok: true,
       interruptTimeoutMs: {
         discord: bridge.store.getInterruptTimeoutMs?.('discord') ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
+        telegram: bridge.store.getInterruptTimeoutMs?.('telegram') ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
       },
       bounds,
     });
