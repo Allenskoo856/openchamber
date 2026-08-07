@@ -410,7 +410,9 @@ describe('workspace provider operation routes', () => {
     expect(deps.remove).not.toHaveBeenCalled();
   });
 
-  it('binds session-start reauthentication to the raw submitted directory, not the canonical form', async () => {
+  it('starts a workspace session from chat without a second credential', async () => {
+    // Creating a workspace from chat is the same operation as creating one from the
+    // panel. Prompting in one place and not the other would be the worse of both answers.
     const registry = routeRegistry();
     const deps = dependencies();
     const rawDirectory = deps.directory.replaceAll('\\', '/');
@@ -418,18 +420,36 @@ describe('workspace provider operation routes', () => {
     deps.list.mockResolvedValue({ data: [] });
     deps.workspaceStatus.mockResolvedValue({ data: [] });
     deps.uiAuthController.consumeReauthProof = vi.fn(async () => false);
+    // Authorization is what this asserts, so creation is made to fail immediately
+    // afterwards rather than running the whole provisioning flow.
+    deps.create.mockRejectedValue(new Error('provider refused'));
     registerWorkspaceRoutes(registry.app, deps);
     const res = response();
 
     await registry.route('POST', '/api/workspaces/sessions/start')({ headers: {}, body: { operationID: 'op-12345678', directory: rawDirectory, title: '' } }, res);
 
-    expect(res.statusCode).toBe(428);
-    expect(res.body).toMatchObject({ code: 'WORKSPACE_SESSION_REAUTH_REQUIRED', retryable: true });
-    expect(deps.uiAuthController.consumeReauthProof).toHaveBeenCalledWith(expect.anything(), {
-      operation: 'workspace.session.start',
-      project: rawDirectory,
-      bodyHash: hash(canonical({ directory: rawDirectory, operationID: 'op-12345678', title: '' })),
-    });
+    expect(res.statusCode).not.toBe(428);
+    expect(deps.uiAuthController.consumeReauthProof).not.toHaveBeenCalled();
+  });
+
+  it('still refuses a client that lacks the capability to create a workspace from chat', async () => {
+    // Removing the prompt must not remove the check that decides who may do this at all.
+    const registry = routeRegistry();
+    const deps = dependencies({ dependencies: {
+      uiAuthController: {
+        resolveAuthContext: vi.fn(async () => ({ type: 'client', clientId: 'paired-1', client: { capabilities: ['workspace.use'] } })),
+        consumeReauthProof: vi.fn(async () => true),
+      },
+    } });
+    deps.list.mockResolvedValue({ data: [] });
+    deps.workspaceStatus.mockResolvedValue({ data: [] });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+
+    await registry.route('POST', '/api/workspaces/sessions/start')({ headers: {}, body: { operationID: 'op-12345678', directory: deps.directory, title: '' } }, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body).toMatchObject({ code: 'WORKSPACE_SESSION_UNAUTHORIZED' });
   });
 
   it('reports environment readiness without a step-up prompt and without leaking provider output', async () => {
@@ -564,9 +584,9 @@ describe('workspace provider operation routes', () => {
     await registry.route('POST', '/api/workspaces/:id/reconcile')({ params: { id: 'workspace-1' }, body: { directory: deps.directory } }, res);
     expect(res.body).toEqual({ reconciled: true, status: 'ready', diagnostics: ['resources verified'], remainingResources: [] });
     expect(deps.operations.reconcileWorkspace).toHaveBeenCalledWith(expect.objectContaining({ id: 'workspace-1' }));
-    expect(deps.uiAuthController.consumeReauthProof).toHaveBeenCalledWith(expect.anything(), {
-      operation: 'workspace.reconcile', project: deps.directory, bodyHash: hash(canonical({ id: 'workspace-1', directory: deps.directory })),
-    });
+    // Reconciling verifies provider resources against recorded state; it changes nothing
+    // on the host and no longer interrupts for a password.
+    expect(deps.uiAuthController.consumeReauthProof).not.toHaveBeenCalled();
   });
 
   it('uses only verified operations adoption for a recovered OpenCode record ID', async () => {
@@ -727,24 +747,17 @@ describe('workspace provider operation routes', () => {
     expect(res.statusCode).toBe(status);
   });
 
-  it('preserves exact auth bindings for ignored provider metadata and structured apply selections', async () => {
+  it('ignores provider metadata a caller invents rather than passing it through', async () => {
+    // This used to be asserted through the proof binding, which hashed only the fields the
+    // route accepts. The proof is gone from validation, so the property is stated where it
+    // belongs: whatever else arrives in the body, the operation sees the provider alone.
     const registry = routeRegistry();
     const deps = dependencies();
     registerWorkspaceRoutes(registry.app, deps);
     const validateRes = response();
     await registry.route('POST', '/api/workspaces/providers/validate')({ method: 'POST', body: { provider: 'docker', policy: 'attacker' }, query: {} }, validateRes);
-    expect(deps.uiAuthController.consumeReauthProof).toHaveBeenNthCalledWith(1, expect.anything(), {
-      operation: 'workspace.validate', project: 'host', bodyHash: hash(JSON.stringify({ provider: 'docker' })),
-    });
-
-    const exportRes = response();
-    await registry.route('GET', '/api/workspaces/:id/export')({ params: { id: 'workspace-1' }, query: { directory: deps.directory } }, exportRes);
-    const applyBody = { directory: deps.directory, exportID: 'export-1', selections: [{ fileID: 'file-1' }], workspaceID: 'workspace-1', checkOnly: true };
-    const applyRes = response();
-    await registry.route('POST', '/api/workspaces/exports/:exportID/apply')({ params: { exportID: 'export-1' }, body: applyBody }, applyRes);
-    expect(deps.uiAuthController.consumeReauthProof).toHaveBeenLastCalledWith(expect.anything(), {
-      operation: 'host.apply', project: deps.directory, bodyHash: hash(canonical(applyBody)),
-    });
+    expect(validateRes.statusCode).not.toBe(428);
+    expect(deps.operations.validateProvider).toHaveBeenCalledWith('docker');
   });
 
   it('binds workspace settings proof to the complete validated mutation body', async () => {
@@ -775,6 +788,67 @@ describe('workspace provider operation routes', () => {
     await registry.route('POST', '/api/workspaces/settings')({ body: { changes: { secureWorkspacesEnabled: true }, activate: false } }, res);
     expect(res.statusCode).toBe(428);
     expect(deps.persistSettings).not.toHaveBeenCalled();
+  });
+
+  it('does not ask for the password again to review changes or to apply them', async () => {
+    // Nothing this feature contains can reach these routes: the workspace network is
+    // created `--internal`, so the runtime has no route to the host, and a tunnel request
+    // is refused on scope whatever it presents. What the prompt actually did was
+    // interrupt the person already sitting in front of the review screen, often enough
+    // that it stopped being read. Authorization still applies; a second credential does
+    // not. `consumeReauthProof` refuses everything here, and both routes proceed anyway.
+    const registry = routeRegistry();
+    const consumeReauthProof = vi.fn(async () => false);
+    const deps = dependencies({ dependencies: {
+      uiAuthController: { resolveAuthContext: vi.fn(async () => ({ type: 'session' })), consumeReauthProof },
+    } });
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const review = response();
+    await registry.route('GET', '/api/workspaces/:id/export')({ params: { id: 'workspace-1' }, query: { directory: deps.directory } }, review);
+    expect(review.statusCode).not.toBe(428);
+
+    const apply = response();
+    await registry.route('POST', '/api/workspaces/exports/:exportID/apply')(
+      { params: { exportID: 'export-1' }, body: { directory: deps.directory, exportID: 'export-1', selections: [{ fileID: 'file-1' }], workspaceID: 'workspace-1', checkOnly: true } },
+      apply,
+    );
+    expect(apply.statusCode).not.toBe(428);
+    expect(consumeReauthProof).not.toHaveBeenCalled();
+  });
+
+  it('still asks for the password to change the policy itself', async () => {
+    // Every other action states what it will do before doing it. This one takes effect
+    // quietly and stays in effect — it can widen the egress allowlist, replace the runtime
+    // image, or switch the feature off — so it keeps the bound single-use proof.
+    const registry = routeRegistry();
+    const deps = dependencies({ dependencies: {
+      uiAuthController: {
+        resolveAuthContext: vi.fn(async () => ({ type: 'session' })),
+        consumeReauthProof: vi.fn(async () => false),
+      },
+    } });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+    await registry.route('POST', '/api/workspaces/settings')({ body: { changes: { secureWorkspacesEnabled: true }, activate: false } }, res);
+    expect(res.statusCode).toBe(428);
+    expect(deps.persistSettings).not.toHaveBeenCalled();
+  });
+
+  it('still refuses host administration reaching in over a tunnel', async () => {
+    // Removing the prompt must not remove the rule that actually keeps remote callers out.
+    const registry = routeRegistry();
+    const deps = dependencies({ dependencies: {
+      uiAuthController: { resolveAuthContext: vi.fn(async () => ({ type: 'session' })), consumeReauthProof: vi.fn(async () => true) },
+      tunnelAuthController: { classifyRequestScope: () => 'tunnel' },
+    } });
+    registerWorkspaceRoutes(registry.app, deps);
+    const res = response();
+    await registry.route('POST', '/api/workspaces/exports/:exportID/apply')(
+      { params: { exportID: 'exp_1' }, body: { directory: '/host/project', selections: [] } },
+      res,
+    );
+    expect(res.statusCode).toBe(403);
   });
 
   it('registers the plugin at startup when settings enable workspaces and OpenCode has no entry', async () => {

@@ -41,6 +41,8 @@ Keep entrypoints, routes, bridges, and UI thin. Security decisions belong in the
 - Recompute canonical resource names. Do not trust persisted or request-provided names without canonical verification.
 - Verify provider, project, resource ID, role, and original audit identity before target, restart, export, rotation, reconciliation, or deletion.
 - A missing or failed provider query is not authoritative empty state. Preserve unrelated valid entities and report partial failure explicitly.
+- Capability decides who may act; a credential prompt is not a substitute and rarely an addition. Host administration is refused outright over a tunnel, and the runtime network is created `--internal`, so what this feature contains has no route to these endpoints at all. Only changing the policy — the egress allowlist, the runtime image, the feature switch — asks again, because it acts on the protections rather than within them and takes effect without showing what it did. Reviewing changes must never ask: review is what makes apply safe, and charging for it discourages the step the design depends on.
+- A prompt that appears on every adjacent action is a security problem, not a security feature. It is answered without reading, which is worse than not asking.
 
 ### Isolation And Egress
 

@@ -1008,21 +1008,20 @@ There MUST be no raw client patch apply route. A directory is accepted only afte
 Apply MUST:
 
 1. validate host-admin capability;
-2. validate one-time short-lived reauthentication proof;
-3. acquire a canonical project mutation lock;
-4. load and verify the server artifact;
-5. verify workspace, provider resource, project, directory, generation, expiration, and unused state;
-6. validate file and hunk selection;
-7. recompute current host hashes for every affected path;
-8. require affected host entries to match artifact baseline;
-9. reject path traversal and symlink escape;
-10. materialize the selected result in a temporary staging tree;
-11. verify expected result hashes;
-12. create a durable rollback journal and backups;
-13. replace entries and apply mode/symlink operations;
-14. fsync where supported;
-15. verify final hashes;
-16. commit the journal, clean backups, and consume the artifact.
+2. acquire a canonical project mutation lock;
+3. load and verify the server artifact;
+4. verify workspace, provider resource, project, directory, generation, expiration, and unused state;
+5. validate file and hunk selection;
+6. recompute current host hashes for every affected path;
+7. require affected host entries to match artifact baseline;
+8. reject path traversal and symlink escape;
+9. materialize the selected result in a temporary staging tree;
+10. verify expected result hashes;
+11. create a durable rollback journal and backups;
+12. replace entries and apply mode/symlink operations;
+13. fsync where supported;
+14. verify final hashes;
+15. commit the journal, clean backups, and consume the artifact.
 
 Failure after journal creation MUST restore every backup, remove newly created paths, verify restoration hashes, and retain a recovery journal if rollback is incomplete. Further host mutation is blocked until recovery. The API MUST return primary and rollback diagnostics and MUST never report partial success as success.
 
@@ -1089,17 +1088,36 @@ host.apply
 - configure, validate privileged providers, create, reconcile, cleanup, credential grants, and export require `workspace.admin`;
 - host mutation requires `host.apply`.
 
-Default paired clients do not receive admin or apply capabilities. Privileged remote operations require a short-lived one-time proof bound to client/user, operation type, target project, request-body hash, nonce, and expiration. WebAuthn is preferred with password fallback. Apply additionally requires explicit review confirmation. Replay is rejected.
+Default paired clients do not receive admin or apply capabilities. Host administration
+MUST be refused outright when the request arrives over a tunnel or an unknown public
+scope, whatever credentials it presents. Apply requires explicit review confirmation:
+the selection is made against a listing of exactly what will be written.
 
-A successful password or passkey ceremony additionally opens a server-side
-step-up authorization window (default 10 minutes) bound to the authenticated
-principal and held only in memory. While the window is valid, further one-time
-proofs are minted without repeating the ceremony; every proof keeps its full
-single-use binding. The window is cleared on credential rotation, password
-reset, and server restart, and silent window probes never consume the
-password rate limit. This implements the section 24 requirement to reuse a
-still-valid step-up authorization window instead of prompting for the password
-on every adjacent privileged action.
+**Only changing the Secure Workspace policy requires a second credential.** That
+operation MUST carry a short-lived one-time proof bound to client/user, operation type,
+target project, request-body hash, nonce, and expiration; WebAuthn is preferred with
+password fallback, and replay is rejected. Every other privileged operation —
+validating a provider, completing a setup step, creating, reconciling, cleaning up,
+exporting for review, and apply itself — requires the capability and nothing further.
+
+The distinction is what the operation acts on. Everything else acts *within* the
+protections and states what it will do before doing it. Changing the policy acts *on*
+them: it can widen the egress allowlist, replace the runtime image, or switch the
+feature off, and it takes effect quietly and stays in effect.
+
+A second credential elsewhere was found to defend against nothing. The workspace network
+is created `--internal`, so a runtime has no route to the host API at all — the agent
+this feature exists to contain cannot reach these endpoints with or without a password.
+A remote caller is refused on scope before credentials are considered. What remained was
+a prompt answered by a person on their own machine, in front of a screen listing what
+they had just asked for, and asked often enough that it stopped being read — which costs
+more than it defends, because a credential entered without reading is not a decision.
+
+A successful password or passkey ceremony opens a server-side step-up authorization
+window (default 10 minutes) bound to the authenticated principal and held only in
+memory, so consecutive policy changes do not repeat the ceremony; every proof keeps its
+full single-use binding. The window is cleared on credential rotation, password reset,
+and server restart, and silent window probes never consume the password rate limit.
 
 Native Electron operator authority is not inferred from a persisted client kind. Only the current Electron-host process may mint and attest the native local client. Persisted marker strings, legacy records, password login, pairing, and generic client-create requests cannot manufacture native authority. The reserved `desktop-local` dedupe identity cannot be replaced by remote issuance paths. The attested local client always has all four capabilities and capability mutation rejects rather than reducing them.
 
@@ -1134,7 +1152,7 @@ The shield remains a secondary project-scoped management and recovery entrypoint
 
 Workspace list and connection status recover automatically after startup, managed OpenCode restart, reconnect, and runtime switch. A connected provider resource MUST NOT remain at permanent `Unknown status` pending a manual `load workspaces` action. Partial success is represented explicitly: a session or workspace created before a later response/navigation failure is reconciled and offered for continuation or cleanup, never reported only as an undifferentiated create failure that encourages duplicate retries.
 
-The product distinguishes the primary `Start working in workspace` action from advanced handoff directions such as continuing an existing session in a workspace or on the host. Reauthentication UX explains the independent Desktop UI password prerequisite before privileged actions and SHOULD reuse a still-valid step-up authorization window where the security binding permits it instead of requesting the same password after every adjacent privileged click.
+The product distinguishes the primary `Start working in workspace` action from advanced handoff directions such as continuing an existing session in a workspace or on the host. Reviewing changes MUST NOT ask for a credential: review is what makes apply safe, and charging for it discourages the step the design depends on. Where a credential is genuinely required — changing the policy — the UX explains the independent Desktop UI password prerequisite before the action, and consecutive changes reuse a still-valid step-up authorization window rather than repeating the ceremony.
 
 OpenChamber implements this boundary with `SecureWorkspacesSettings` limited to activation/provider/policy controls and a project-scoped Workspaces surface in desktop web/Electron and hosted/Capacitor mobile navigation. The surface is intentionally hidden in VS Code, resets workspace/export state across runtime and directory changes, preserves same-scope authoritative list/status data on refresh failure, and keeps read/use available when capability-aware remote clients lack admin or host-apply grants.
 

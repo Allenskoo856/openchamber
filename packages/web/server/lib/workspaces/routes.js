@@ -349,9 +349,21 @@ export function registerWorkspaceRoutes(app, dependencies) {
     return false;
   }
 
-  async function authorizePrivilegedRequest(req, res, capability, operation, project, payload) {
+  /**
+   * Who may ask for a privileged workspace operation. This is the authorization: a host UI
+   * session or a client holding the capability, and never a request arriving over a tunnel.
+   *
+   * It deliberately does not ask for the password again. Nothing that this feature exists
+   * to contain can reach these endpoints: the workspace network is created `--internal`,
+   * so the runtime has no route to the host at all, and a tunnel request is refused above
+   * regardless of credentials. What remained was a prompt that a person answered on their
+   * own machine, in front of a screen listing exactly what they had asked for — and asked
+   * often enough that it stopped being read, which costs more than it defends. Changing
+   * the policy itself still asks; see {@link authorizePolicyChange}.
+   */
+  async function authorizeAdminRequest(req, res, capability) {
     if (!requireSupportedBoundary(res)) return false;
-    if (!uiAuthController?.resolveAuthContext || !uiAuthController?.consumeReauthProof) {
+    if (!uiAuthController?.resolveAuthContext) {
       res.status(500).json({ error: 'Workspace authorization is unavailable' });
       return false;
     }
@@ -368,6 +380,24 @@ export function registerWorkspaceRoutes(app, dependencies) {
     }
     if (context.type !== 'session' && !capabilities.includes(capability)) {
       res.status(403).json({ error: `Client capability required: ${capability}`, requiredCapability: capability });
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * The same authorization, plus a single-use proof bound to the exact submitted body.
+   *
+   * Reserved for changing the Secure Workspace policy, which is the one operation that
+   * operates on the protections rather than within them: it can widen the egress
+   * allowlist, change the runtime image, or switch the feature off. Every other action
+   * shows what it will do before doing it — this one takes effect quietly and stays in
+   * effect, so it is worth the interruption.
+   */
+  async function authorizePolicyChange(req, res, capability, operation, project, payload) {
+    if (!await authorizeAdminRequest(req, res, capability)) return false;
+    if (!uiAuthController?.consumeReauthProof) {
+      res.status(500).json({ error: 'Workspace authorization is unavailable' });
       return false;
     }
     const validProof = await uiAuthController.consumeReauthProof(req, { operation, project, bodyHash: reauthBodyHash(payload) });
@@ -529,7 +559,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
   async function handleProviderValidation(req, res) {
     const source = req.method === 'POST' ? req.body ?? {} : req.query ?? {};
     const provider = typeof source.provider === 'string' ? source.provider : '';
-    if (!await authorizePrivilegedRequest(req, res, 'workspace.admin', 'workspace.validate', 'host', { provider })) return;
+    if (!await authorizeAdminRequest(req, res, 'workspace.admin')) return;
     if (!SECURE_WORKSPACE_PROVIDERS.has(provider)) return res.status(400).json({ available: false, error: 'Unsupported workspace provider' });
     try {
       const context = await persistedContext('', null);
@@ -597,7 +627,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
   app.post('/api/workspaces/providers/setup', async (req, res) => {
     const provider = typeof req.body?.provider === 'string' ? req.body.provider : '';
     const action = typeof req.body?.action === 'string' ? req.body.action : '';
-    if (!await authorizePrivilegedRequest(req, res, 'workspace.admin', 'workspace.setup', 'host', { provider, action })) return;
+    if (!await authorizeAdminRequest(req, res, 'workspace.admin')) return;
     if (!SECURE_WORKSPACE_PROVIDERS.has(provider)) return res.status(400).json({ error: 'Unsupported workspace provider' });
     if (!SETUP_ACTIONS.has(action)) return res.status(400).json({ error: 'Unsupported setup action' });
     try {
@@ -686,7 +716,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
     const type = typeof req.body?.type === 'string' ? req.body.type : '';
     const extra = req.body?.extra && typeof req.body.extra === 'object' && !Array.isArray(req.body.extra) ? req.body.extra : null;
     const payload = { type, directory, extra };
-    if (!await authorizePrivilegedRequest(req, res, 'workspace.admin', 'workspace.create', directory || 'host', payload)) return;
+    if (!await authorizeAdminRequest(req, res, 'workspace.admin')) return;
     if (!SECURE_WORKSPACE_PROVIDERS.has(type)) return res.status(400).json({ error: 'Unsupported workspace provider' });
     let context;
     let client;
@@ -725,17 +755,13 @@ export function registerWorkspaceRoutes(app, dependencies) {
     try {
       const context = await persistedContext(directory, null);
       const provider = context.settings.defaultProvider;
-      // The proof binds the exact request the client signed: raw directory and title as
-      // submitted, matching every other privileged route. Canonicalization happens after
-      // authorization; hashing the canonical path here breaks the binding on hosts where
-      // the canonical form differs from the client's project string (e.g. Windows).
       const payload = { operationID, directory, title };
       const result = await startOrdinaryWorkspaceSession({ operationID, principal: authorization.principal, directory: context.directory, projectID: context.project.id, title, provider, client: await sdkClient(context.directory), journal: ordinarySessionJournal, maxAttempts: workspaceCreateStatusMaxAttempts, pollIntervalMs: workspaceCreateStatusPollIntervalMs, compensateCreate: async (provisionalID) => compensateCreate({ id: provisionalID, context, client: await sdkClient(context.directory) }), authorizeCreation: async () => {
         const capabilities = Array.isArray(authorization.context?.client?.capabilities) ? authorization.context.client.capabilities : [];
+        // Creating a workspace from chat is the same operation as creating one from the
+        // panel, and asks for the same thing: the capability, not a second credential.
+        // Prompting here and not there would be the worse of both answers.
         if (authorization.context?.type !== 'session' && !capabilities.includes('workspace.admin')) throw Object.assign(new Error('Client capability required: workspace.admin'), { statusCode: 403, code: 'WORKSPACE_SESSION_UNAUTHORIZED' });
-        if (!await uiAuthController.consumeReauthProof(req, { operation: 'workspace.session.start', project: directory, bodyHash: reauthBodyHash(payload) })) {
-          throw Object.assign(new Error('Reauthentication required'), { statusCode: 428, code: 'WORKSPACE_SESSION_REAUTH_REQUIRED' });
-        }
         return true;
       } });
       return res.status(result.status === 'completed' ? 201 : 202).json(result);
@@ -754,7 +780,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
     const directorySource = typeof req.body?.directory === 'string' ? req.body.directory : req.query?.directory;
     const directory = typeof directorySource === 'string' ? directorySource.trim() : '';
     const payload = { id, directory };
-    if (!await authorizePrivilegedRequest(req, res, 'workspace.admin', 'workspace.cleanup', directory || 'host', payload)) return;
+    if (!await authorizeAdminRequest(req, res, 'workspace.admin')) return;
     try {
       let workspace = await loadOpenCodeWorkspace({ id, directory, buildOpenCodeUrl, getOpenCodeAuthHeaders, createClient: createOpenCodeClient });
       const context = await persistedContext(directory, workspace);
@@ -785,7 +811,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
     const id = typeof req.params?.id === 'string' ? req.params.id : '';
     const directory = typeof req.body?.directory === 'string' ? req.body.directory.trim() : '';
     const payload = { id, directory };
-    if (!await authorizePrivilegedRequest(req, res, 'workspace.admin', 'workspace.reconcile', directory || 'host', payload)) return;
+    if (!await authorizeAdminRequest(req, res, 'workspace.admin')) return;
     try {
       let workspace = await loadOpenCodeWorkspace({ id, directory, buildOpenCodeUrl, getOpenCodeAuthHeaders, createClient: createOpenCodeClient });
       const context = await persistedContext(directory, workspace);
@@ -859,7 +885,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
   app.get('/api/workspaces/:id/export', async (req, res) => {
     const requestedDirectory = typeof req.query.directory === 'string' ? req.query.directory : '';
     const binding = { id: req.params.id, directory: requestedDirectory };
-    if (!await authorizePrivilegedRequest(req, res, 'workspace.admin', 'workspace.export', requestedDirectory || 'host', binding)) return;
+    if (!await authorizeAdminRequest(req, res, 'workspace.admin')) return;
     try {
       let workspace = await loadOpenCodeWorkspace({ id: req.params.id, directory: requestedDirectory, buildOpenCodeUrl, getOpenCodeAuthHeaders, createClient: createOpenCodeClient });
       const context = await persistedContext(requestedDirectory, workspace);
@@ -883,7 +909,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
     const selections = Array.isArray(req.body?.selections) ? req.body.selections : [];
     const checkOnly = req.body?.checkOnly !== false;
     const binding = { directory, exportID, selections, workspaceID, checkOnly };
-    if (!await authorizePrivilegedRequest(req, res, 'host.apply', 'host.apply', directory || 'host', binding)) return;
+    if (!await authorizeAdminRequest(req, res, 'host.apply')) return;
     try {
       const parsed = await artifactCache.get(exportID);
       if (!parsed) return res.status(410).json({ applied: false, checkOnly, error: 'Workspace export expired; re-export required' });
@@ -957,7 +983,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
     }
     const binding = { activate: req.body?.activate === true, changes };
     const proofBinding = { activate: binding.activate, changes: rawChanges };
-    if (!await authorizePrivilegedRequest(req, res, 'workspace.admin', 'workspace.configure', 'host', proofBinding)) return;
+    if (!await authorizePolicyChange(req, res, 'workspace.admin', 'workspace.configure', 'host', proofBinding)) return;
 
     const run = async () => {
       await settingsRecoveryPromise;
