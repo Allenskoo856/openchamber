@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGitIdentitiesStore } from '@/stores/useGitIdentitiesStore';
+import { displayPathToAbsolutePath } from './directoryExplorerPaths';
 import { useFileSystemAccess } from '@/hooks/useFileSystemAccess';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui';
@@ -97,13 +98,6 @@ const normalizeDirectoryPath = (path: string | null | undefined): string | null 
   const normalized = trimTrailingSeparators(normalizeSeparators(path.trim()));
   if (!normalized) return null;
   return normalized.toLowerCase();
-};
-
-const displayPathToAbsolutePath = (value: string, homeDirectory: string): string => {
-  const trimmed = value.trim();
-  if (trimmed === '~') return homeDirectory;
-  if (trimmed.startsWith('~/')) return `${homeDirectory}${trimmed.slice(1)}`;
-  return trimmed;
 };
 
 const isPrimaryModifierPressed = (event: React.KeyboardEvent<HTMLInputElement>): boolean => {
