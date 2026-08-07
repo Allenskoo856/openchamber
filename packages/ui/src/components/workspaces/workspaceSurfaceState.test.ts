@@ -4,6 +4,7 @@ import {
   requiredCapabilityForWorkspaceOperation,
   requiredWorkspaceCapability,
   workspaceProjectDirectory,
+  workspaceSourceRefusal,
   workspaceStatusSnapshot,
 } from './workspaceSurfaceState';
 
@@ -76,6 +77,29 @@ describe('workspace surface state', () => {
     expect(requiredCapabilityForWorkspaceOperation('workspace.export')).toBe('workspace.admin');
     expect(requiredCapabilityForWorkspaceOperation('host.apply')).toBe('host.apply');
     expect(requiredCapabilityForWorkspaceOperation('workspace.use')).toBeNull();
+  });
+
+  test('names a home directory as unusable before anyone presses create', () => {
+    const home = 'C:\\Users\\Bohdan Triapitsyn';
+    expect(workspaceSourceRefusal(home, home, 'win32')).toBe('home');
+    expect(workspaceSourceRefusal('/home/yulia', '/home/yulia', 'linux')).toBe('home');
+    // The picker and a typed path disagree about letter case, and Windows does not.
+    expect(workspaceSourceRefusal('c:/users/bohdan triapitsyn/', home, 'win32')).toBe('home');
+    // Linux does treat those as different directories, so neither may be assumed.
+    expect(workspaceSourceRefusal('/home/Yulia', '/home/yulia', 'linux')).toBeNull();
+  });
+
+  test('names a filesystem root as unusable, whichever kind of root it is', () => {
+    expect(workspaceSourceRefusal('C:\\', null, 'win32')).toBe('root');
+    expect(workspaceSourceRefusal('/', null, 'linux')).toBe('root');
+    expect(workspaceSourceRefusal('\\\\fileserver\\projects', null, 'win32')).toBe('root');
+  });
+
+  test('accepts an ordinary project, including one inside the home directory', () => {
+    const home = 'C:\\Users\\Bohdan Triapitsyn';
+    expect(workspaceSourceRefusal('C:\\Users\\Bohdan Triapitsyn\\projects\\openchamber', home, 'win32')).toBeNull();
+    expect(workspaceSourceRefusal('/home/yulia/projects/openchamber', '/home/yulia', 'linux')).toBeNull();
+    expect(workspaceSourceRefusal('', '/home/yulia', 'linux')).toBeNull();
   });
 
   test('recognizes capability-aware server denials', () => {

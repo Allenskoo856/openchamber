@@ -11,11 +11,12 @@ import { subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
+import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { createSessionInWorkspace } from '@/sync/session-actions';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { emptyWorkspaceScopeState, requiredCapabilityForWorkspaceOperation, requiredWorkspaceCapability, workspaceProjectDirectory, workspaceStatusSnapshot, type WorkspaceRequiredCapability, type WorkspaceStatus } from './workspaceSurfaceState';
+import { emptyWorkspaceScopeState, requiredCapabilityForWorkspaceOperation, requiredWorkspaceCapability, workspaceProjectDirectory, workspaceSourceRefusal, workspaceStatusSnapshot, type WorkspaceRequiredCapability, type WorkspaceStatus } from './workspaceSurfaceState';
 import { useWorkspaceReauth } from './WorkspaceReauth';
 
 type WorkspaceListItem = {
@@ -45,6 +46,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
   const newSessionDraft = useSessionUIStore((state) => state.newSessionDraft);
   const projects = useProjectsStore((state) => state.projects);
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
+  const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
   const [manualDirectory, setManualDirectory] = React.useState('');
   const scopedDirectory = workspaceProjectDirectory(projects, activeProjectId, newSessionDraft, currentSessionDirectory);
   const directory = scopedDirectory || manualDirectory;
@@ -562,6 +564,10 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
   const adminBlocked = missingCapabilities.includes('workspace.admin');
   const applyBlocked = missingCapabilities.includes('host.apply');
   const configured = policy.enabled && compatibility?.configured !== false;
+  // The runtime refuses to copy a home directory or a filesystem root into a workspace.
+  // That is knowable from the directory alone, so it is said here rather than left for
+  // the person to discover by pressing Create and reading why it failed.
+  const sourceRefusal = workspaceSourceRefusal(directory, homeDirectory, compatibility?.platform);
   const projectLabel = projects.find((project) => project.path.trim() === directory)?.label
     ?? (directory ? directory.split(/[\\/]/).filter(Boolean).pop() ?? directory : t('settings.workspaces.lifecycle.noProject'));
   const isPolicyMismatch = (message: string) => /policy fingerprint/i.test(message);
@@ -614,8 +620,18 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
           <section className="min-w-0 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="typography-ui-label font-semibold text-foreground">{t('settings.workspaces.lifecycle.title')}</h2>
-              <Button size="sm" data-testid="workspace-create" onClick={() => void createWorkspace()} disabled={busy || adminBlocked || !configured || !directory}>{t('settings.workspaces.lifecycle.createWith', { provider: providerDisplayName(t, policy.provider) })}</Button>
+              <Button size="sm" data-testid="workspace-create" onClick={() => void createWorkspace()} disabled={busy || adminBlocked || !configured || !directory || sourceRefusal !== null}>{t('settings.workspaces.lifecycle.createWith', { provider: providerDisplayName(t, policy.provider) })}</Button>
             </div>
+            {sourceRefusal ? (
+              <div className="space-y-1 rounded-lg border border-border bg-[var(--surface-muted)] p-4" data-testid="workspace-source-refused">
+                <p className="typography-ui text-foreground">
+                  {sourceRefusal === 'home'
+                    ? t('settings.workspaces.lifecycle.sourceIsHome')
+                    : t('settings.workspaces.lifecycle.sourceIsRoot')}
+                </p>
+                <p className="typography-meta text-muted-foreground">{t('settings.workspaces.lifecycle.sourceChooseProject')}</p>
+              </div>
+            ) : null}
             {initialLoading ? <p className="typography-meta text-muted-foreground">{t('common.loading')}</p> : null}
             {!initialLoading && !directory && projects.length > 0 ? (
               <div className="space-y-2 rounded-lg border border-border bg-[var(--surface-muted)] p-4">

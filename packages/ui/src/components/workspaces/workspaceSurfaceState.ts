@@ -27,6 +27,41 @@ export function workspaceProjectDirectory(
   return projects.find((project) => project.id === activeProjectId)?.path.trim() ?? '';
 }
 
+export type WorkspaceSourceRefusal = 'home' | 'root';
+
+/**
+ * Whether a directory is one the workspace runtime will refuse to copy. A home directory
+ * carries SSH keys, cloud credentials and shell history into the container, and a
+ * filesystem root carries every account on the machine; neither is a project.
+ *
+ * The runtime refuses both regardless — this exists so nobody has to find out by pressing
+ * a button and reading an error. It is the same fact, offered before the attempt.
+ */
+export function workspaceSourceRefusal(
+  directory: string | null | undefined,
+  homeDirectory: string | null | undefined,
+  platform?: string | null,
+): WorkspaceSourceRefusal | null {
+  const candidate = comparablePath(directory, platform);
+  if (!candidate) return null;
+  // A drive on Windows ("C:"), a network share and the server it sits on, or "/" elsewhere.
+  if (/^[a-zA-Z]:$/.test(candidate) || candidate === '/' || /^\/\/[^/]+(\/[^/]+)?$/.test(candidate)) return 'root';
+  const home = comparablePath(homeDirectory, platform);
+  if (home && candidate === home) return 'home';
+  return null;
+}
+
+/** Path comparison only makes sense per platform: Windows and macOS ignore letter case. */
+function comparablePath(value: string | null | undefined, platform?: string | null): string {
+  if (typeof value !== 'string') return '';
+  const slashed = value.trim().replace(/\\/g, '/');
+  if (!slashed) return '';
+  // A POSIX root is nothing but a separator, so stripping trailing ones would erase it.
+  const normalized = /^\/+$/.test(slashed) ? '/' : slashed.replace(/\/+$/, '');
+  if (!normalized) return '';
+  return platform === 'win32' || platform === 'darwin' ? normalized.toLowerCase() : normalized;
+}
+
 export function requiredCapabilityForWorkspaceOperation(operation: string): WorkspaceRequiredCapability | null {
   if (operation === 'host.apply') return 'host.apply';
   if (operation.startsWith('workspace.') && operation !== 'workspace.use' && operation !== 'workspace.read') return 'workspace.admin';
