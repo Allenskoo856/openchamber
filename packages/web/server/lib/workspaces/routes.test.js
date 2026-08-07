@@ -269,6 +269,46 @@ describe('workspace provider operation routes', () => {
     expect(deps.operations.cleanupWorkspace).not.toHaveBeenCalled();
   });
 
+  it('keeps waiting through disconnected, which OpenCode stamps on every workspace at sync start', async () => {
+    // A booting Kubernetes workspace reports `disconnected` before its port-forward is
+    // up. Treating that as terminal destroyed the healthy workspace mid-boot.
+    const registry = routeRegistry();
+    const deps = dependencies();
+    const statuses = ['disconnected', 'disconnected', 'connected'];
+    deps.create.mockImplementation(async ({ id }) => ({ data: { ...workspace(deps.directory), id } }));
+    deps.workspaceStatus.mockImplementation(async () => {
+      const status = statuses.length > 1 ? statuses.shift() : statuses[0];
+      const id = deps.create.mock.calls[0]?.[0]?.id;
+      return { data: id ? [{ workspaceID: id, status }] : [] };
+    });
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const res = response();
+    await registry.route('POST', '/api/workspaces/create')({ body: { type: 'docker', directory: deps.directory }, query: {} }, res);
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body).toMatchObject({ status: 'connected' });
+    expect(deps.operations.cleanupWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('answers connecting rather than destroying a workspace that stays disconnected all wait', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({ dependencies: { workspaceCreateStatusMaxAttempts: 2, workspaceCreateStatusPollIntervalMs: 0 } });
+    deps.create.mockImplementation(async ({ id }) => ({ data: { ...workspace(deps.directory), id } }));
+    deps.workspaceStatus.mockImplementation(async () => {
+      const id = deps.create.mock.calls[0]?.[0]?.id;
+      return { data: id ? [{ workspaceID: id, status: 'disconnected' }] : [] };
+    });
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const res = response();
+    await registry.route('POST', '/api/workspaces/create')({ body: { type: 'docker', directory: deps.directory }, query: {} }, res);
+
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toMatchObject({ status: 'connecting', provisional: true, retryable: true });
+    expect(deps.operations.cleanupWorkspace).not.toHaveBeenCalled();
+  });
+
   it('still compensates a create failure that is not the upstream wait timeout', async () => {
     const registry = routeRegistry();
     const deps = dependencies();

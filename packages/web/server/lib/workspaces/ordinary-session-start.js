@@ -236,7 +236,11 @@ async function startOrdinaryWorkspaceSessionUnlocked({
     const status = await client.experimental.workspace.status({ directory });
     const row = Array.isArray(status?.data) ? status.data.find((item) => item?.workspaceID === workspace.id) : null;
     if (row?.status === 'connected') { connected = true; break; }
-    if (row?.status === 'error' || row?.status === 'disconnected') break;
+    // `disconnected` is what OpenCode stamps at sync start, before connecting has been
+    // tried — every booting workspace passes through it. Only an explicit error ends
+    // the wait early; anything else keeps polling until the bounded ceiling, and the
+    // timeout answer keeps the row for an idempotent retry.
+    if (row?.status === 'error') break;
     if (attempt + 1 < maxAttempts && pollIntervalMs > 0) await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
   if (!connected) fail(ORDINARY_SESSION_ERRORS.CONNECTION_TIMEOUT, 'Workspace did not become connected before the bounded wait', 202, { retryable: true, operationID, workspaceID: workspace.id });

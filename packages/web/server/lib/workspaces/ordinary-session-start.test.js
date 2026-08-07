@@ -97,6 +97,37 @@ describe('ordinary workspace session start', () => {
     expect(compensateCreate).not.toHaveBeenCalled();
   });
 
+  it('connects through the disconnected status OpenCode stamps at sync start', async () => {
+    const fx = fixture();
+    // The first snapshot selects the workspace as usable; the connect wait then sees
+    // the `disconnected` OpenCode stamps at sync start before reaching `connected`.
+    const statuses = ['connecting', 'disconnected', 'disconnected', 'connected'];
+    fx.client.experimental.workspace.status.mockImplementation(async () => ({
+      data: [{ workspaceID: workspace.id, status: statuses.length > 1 ? statuses.shift() : statuses[0] }],
+    }));
+
+    const result = await startOrdinaryWorkspaceSession(input(fx));
+
+    expect(result).toMatchObject({ status: 'completed', workspaceID: workspace.id });
+  });
+
+  it('keeps the workspace and answers a retryable timeout when it stays disconnected', async () => {
+    const fx = fixture();
+    fx.client.experimental.workspace.status.mockImplementation(async () => {
+      const calls = fx.client.experimental.workspace.status.mock.calls.length;
+      // The first snapshot must offer a usable workspace so one is selected at all;
+      // afterwards the connect wait only ever sees `disconnected`.
+      return { data: [{ workspaceID: workspace.id, status: calls <= 1 ? 'connecting' : 'disconnected' }] };
+    });
+    const compensateCreate = vi.fn();
+
+    await expect(startOrdinaryWorkspaceSession(input(fx, { maxAttempts: 2, compensateCreate })))
+      .rejects.toMatchObject({ code: ORDINARY_SESSION_ERRORS.CONNECTION_TIMEOUT, workspaceID: workspace.id, retryable: true });
+
+    expect(compensateCreate).not.toHaveBeenCalled();
+    expect(fx.client.session.create).not.toHaveBeenCalled();
+  });
+
   it('compensates the upstream wait timeout when no authoritative row survived it', async () => {
     const fx = fixture({ listed: [] });
     fx.client.experimental.workspace.create.mockImplementation(async () => { throw new Error('Timed out waiting for global event'); });

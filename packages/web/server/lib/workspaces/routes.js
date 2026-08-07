@@ -570,7 +570,11 @@ export function registerWorkspaceRoutes(app, dependencies) {
         if (result?.error || !Array.isArray(result?.data)) throw new Error('OpenCode returned an invalid workspace status response');
         const current = result.data.find((item) => item?.workspaceID === id);
         if (current?.status === 'connected') return { status: 'connected', diagnostics };
-        if (current?.status === 'error' || current?.status === 'disconnected') return { status: current.status, diagnostics };
+        // `disconnected` is not terminal here: OpenCode sets it at sync start, before the
+        // connect loop has tried anything, so every booting workspace passes through it
+        // by design. Treating it as an answer destroyed healthy Kubernetes workspaces
+        // whose port-forward was still coming up. Only an explicit error ends the wait.
+        if (current?.status === 'error') return { status: current.status, diagnostics };
       } catch (error) {
         diagnostics.push(`Status attempt ${attempt + 1} failed: ${safeErrorMessage(error, 'unknown status failure')}`);
       }

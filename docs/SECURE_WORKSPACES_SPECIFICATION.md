@@ -336,8 +336,15 @@ just started are still booting. When exactly that upstream wait timeout is repor
 the provisional row exists, OpenChamber MUST NOT compensate immediately: it adopts the
 row and applies its own bounded authoritative status wait, completing on `connected`,
 answering a retryable provisional `connecting` on status-wait timeout, and compensating
-only on authoritative `error`/`disconnected` or a missing row. Every other create failure
-keeps immediate compensation of the exact provisional ID.
+only on authoritative `error` or a missing row. Every other create failure keeps
+immediate compensation of the exact provisional ID.
+
+`disconnected` MUST NOT be treated as a terminal status during these waits. Reviewed
+OpenCode stamps `disconnected` at sync start, before its connect loop has attempted a
+connection, so every booting workspace passes through it by design; a Kubernetes
+workspace remains there until its port-forward is established. The waits end only on
+`connected`, an explicit `error`, or the bounded ceiling, and the ceiling answer keeps
+the row visible for an idempotent retry.
 
 ### 6.7 Remove Failure Behavior
 
