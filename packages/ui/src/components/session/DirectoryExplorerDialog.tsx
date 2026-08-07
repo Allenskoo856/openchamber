@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGitIdentitiesStore } from '@/stores/useGitIdentitiesStore';
-import { displayPathToAbsolutePath } from './directoryExplorerPaths';
+import { browseTargetForRow, displayPathToAbsolutePath, ensureBrowseDirectoryPath } from './directoryExplorerPaths';
 import { useFileSystemAccess } from '@/hooks/useFileSystemAccess';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui';
@@ -57,12 +57,6 @@ const trimTrailingSeparators = (value: string): string => {
 
 const hasTrailingPathSeparator = (value: string): boolean => value.endsWith('/');
 
-const ensureBrowseDirectoryPath = (value: string): string => {
-  const trimmed = value.trim();
-  if (!trimmed || hasTrailingPathSeparator(trimmed)) return trimmed;
-  return `${trimmed}/`;
-};
-
 const getLastPathSeparatorIndex = (value: string): number => value.lastIndexOf('/');
 
 const getBrowseDirectoryPath = (value: string): string => {
@@ -88,10 +82,6 @@ const getBrowseParentPath = (value: string): string | null => {
 };
 
 const canNavigateUp = (value: string): boolean => hasTrailingPathSeparator(value) && getBrowseParentPath(value) !== null;
-
-const appendBrowsePathSegment = (currentPath: string, segment: string): string => (
-  `${getBrowseDirectoryPath(currentPath)}${segment}/`
-);
 
 const normalizeDirectoryPath = (path: string | null | undefined): string | null => {
   if (!path) return null;
@@ -456,10 +446,6 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     setQuery(ensureBrowseDirectoryPath(displayPath));
   }, []);
 
-  const browseToEntry = React.useCallback((entry: BrowseEntry) => {
-    setQuery(appendBrowsePathSegment(query, entry.name));
-  }, [query]);
-
   const executeRow = React.useCallback((row: BrowseRow | null) => {
     if (!row) return;
     if (row.type === 'up') {
@@ -467,8 +453,9 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       return;
     }
     if (row.disabled) return;
-    browseToEntry(row);
-  }, [browseToDisplayPath, browseToEntry]);
+    const target = browseTargetForRow(row);
+    if (target) setQuery(target);
+  }, [browseToDisplayPath]);
 
   const handleOpenInFinder = React.useCallback(async () => {
     if (!canRequestAccess || isOpeningFinder) return;

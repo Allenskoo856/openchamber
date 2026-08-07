@@ -1,6 +1,33 @@
 /** A drive path, a UNC share, or a POSIX absolute path — anything already rooted. */
 export const isAbsolutePath = (value: string): boolean => /^([a-zA-Z]:[\\/]|[\\/][\\/]|\/)/.test(value);
 
+const hasTrailingSeparator = (value: string): boolean => value.endsWith('/');
+
+/** Adds the trailing separator that marks a value as a directory to browse into. */
+export const ensureBrowseDirectoryPath = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed || hasTrailingSeparator(trimmed)) return trimmed;
+  return `${trimmed}/`;
+};
+
+/**
+ * Where the field should point after a row in the listing is opened.
+ *
+ * The row carries the path the listing gave it, and that is what is used. Building one
+ * instead by grafting the row's bare name onto whatever the field currently holds goes
+ * wrong the moment the two have drifted apart, and they do: the listing is fetched
+ * asynchronously, so pasting a path and pressing Enter straight away acts on rows that
+ * still describe the previous directory. That appended a sibling of the old directory to
+ * the new path, producing somewhere that does not exist — which the dialog then offers to
+ * create, because that is the honest thing to do with a path that is not there.
+ */
+export const browseTargetForRow = (row: { name: string; path: string | null }): string | null => {
+  // A row without a path is the parent link of a listing that has no parent; there is
+  // nowhere to go, and deriving somewhere from the field would be the same defect again.
+  if (!row.path) return null;
+  return ensureBrowseDirectoryPath(row.path);
+};
+
 /** Resolves what the path field shows into a path the host can open. */
 export const displayPathToAbsolutePath = (value: string, homeDirectory: string): string => {
   const trimmed = value.trim();

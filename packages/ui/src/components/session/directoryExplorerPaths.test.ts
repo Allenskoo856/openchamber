@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { displayPathToAbsolutePath } from './directoryExplorerPaths';
+import { browseTargetForRow, displayPathToAbsolutePath, ensureBrowseDirectoryPath } from './directoryExplorerPaths';
 
 const WINDOWS_HOME = 'C:\\Users\\Bohdan Triapitsyn';
 const POSIX_HOME = '/home/yulia';
@@ -31,5 +31,30 @@ describe('directory explorer path entry', () => {
   test('leaves a path typed without the tilde alone', () => {
     expect(displayPathToAbsolutePath('D:\\work\\repo', WINDOWS_HOME)).toBe('D:\\work\\repo');
     expect(displayPathToAbsolutePath('  /srv/repo  ', POSIX_HOME)).toBe('/srv/repo');
+  });
+});
+
+describe('opening a row in the listing', () => {
+  test('goes where the row says, not where the field currently points', () => {
+    // The listing arrives asynchronously, so pasting a path and pressing Enter straight
+    // away acts on rows that still describe the previous directory. Building the target
+    // from the row's bare name and the field would then append a sibling of the old
+    // directory to the new path: this is exactly how
+    // `…/openchamber-functional-project/~nsu.tmp/` was produced, where `~nsu.tmp` is a
+    // directory in Temp and not in the project at all.
+    const staleRow = { name: '~nsu.tmp', path: 'C:/Users/Bohdan Triapitsyn/AppData/Local/Temp/~nsu.tmp' };
+    const justPasted = 'C:/Users/Bohdan Triapitsyn/AppData/Local/Temp/openchamber-functional-project/';
+    expect(browseTargetForRow(staleRow)).toBe('C:/Users/Bohdan Triapitsyn/AppData/Local/Temp/~nsu.tmp/');
+    expect(browseTargetForRow(staleRow)).not.toContain(justPasted);
+  });
+
+  test('keeps a single trailing separator so the target reads as a directory', () => {
+    expect(browseTargetForRow({ name: 'src', path: '/home/yulia/repo/src' })).toBe('/home/yulia/repo/src/');
+    expect(browseTargetForRow({ name: 'src', path: '/home/yulia/repo/src/' })).toBe('/home/yulia/repo/src/');
+    expect(ensureBrowseDirectoryPath('/home/yulia')).toBe('/home/yulia/');
+  });
+
+  test('goes nowhere rather than guessing when the row has no path', () => {
+    expect(browseTargetForRow({ name: '..', path: null })).toBeNull();
   });
 });
