@@ -2485,6 +2485,39 @@ export const ContextPanel: React.FC = () => {
     handleClose();
   }, [activeTab?.mode, handleBackToChangesList, handleClose]);
 
+  // Window-level Escape so expanded file review still returns to the Changes
+  // list when focus is outside the panel (chat, rail, etc.). Terminal remains
+  // excluded via the same target check as the in-panel capture handler.
+  React.useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) {
+        return;
+      }
+      if (isTerminalEventTarget(event.target)) {
+        return;
+      }
+      // Leave modal/dialog Escape to the dialog layer.
+      if (event.target instanceof Element && event.target.closest('[role="dialog"], [data-radix-dialog-content]')) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (activeTab?.mode === 'diff') {
+        handleBackToChangesList();
+        return;
+      }
+      handleClose();
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [activeTab?.mode, handleBackToChangesList, handleClose, isOpen]);
+
   React.useEffect(() => {
     if (!directoryKey || !activeTab) {
       return;
