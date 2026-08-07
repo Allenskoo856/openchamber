@@ -415,10 +415,25 @@ describe("secure workspace session routing", () => {
     })
     expect(replyCalls.some((call) => call.method === "session.get")).toBe(false)
     expect(result.id).toBe("session-workspace")
-    expect(result.directory).toBe("/workspace")
     expect(result.workspaceID).toBe("workspace-a")
-    expect(selectedSessions).toEqual([{ sessionID: "session-workspace", directory: "/workspace" }])
     expect(globalUpsertedSessions).toEqual([result])
+
+    // The session reports where it works, and that is inside the container. The record
+    // keeps it, because that is true of the session; host-side state must not, because
+    // `/workspace` names nothing on this computer. Taking it left the file tree empty and
+    // the terminal with nowhere to start, and it persisted as `lastDirectory` afterwards.
+    expect(result.directory).toBe("/workspace")
+    expect(selectedSessions).toEqual([{ sessionID: "session-workspace", directory: "/test/project" }])
+    expect(registeredSessionDirectories).toEqual([{ sessionID: "session-workspace", directory: "/test/project" }])
+  })
+
+  test("keeps host state on the project even when the workspace reports no directory", async () => {
+    workspaceCreatedResult = { id: "session-workspace", time: { created: 1 } } as Session
+    const { createSessionInWorkspace } = await import("./session-actions")
+
+    await createSessionInWorkspace("workspace-a", undefined, "/test/project")
+
+    expect(selectedSessions).toEqual([{ sessionID: "session-workspace", directory: "/test/project" }])
   })
 })
 

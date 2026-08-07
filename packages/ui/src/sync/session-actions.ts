@@ -790,7 +790,13 @@ export async function createSessionInWorkspace(
   const session = created.workspaceID === workspaceID ? created : { ...created, workspaceID }
   rememberConfirmedSessionWorkspaceRoute(session.id, workspaceID)
 
-  const sessionDirectory = session.directory ?? effectiveDirectory ?? null
+  // `session.directory` is where the session works, and for a workspace-routed session
+  // that is inside the container — `/workspace`, which names nothing on this computer.
+  // Host-side state takes the project the workspace was created from, which is the
+  // directory this create was addressed to. Preferring the reported one put a container
+  // path into the file tree, the terminal, and `lastDirectory`, so the tree came up empty
+  // and the terminal had nowhere to start.
+  const sessionDirectory = effectiveDirectory ?? null
   if (sessionDirectory) registerSessionDirectory(session.id, sessionDirectory)
   useSessionUIStore.getState().setCurrentSession(session.id, sessionDirectory)
   useSessionUIStore.getState().markSessionAsOpenChamberCreated(session.id)
