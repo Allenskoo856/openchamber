@@ -80,11 +80,11 @@ describe('workspace surface state', () => {
   });
 
   test('names a home directory as unusable before anyone presses create', () => {
-    const home = 'C:\\Users\\Bohdan Triapitsyn';
+    const home = 'C:\\Users\\Sam';
     expect(workspaceSourceRefusal(home, home, 'win32')).toBe('home');
     expect(workspaceSourceRefusal('/home/yulia', '/home/yulia', 'linux')).toBe('home');
     // The picker and a typed path disagree about letter case, and Windows does not.
-    expect(workspaceSourceRefusal('c:/users/bohdan triapitsyn/', home, 'win32')).toBe('home');
+    expect(workspaceSourceRefusal('c:/users/sam/', home, 'win32')).toBe('home');
     // Linux does treat those as different directories, so neither may be assumed.
     expect(workspaceSourceRefusal('/home/Yulia', '/home/yulia', 'linux')).toBeNull();
   });
@@ -96,8 +96,8 @@ describe('workspace surface state', () => {
   });
 
   test('accepts an ordinary project, including one inside the home directory', () => {
-    const home = 'C:\\Users\\Bohdan Triapitsyn';
-    expect(workspaceSourceRefusal('C:\\Users\\Bohdan Triapitsyn\\projects\\openchamber', home, 'win32')).toBeNull();
+    const home = 'C:\\Users\\Sam';
+    expect(workspaceSourceRefusal('C:\\Users\\Sam\\projects\\openchamber', home, 'win32')).toBeNull();
     expect(workspaceSourceRefusal('/home/yulia/projects/openchamber', '/home/yulia', 'linux')).toBeNull();
     expect(workspaceSourceRefusal('', '/home/yulia', 'linux')).toBeNull();
   });

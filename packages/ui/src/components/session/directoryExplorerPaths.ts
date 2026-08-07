@@ -1,6 +1,32 @@
 /** A drive path, a UNC share, or a POSIX absolute path — anything already rooted. */
 export const isAbsolutePath = (value: string): boolean => /^([a-zA-Z]:[\\/]|[\\/][\\/]|\/)/.test(value);
 
+/**
+ * Whether Enter should add the path in the field rather than move around the listing.
+ *
+ * Enter is the key someone presses after typing or pasting a path, and it should mean
+ * what they wrote. It becomes a navigation key only for a row they actually reached for,
+ * with the arrow keys or the pointer — otherwise the default highlight decides, and the
+ * default is the parent link, so a complete path was answered by going up a level.
+ *
+ * It never creates. A path that is not there is reached by typing a partial name, where
+ * Enter should open the match being filtered towards; creating stays with the button that
+ * says so.
+ */
+export const canConfirmPathOnEnter = (state: {
+  rowChosen: boolean;
+  targetPath: string;
+  wouldCreate: boolean;
+  isAlreadyAdded: boolean;
+  isBusy: boolean;
+}): boolean => (
+  !state.rowChosen
+  && Boolean(state.targetPath)
+  && !state.wouldCreate
+  && !state.isAlreadyAdded
+  && !state.isBusy
+);
+
 const hasTrailingSeparator = (value: string): boolean => value.endsWith('/');
 
 /** Adds the trailing separator that marks a value as a directory to browse into. */

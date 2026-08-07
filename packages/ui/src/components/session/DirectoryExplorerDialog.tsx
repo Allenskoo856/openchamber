@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGitIdentitiesStore } from '@/stores/useGitIdentitiesStore';
-import { browseTargetForRow, displayPathToAbsolutePath, ensureBrowseDirectoryPath } from './directoryExplorerPaths';
+import { browseTargetForRow, canConfirmPathOnEnter, displayPathToAbsolutePath, ensureBrowseDirectoryPath } from './directoryExplorerPaths';
 import { useFileSystemAccess } from '@/hooks/useFileSystemAccess';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui';
@@ -149,6 +149,8 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
   const [browseErrorReason, setBrowseErrorReason] = React.useState<FilesystemErrorReason | null>(null);
   const [browseReloadKey, setBrowseReloadKey] = React.useState(0);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
+  // Whether the highlight is where someone put it, rather than where it defaulted to.
+  const [rowChosen, setRowChosen] = React.useState(false);
   const [isConfirming, setIsConfirming] = React.useState(false);
   const [isOpeningFinder, setIsOpeningFinder] = React.useState(false);
   const [addButtonWidth, setAddButtonWidth] = React.useState(0);
@@ -170,6 +172,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     setQuery('~/');
     setEntries([]);
     setHighlightedIndex(0);
+    setRowChosen(false);
     setIsConfirming(false);
     setIsOpeningFinder(false);
     setIsCloneMode(false);
@@ -307,6 +310,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
 
   React.useEffect(() => {
     setHighlightedIndex(0);
+    setRowChosen(false);
   }, [query, rows.length]);
 
   const targetPath = React.useMemo(() => {
@@ -337,6 +341,13 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     && Boolean(targetPath);
   const canSubmitClone = canAddProject && cloneRemoteUrl.trim().length > 0;
   const highlightedRow = rows[highlightedIndex] ?? null;
+  const canConfirmOnEnter = canConfirmPathOnEnter({
+    rowChosen,
+    targetPath,
+    wouldCreate: shouldCreateTarget,
+    isAlreadyAdded,
+    isBusy: isConfirming || isOpeningFinder,
+  });
   const hasHighlightedBrowseItem = Boolean(
     highlightedRow && (highlightedRow.type === 'up' || (highlightedRow.type === 'directory' && !highlightedRow.disabled))
   );
@@ -492,17 +503,27 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
+      setRowChosen(true);
       setHighlightedIndex((index) => Math.min(rows.length - 1, index + 1));
       return;
     }
     if (event.key === 'ArrowUp') {
       event.preventDefault();
+      setRowChosen(true);
       setHighlightedIndex((index) => Math.max(0, index - 1));
       return;
     }
     if (event.key === 'Enter') {
       event.preventDefault();
       if (isPrimaryModifierPressed(event)) {
+        void finalizeSelection(targetPath);
+        return;
+      }
+      // Someone who typed or pasted a path and pressed Enter meant that path. Only a row
+      // they actually reached for — with the arrow keys or the pointer — makes Enter a
+      // navigation key. Without this the default highlight decides, and the default is
+      // the parent link, so Enter answered a complete path by going up a level.
+      if (canConfirmOnEnter) {
         void finalizeSelection(targetPath);
         return;
       }
@@ -515,7 +536,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       event.preventDefault();
       handleClose();
     }
-  }, [executeRow, finalizeSelection, handleClose, hasHighlightedBrowseItem, highlightedRow, query, rows.length, targetPath]);
+  }, [canConfirmOnEnter, executeRow, finalizeSelection, handleClose, hasHighlightedBrowseItem, highlightedRow, query, rows.length, targetPath]);
 
   const showHiddenToggle = (
     <button
@@ -633,7 +654,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
                   }}
                   type="button"
                   disabled={row.type === 'directory' && row.disabled}
-                  onMouseEnter={() => setHighlightedIndex(index)}
+                  onMouseEnter={() => { setRowChosen(true); setHighlightedIndex(index); }}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => executeRow(row)}
                   className={cn(

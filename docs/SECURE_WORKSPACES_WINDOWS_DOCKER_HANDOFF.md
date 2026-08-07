@@ -45,13 +45,13 @@ are confirmed gone.
 
 ## Environment
 
-- Repository: `C:\Users\Bohdan Triapitsyn\projects\openchamber`
+- Repository: `%USERPROFILE%\projects\openchamber`
 - Platform: Windows 11 (`win32`)
 - Date of latest work: 2026-08-03
 - Functional profile data directory:
-  `C:\Users\Bohdan Triapitsyn\AppData\Local\Temp\openchamber-functional-profile`
+  `%TEMP%\openchamber-functional-profile`
 - Functional disposable project:
-  `C:\Users\Bohdan Triapitsyn\AppData\Local\Temp\openchamber-functional-project`
+  `%TEMP%\openchamber-functional-project`
 - Packaged executable used for testing:
   `packages\electron\dist\win-unpacked\OpenChamber.exe`
 - The packaged app was launched with `OPENCHAMBER_DATA_DIR` set to the
@@ -91,7 +91,7 @@ confirms that a routed session reached the workspace runtime.
 An earlier malformed/stale session was stored under the global OpenCode data
 directory:
 
-`C:\Users\Bohdan Triapitsyn\.local\share\opencode`
+`%USERPROFILE%\.local\share\opencode`
 
 The managed OpenCode child had inherited that global data even when
 `OPENCHAMBER_DATA_DIR` pointed at the functional profile. This caused a stale
@@ -111,7 +111,7 @@ adapter: docker`, because the shared OpenCode plugin configuration was no
 longer loaded. That `XDG_CONFIG_HOME` isolation was removed. The managed log
 subsequently showed config files loading from:
 
-`C:\Users\Bohdan Triapitsyn\.config\opencode`
+`%USERPROFILE%\.config\opencode`
 
 The current intended arrangement is profile-local OpenCode data and shared
 OpenCode configuration.
@@ -279,13 +279,13 @@ Runtime limitations of the validation:
 ## Runtime Evidence Locations
 
 - Managed OpenCode log:
-  `C:\Users\Bohdan Triapitsyn\AppData\Local\Temp\openchamber-functional-profile\opencode-data\opencode\log\opencode.log`
+  `%TEMP%\openchamber-functional-profile\opencode-data\opencode\log\opencode.log`
 - Functional profile root:
-  `C:\Users\Bohdan Triapitsyn\AppData\Local\Temp\openchamber-functional-profile`
+  `%TEMP%\openchamber-functional-profile`
 - Functional project root:
-  `C:\Users\Bohdan Triapitsyn\AppData\Local\Temp\openchamber-functional-project`
+  `%TEMP%\openchamber-functional-project`
 - Current packaged executable:
-  `C:\Users\Bohdan Triapitsyn\projects\openchamber\packages\electron\dist\win-unpacked\OpenChamber.exe`
+  `%USERPROFILE%\projects\openchamber\packages\electron\dist\win-unpacked\OpenChamber.exe`
 
 ## State At Pause
 
