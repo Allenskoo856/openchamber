@@ -296,7 +296,12 @@ describe('structured workspace artifacts', () => {
     expect(fs.existsSync(path.join(data.directory, 'old-name'))).toBe(false);
     expect(fs.readFileSync(path.join(data.directory, 'new-name'), 'utf8')).toBe('rename\n');
     expect(fs.existsSync(path.join(data.directory, 'delete.txt'))).toBe(false);
-  });
+    // Six real mutations through the journal, which is more disk work than any other
+    // case here. It runs in a fraction of a second on its own; alongside the rest of
+    // the suite on Windows it has exceeded the 5s default. The budget is about how
+    // long the filesystem takes under load, so it is set here rather than globally,
+    // where it would also cover tests that should never take this long.
+  }, 30_000);
 
   it('applies selected text hunks while preserving unselected changes', async () => {
     const data = fixture();

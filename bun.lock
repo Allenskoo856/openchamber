@@ -104,7 +104,7 @@
       },
       "devDependencies": {
         "@electron/rebuild": "^3.7.0",
-        "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#43e245002cabda50deb4ec955d4f9a36d2be285c",
+        "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#80b9ee99b14bb322e3807ba95467401ee31dd1f7",
         "electron": "^41.2.1",
         "electron-builder": "^26.0.0",
       },
@@ -241,7 +241,7 @@
       "dependencies": {
         "@openchamber/ui": "workspace:*",
         "@opencode-ai/sdk": "1.18.12",
-        "adm-zip": "^0.5.16",
+        "adm-zip": "^0.6.0",
         "jsonc-parser": "^3.3.1",
         "react": "^19.1.1",
         "react-dom": "^19.1.1",
@@ -267,10 +267,10 @@
       "dependencies": {
         "@clack/prompts": "^1.1.0",
         "@octokit/rest": "^22.0.1",
-        "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#43e245002cabda50deb4ec955d4f9a36d2be285c",
+        "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#80b9ee99b14bb322e3807ba95467401ee31dd1f7",
         "@opencode-ai/sdk": "1.18.12",
         "@simplewebauthn/server": "13.3.1",
-        "adm-zip": "^0.5.16",
+        "adm-zip": "^0.6.0",
         "bun-pty": "^0.4.5",
         "compression": "^1.8.1",
         "cron-parser": "^4.9.0",
@@ -996,7 +996,7 @@
 
     "@openchamber/mobile": ["@openchamber/mobile@workspace:packages/mobile"],
 
-    "@openchamber/opencode-container-workspace": ["@openchamber/opencode-container-workspace@github:openchamber/opencode-container-workspace#43e2450", {}, "openchamber-opencode-container-workspace-43e2450", "sha512-ir0DeAYICTwfc3nxVpxAnWNVKZSmVasydjd0KLrMHkD502cIwWumANuuQnfNTB5kzwKse7TCb7lylMABo5LZaw=="],
+    "@openchamber/opencode-container-workspace": ["@openchamber/opencode-container-workspace@github:openchamber/opencode-container-workspace#80b9ee9", {}, "openchamber-opencode-container-workspace-80b9ee9", "sha512-W0XHKfGUt68BQ3vG7VGmcJmDrQyA9Ht2cvAPa0dlfcdP42/ot7ZEEImJSQzyohfS1K9tJ5TRSLP8Lzi6ewG4Gg=="],
 
     "@openchamber/ui": ["@openchamber/ui@workspace:packages/ui"],
 
@@ -1492,7 +1492,7 @@
 
     "acorn-jsx": ["acorn-jsx@5.3.2", "", { "peerDependencies": { "acorn": "^6.0.0 || ^7.0.0 || ^8.0.0" } }, "sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ=="],
 
-    "adm-zip": ["adm-zip@0.5.16", "", {}, "sha512-TGw5yVi4saajsSEgz25grObGHEUaDrniwvA2qwSC060KfqGPdglhvPMA2lPIoxs3PQIItj2iag35fONcQqgUaQ=="],
+    "adm-zip": ["adm-zip@0.6.0", "", {}, "sha512-XleryMhbuksdKtofnWZ9Sk+4CUTbms4Mb/EU32SZwToAyZ5RgVos/ki8n+yr0LWHOGKuakbXTuuYNHLQjhddgg=="],
 
     "agent-base": ["agent-base@7.1.4", "", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
 

@@ -29,16 +29,18 @@ import { cn } from '@/lib/utils';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 
 import { ChatView } from '@/components/views/ChatView';
-import { DiffView } from '@/components/views/DiffView';
-import { FilesView } from '@/components/views/FilesView';
-import { GitView } from '@/components/views/GitView';
-import { PlanView } from '@/components/views/PlanView';
-import { WorkspaceLifecycleView } from '@/components/workspaces/WorkspaceLifecycleView';
 
 // Keep TerminalView eager: the bottom dock reserves its height immediately, so
 // suspending here leaves a large blank panel on slower machines.
-// Other heavy views stay on-demand to reduce initial bundle parse time.
+// Other heavy views stay on-demand to reduce initial bundle parse time:
+// DiffView/FilesView pull the CodeMirror and @pierre/diffs stacks into the
+// startup graph when imported statically.
+const PlanView = lazyWithChunkRecovery(() => import('@/components/views/PlanView').then(m => ({ default: m.PlanView })));
+const GitView = lazyWithChunkRecovery(() => import('@/components/views/GitView').then(m => ({ default: m.GitView })));
+const DiffView = lazyWithChunkRecovery(() => import('@/components/views/DiffView').then(m => ({ default: m.DiffView })));
+const FilesView = lazyWithChunkRecovery(() => import('@/components/views/FilesView').then(m => ({ default: m.FilesView })));
 const DiagramView = lazyWithChunkRecovery(() => import('@/components/views/DiagramView').then(m => ({ default: m.DiagramView })));
+const WorkspaceLifecycleView = lazyWithChunkRecovery(() => import('@/components/workspaces/WorkspaceLifecycleView').then(m => ({ default: m.WorkspaceLifecycleView })));
 const SettingsView = lazyWithChunkRecovery(() => import('@/components/views/SettingsView').then(m => ({ default: m.SettingsView })));
 const SettingsWindow = lazyWithChunkRecovery(() => import('@/components/views/SettingsWindow').then(m => ({ default: m.SettingsWindow })));
 
@@ -49,6 +51,17 @@ export const MainLayout: React.FC = () => {
     const isSessionSwitcherOpen = useUIStore((state) => state.isSessionSwitcherOpen);
     const isSettingsDialogOpen = useUIStore((state) => state.isSettingsDialogOpen);
     const setSettingsDialogOpen = useUIStore((state) => state.setSettingsDialogOpen);
+    // Mount the windowed settings dialog only after its first open: rendering
+    // the lazy component (even closed) makes React fetch the SettingsView
+    // chunk graph (CodeMirror editor, vim mode, theme tooling) on startup.
+    // Once opened it stays mounted so the close animation and state behave as
+    // before.
+    const [settingsWindowMounted, setSettingsWindowMounted] = React.useState(false);
+    React.useEffect(() => {
+        if (isSettingsDialogOpen) {
+            setSettingsWindowMounted(true);
+        }
+    }, [isSettingsDialogOpen]);
     const isMultiRunLauncherOpen = useUIStore((state) => state.isMultiRunLauncherOpen);
     const setMultiRunLauncherOpen = useUIStore((state) => state.setMultiRunLauncherOpen);
     const multiRunLauncherPrefillPrompt = useUIStore((state) => state.multiRunLauncherPrefillPrompt);
@@ -270,7 +283,7 @@ export const MainLayout: React.FC = () => {
             case 'diagram':
                 return <React.Suspense fallback={null}><DiagramView /></React.Suspense>;
             case 'workspaces':
-                return <WorkspaceLifecycleView onClose={() => useUIStore.getState().setActiveMainTab('chat')} />;
+                return <React.Suspense fallback={null}><WorkspaceLifecycleView onClose={() => useUIStore.getState().setActiveMainTab('chat')} /></React.Suspense>;
             default:
                 return null;
         }
@@ -467,12 +480,14 @@ export const MainLayout: React.FC = () => {
                     </div>
 
                     {/* Desktop settings: windowed dialog with blur */}
-                    <React.Suspense fallback={null}>
-                        <SettingsWindow
-                            open={isSettingsDialogOpen}
-                            onOpenChange={setSettingsDialogOpen}
-                        />
-                    </React.Suspense>
+                    {settingsWindowMounted ? (
+                        <React.Suspense fallback={null}>
+                            <SettingsWindow
+                                open={isSettingsDialogOpen}
+                                onOpenChange={setSettingsDialogOpen}
+                            />
+                        </React.Suspense>
+                    ) : null}
                 </>
             )}
 

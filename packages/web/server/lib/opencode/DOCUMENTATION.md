@@ -11,13 +11,15 @@ This module provides OpenCode server integration utilities for the web server ru
 - `packages/web/server/lib/opencode/cli-entry-runtime.js`: CLI entrypoint runtime that detects direct execution, parses CLI options, and starts server bootstrap.
 - `packages/web/server/lib/opencode/routes.js`: OpenCode/provider settings and auth-related route registration.
 - `packages/web/server/lib/opencode/lifecycle.js`: OpenCode process lifecycle runtime (startup, restart, readiness, health monitoring). After readiness it warms the most recently used directories (`getWarmupDirectories` dep, sequential and best-effort) because OpenCode initializes each directory lazily on first request and that cost would otherwise be paid by the user's first interactive session open.
+- `packages/web/server/lib/opencode/provider-env-aliases.js`: mirrors known provider credential env aliases into the managed OpenCode process environment (for example `GEMINI_API_KEY` → `GOOGLE_GENERATIVE_AI_API_KEY`) so OpenCode connection detection and the upstream AI SDK agree on the same key names. Canonical implementation shared by web lifecycle and the VS Code managed spawn path (`packages/vscode/src/provider-env-aliases.ts` re-exports this module).
 - `packages/web/server/lib/opencode/env-runtime.js`: OpenCode CLI/binary resolution and shell environment runtime.
 - `packages/web/server/lib/opencode/env-config.js`: OpenCode-related environment variable parsing and validation (host/port/hostname).
 - `packages/web/server/lib/opencode/hmr-state-runtime.js`: HMR-persistent runtime state initialization, auth-state bootstrap, and HMR sync helpers.
 - `packages/web/server/lib/opencode/bootstrap-runtime.js`: base app bootstrap runtime for status/auth/tts/notification/OpenChamber route wiring.
 - `packages/web/server/lib/opencode/network-runtime.js`: OpenCode URL construction, health-probe readiness checks, and API prefix runtime.
 - `packages/web/server/lib/opencode/project-directory-runtime.js`: request-scoped and settings-backed project directory resolution/validation runtime.
-- `packages/web/server/lib/opencode/config-entity-routes.js`: route registration for agent/command/MCP config orchestration and reload semantics.
+- `packages/web/server/lib/opencode/config-entity-routes.js`: route registration for agent/command/MCP config orchestration with deferred-apply semantics (`restartDeferred` payloads; explicit apply via `POST /api/config/reload`).
+- `packages/web/server/lib/opencode/config-mutation-response.js`: shared response builders for deferred OpenCode restarts and external manual-restart guidance.
 - `packages/web/server/lib/opencode/snippets.js`: opencode-snippets-compatible snippet file CRUD, discovery, and hashtag expansion.
 - `packages/web/server/lib/opencode/cli-options.js`: CLI/environment option parsing for server startup arguments.
 - `packages/web/server/lib/opencode/core-routes.js`: server status/system routes, auth/access guard routes, and settings utility route registration.
@@ -144,6 +146,12 @@ profile-local `XDG_DATA_HOME` unless explicitly set by the caller. This keeps
 disposable OpenChamber profiles independent from global OpenCode sessions while
 retaining the shared OpenCode configuration that owns plugin setup.
 
+Before spawn, `applyProviderEnvAliases` fills unset Google credential aliases
+from any present sibling (`GOOGLE_GENERATIVE_AI_API_KEY`, `GOOGLE_API_KEY`,
+`GEMINI_API_KEY`) so a shell that only exports `GEMINI_API_KEY` still satisfies
+the Generative AI SDK path used at chat time. Existing non-empty values are
+never overwritten.
+
 Set `OPENCHAMBER_STARTUP_PERF=1` to emit bounded startup phase records for server listen, managed OpenCode preparation/readiness, and proxy readiness holds. Every OpenCode bootstrap emits one terminal `opencode.bootstrap.ready` or `opencode.bootstrap.error` event, including reused and external server paths. Records contain controlled phase/outcome/route labels and timing values only; they never contain request URLs, runtime keys, directories, session IDs, credentials, or content.
 
 macOS `say` voice enumeration starts concurrently with server composition. The server listener and managed OpenCode startup do not wait for it; `/api/tts/say/status` awaits the same authoritative capability promise when queried before enumeration completes.
@@ -256,6 +264,11 @@ Transport-triggered health checks share the periodic monitor's failure accountin
   - Commands: `/api/config/commands/:name`
   - MCP servers: `/api/config/mcp` and `/api/config/mcp/:name`
   - Snippets: `/api/config/snippets`, `/api/config/snippets/:name`, and `/api/config/snippets/expand`
+- Agent/command/MCP write routes persist config to disk and return a deferred-restart payload (`requiresReload: false`, `requiresRestart: true`, `restartDeferred: true`) instead of restarting OpenCode immediately. The UI accumulates these changes and applies them with `POST /api/config/reload`.
+
+## Public exports (config-mutation-response.js)
+- `buildDeferredRestartResponse(message)`: success payload for config mutations that are saved on disk but waiting for an explicit Apply & Restart (`restartDeferred: true`).
+- `buildExternalManualRestartResponse(message)`: success payload when OpenCode is an external process and the operator must restart it manually (`requiresManualRestart: true`).
 
 ## Public exports (auth-state-runtime.js)
 - `createOpenCodeAuthStateRuntime(dependencies)`: creates runtime for managed OpenCode auth password state and request headers.
@@ -285,7 +298,7 @@ Transport-triggered health checks share the periodic monitor's failure accountin
    - `app.use('/api', ...)` auth/tunnel guard
 - `registerSettingsUtilityRoutes(app, dependencies)`: registers small settings utility endpoints:
   - `GET /api/config/themes`
-  - `POST /api/config/reload`
+  - `POST /api/config/reload` — applies accumulated deferred OpenCode config changes. Managed OpenCode restarts and returns `requiresReload: true`. External OpenCode returns `requiresManualRestart: true` (changes are already on disk; the connected server must be restarted outside OpenChamber).
 - `registerCommonRequestMiddleware(app, dependencies)`: registers shared request middleware stack:
   - conditional JSON body parser behavior for `/api/*` vs non-API requests
   - URL-encoded parser setup
@@ -357,6 +370,9 @@ an authoritative loopback callback URL even when OpenChamber binds port `0`.
 - `registerOpenChamberRoutes(app, dependencies)`: registers OpenChamber endpoints:
   - `GET /api/openchamber/update-check`
   - `POST /api/openchamber/update-install`
+    - Foreground servers running under a systemd user unit queue installation in
+      a separate transient unit and restart the configured service afterwards.
+      `OPENCHAMBER_SYSTEMD_UNIT` overrides the default `openchamber.service`.
   - `GET /api/openchamber/models-metadata`
   - `GET /api/zen/models`
 

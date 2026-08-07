@@ -25,10 +25,10 @@
   "dependencies": {
     "@clack/prompts": "^1.1.0",
     "@octokit/rest": "^22.0.1",
-    "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#43e245002cabda50deb4ec955d4f9a36d2be285c",
+    "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#80b9ee99b14bb322e3807ba95467401ee31dd1f7",
     "@opencode-ai/sdk": "1.18.12",
     "@simplewebauthn/server": "13.3.1",
-    "adm-zip": "^0.5.16",
+    "adm-zip": "^0.6.0",
     "bun-pty": "^0.4.5",
     "compression": "^1.8.1",
     "cron-parser": "^4.9.0",

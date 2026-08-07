@@ -3,9 +3,12 @@ import type {
   WorkspaceCompatibilityResult,
   WorkspaceConfigureResult,
   WorkspaceExportResult,
+  WorkspaceProviderEnvironment,
+  WorkspaceProviderKind,
   WorkspaceProviderValidationResult,
   WorkspaceReadinessResult,
   WorkspaceSecurityAPI,
+  WorkspaceSetupResult,
 } from '@openchamber/ui/lib/api/types';
 
 const unsupported = 'Secure Workspaces are not supported in the VS Code runtime.';
@@ -27,6 +30,15 @@ export const createVSCodeWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
   },
   async validateProvider(): Promise<WorkspaceProviderValidationResult> {
     return { available: false, error: unsupported };
+  },
+  async setupProvider(input: { provider: WorkspaceProviderKind; action: 'create-namespace' | 'check-isolation' }): Promise<WorkspaceSetupResult> {
+    return { provider: input.provider, action: input.action, diagnostics: [unsupported] };
+  },
+  async providerEnvironment(input: { provider: WorkspaceProviderKind }): Promise<WorkspaceProviderEnvironment> {
+    return { provider: input.provider, contexts: [], currentContext: null };
+  },
+  async policyState(): Promise<{ mismatched: string[] }> {
+    return { mismatched: [] };
   },
   async compatibility(): Promise<WorkspaceCompatibilityResult> {
     return unsupportedCompatibility;
