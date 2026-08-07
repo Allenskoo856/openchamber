@@ -10,6 +10,7 @@ import { isVSCodeRuntime } from "@/lib/desktop"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { reduceGlobalEvent, applyGlobalProject, applyDirectoryEvent, type SessionMaterializationReason } from "./event-reducer"
 import { useGlobalSyncStore } from "./global-sync-store"
+import { resolveSessionDirectoryKey } from "./session-directory"
 import {
   ChildStoreManager,
   markDirectorySessionPartChanged,
@@ -2728,10 +2729,21 @@ export function useSession(sessionID?: string | null, directory?: string) {
   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
-/** Get one session directory by id for a directory */
+/**
+ * Get one session directory by id for a directory, as a directory on this computer.
+ *
+ * A session routed into a secure workspace reports the directory it works in —
+ * `/workspace`, a container path that names nothing here. This hook's one consumer is
+ * `useEffectiveDirectory`, which scopes the Files, Terminal, Git, and Diff tabs, so it
+ * converts at the boundary: the resolver maps a workspace runtime path to the owning
+ * host project, or to nothing at all — never to the container path. Handing the raw
+ * record value through sent the file tree asking this machine for `/workspace`, which
+ * answered "Directory not found" the moment the authoritative record synced back.
+ */
 export function useSessionDirectory(sessionID?: string | null, directory?: string): string | undefined {
   const session = useSession(sessionID, directory)
-  return (session as (typeof session & { directory?: string | null }) | undefined)?.directory ?? undefined
+  if (!session) return undefined
+  return resolveSessionDirectoryKey(session) ?? undefined
 }
 
 /** Get the SDK client */
