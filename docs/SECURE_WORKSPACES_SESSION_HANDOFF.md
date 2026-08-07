@@ -91,10 +91,27 @@ uses `bun test`; `bun run test` fails because bun resolves `test` to Git's `test
 `bunx` is absent from the Git Bash PATH.
 
 Fourteen `packages/web` files fail on Windows on `origin/main` as well — compare against a
-worktree of `origin/main` before treating a failure as this branch's. Twenty-eight
-`packages/ui/src/sync` tests fail when the directory is run as a whole and pass per file,
-which is cross-test interference and **unfixed**; the operator has asked that these be
-diagnosed properly rather than tolerated, and that work has not started.
+worktree of `origin/main` before treating a failure as this branch's.
+
+The `packages/ui/src/sync` failures are **diagnosed, partly fixed, and worth finishing**.
+They are not flakiness. Two distinct causes were found:
+
+- `session-worktree-contract.test.js` imported `isWithinWorktreeRoot`, which the module
+  defined but did not export. The file could not load at all, so **forty-five tests had
+  never run once**. Exporting it fixed that, and they pass. Worth checking whether other
+  files are silently in the same state — a test file that fails to load reports one error,
+  which looks much like one failing assertion.
+- `bun test` applies `mock.module` **globally to the process and never restores it**. A
+  replacement listing only the few functions one file cares about becomes the module every
+  later file sees, so they fail importing exports nobody touched, and the reported error
+  names a symbol unrelated to the test that failed. This is why the suite passes one file
+  at a time and fails run together. `session-actions.test.ts` holds seven such mocks; the
+  `./sync-refs` one now spreads the real module first, which is the shape of the fix.
+
+The same treatment does **not** work for its `./session-ui-store` and
+`@/stores/useGlobalSessionsStore` mocks: importing those for real inside the mock factory
+creates a cycle and the file stops loading. That was tried and reverted. Finishing this
+means either breaking those cycles or running each test file in its own process.
 
 ---
 

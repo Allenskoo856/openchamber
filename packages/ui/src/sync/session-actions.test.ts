@@ -262,7 +262,16 @@ mock.module("./session-deletion-cleanup", () => ({
   },
 }))
 
+// `mock.module` replaces the module for the whole process and is never restored, so a
+// replacement listing only the functions this file cares about becomes the module every
+// later test file sees too. Those files then fail to import what the real module exports
+// — which is why the suite passed one file at a time and failed run together, and why the
+// reported error named an export nobody had touched. The real module is kept and only the
+// two entry points under test are overridden.
+const actualSyncRefs = await import("./sync-refs")
+
 mock.module("./sync-refs", () => ({
+  ...actualSyncRefs,
   getSyncSessionDirectory: () => null,
   registerSessionDirectory: (sessionID: string, directory: string) => {
     registeredSessionDirectories.push({ sessionID, directory })
