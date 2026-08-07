@@ -119,7 +119,7 @@ means either breaking those cycles or running each test file in its own process.
 
 The plugin is pinned by immutable commit SHA in `packages/web/package.json`,
 `packages/electron/package.json`, and the specification. Repin after every plugin merge,
-then `bun install`. Current pin: `b263b906`.
+then `bun install`. Current pin: `5dc9ef84` (PR #12, seed-pod cleanup fix).
 
 The images are published from a `v*` tag only — nothing reaches operators from a merge to
 `main`. `v0.1.1` was cut on 2026-08-07 and is the first release carrying OpenCode 1.18.12;
