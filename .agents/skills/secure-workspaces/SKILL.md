@@ -189,5 +189,8 @@ Static checks do not prove isolation, transport, provider, rollback, or platform
 - A container path stored, compared, or displayed as a path on this computer.
 - A value required from the operator that the cluster, kubeconfig, or environment already states.
 - The same requirement enforced in both the plugin and OpenChamber, where one can refuse what the other has learned to resolve.
-- An absolute path passed as an argument to a tool whose flavour varies by platform or PATH order.
+- An absolute path passed as an argument to a tool whose flavour varies by platform or PATH order — and, the same defect wearing a different coat, a system tool invoked by bare name. Git for Windows ships `tar` and `whoami` that shadow the ones in System32 and answer differently; name System32 binaries by absolute path.
+- A protection asserted by a test that would pass without it. Modes and access lists are the usual case: a directory under `%TEMP%` is already private on a normal profile, so a test rooted there confirms nothing until it first opens the directory to everyone.
 - A long-standing platform-specific test failure dismissed as noise. Two such failures in the snapshot suite were a real defect that broke workspace creation for every Windows operator whose PATH preferred Git's tar.
+- A permission the code declares and the platform ignores. Windows implements neither `0o700` nor `0o600`; a store that says it restricts its secrets and inherits that restriction from wherever it happens to live has not restricted anything, and moves the moment someone repoints the data directory.
+- A locale left behind when the surface grows. This feature reached ten dictionaries and skipped German, and the key-parity test failed for as long as the feature existed — an untranslated key is a visible bug for those users, not a deferral.
