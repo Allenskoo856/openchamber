@@ -8,7 +8,7 @@ import { sessionEvents } from '@/lib/sessionEvents';
 import { formatDirectoryName, cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useChildStoreManager } from '@/sync/sync-context';
-import { getAllSyncSessionMap } from '@/sync/sync-refs';
+import { getAllSyncSessionMap, getSyncSessionDirectory } from '@/sync/sync-refs';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSync } from '@/sync/use-sync';
 import { SessionPrefetchEffect } from './sidebar/hooks/useSessionPrefetch';
@@ -1101,7 +1101,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const isSessionsLoading = useSessionUIStore((state) => state.isLoading);
   const sessionOwnership = React.useMemo(
-    () => createSessionOwnershipIndex(sessions, normalizedProjects, availableWorktreesByProject, isVSCode, archivedSessions),
+    // Store membership is the ownership fallback for workspace-routed sessions whose
+    // record names only the container path and no project; without it they vanish
+    // from every project group.
+    () => createSessionOwnershipIndex(sessions, normalizedProjects, availableWorktreesByProject, isVSCode, archivedSessions, getSyncSessionDirectory),
     [archivedSessions, availableWorktreesByProject, isVSCode, normalizedProjects, sessions],
   );
   useAuthoritativeSessionCleanup({
