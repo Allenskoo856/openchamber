@@ -58,6 +58,28 @@ with the bearer token via `runtimeFetch` and rendered as object URLs.
 - Screencast runs only while a tab is watched or recorded, and restarts when the
   viewport changes so frame bounds match the emulated device.
 
+## Setup / Installation
+
+1. **Chrome/Chromium on the OpenChamber host** (required for the surface to be
+   usable). The server discovers, in order:
+   - `OPENCHAMBER_BROWSER_PATH` (absolute path to a Chrome-compatible binary)
+   - common system installs (`google-chrome-stable`, `google-chrome`,
+     `chromium`, `chromium-browser`, and platform-specific app paths)
+2. **Agent control enabled** (default). Settings → OpenCode CLI /
+   `agentControlToolEnabled` must not be `false`, and OpenChamber must own the
+   managed OpenCode process so `openchamber_browser` is injected.
+3. **Start the OpenChamber server** (web CLI, desktop in-process, or hosted).
+   On startup, `syncSystemSkills` installs/refreshes the managed
+   `agent-browser` skill into `~/.config/opencode/skills/agent-browser/SKILL.md`
+   (same path OpenCode scans for every project).
+4. **Open Agent Browser** in the context rail to watch the live surface. Agents
+   drive it with `openchamber_browser`; users can also send input over the same
+   WebSocket.
+
+When no Chrome-compatible executable is found, `state().supported` is `false`
+and the UI shows an explicit unsupported state. Install Chrome/Chromium or set
+`OPENCHAMBER_BROWSER_PATH`, then restart the server.
+
 ## Agent Tool
 
 The managed agent tool exposes a second OpenCode custom tool,
@@ -66,6 +88,16 @@ authenticated loopback callback with `tool: "browser"` and is delegated to the
 browser runtime through `executeBrowserAction`. It is injected only when
 OpenChamber owns the OpenCode process, under the same per-child token and
 loopback constraints as the `openchamber` tool.
+
+## System Skill
+
+`packages/web/server/lib/opencode/system-skills.js` ships a managed
+`agent-browser` skill (`managed-by: openchamber`). It teaches agents when to
+use the shared browser, the action workflow (`state` → open/navigate →
+interact → capture → report), and the safety rules (http/https only, no
+invented page content, explicit recording start/stop). Like other system
+skills, it is refreshed on every server start; removing the `managed-by`
+marker makes the file user-owned and skips further rewrites.
 
 ## Runtime Parity
 
@@ -86,4 +118,7 @@ bun test packages/web/server/lib/browser/urls.test.js packages/web/server/lib/br
 bun test packages/web/server/lib/browser/runtime.test.js   # requires a local Chrome/Chromium
 bun test packages/web/server/lib/browser/routes.test.js
 bun test packages/web/server/lib/agent-tool/runtime.test.js
+bun test packages/web/server/lib/opencode/system-skills.test.js
+# End-to-end setup + captures (Chrome + ffmpeg required):
+bun packages/web/scripts/agent-browser-verify.mjs
 ```
