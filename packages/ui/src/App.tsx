@@ -17,6 +17,7 @@ import { useOpenChamberAgentWebSocket } from '@/hooks/useOpenChamberAgentWebSock
 import { useMessengerBridgeToasts } from '@/hooks/useMessengerBridgeToasts';
 import { useMessengerProjectChannelSync } from '@/hooks/useMessengerProjectChannelSync';
 import { useDiscordStatusResync } from '@/hooks/useDiscordStatusResync';
+import { useTelegramStatusResync } from '@/hooks/useTelegramStatusResync';
 import { useDiscordSupersedeMessages } from '@/hooks/useDiscordSupersedeMessages';
 import { useWebNotificationStream } from '@/hooks/useWebNotificationStream';
 import { usePwaInstallPrompt } from '@/hooks/usePwaInstallPrompt';
@@ -696,6 +697,8 @@ function App({ apis }: AppProps) {
   useMessengerProjectChannelSync();
   // After server rebuild/reconnect, refresh Discord badge + listener from live state.
   useDiscordStatusResync();
+  // Same reconciliation for the Telegram listener.
+  useTelegramStatusResync();
   // Show incoming Discord supersede messages immediately in the chat.
   useDiscordSupersedeMessages();
   useWebNotificationStream({ enabled: embeddedBackgroundWorkEnabled });

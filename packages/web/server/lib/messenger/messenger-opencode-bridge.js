@@ -48,6 +48,14 @@ import {
 import { buildMessengerGitDiffReply } from './messenger-git-diff.js';
 import { buildCritiqueInstructions } from './messenger-critique.js';
 import { createMessengerWorktreeSync } from './messenger-worktree-sync.js';
+import {
+  sendTelegramMessage,
+  editTelegramReplyMarkup,
+  editTelegramMessageText,
+  telegramChatAction,
+  splitForTelegram,
+  buildTelegramInlineKeyboard,
+} from './telegram-api.js';
 import { resolvePrimaryWorktreeRoot } from '../git/service.js';
 import parser from 'cron-parser';
 
@@ -76,6 +84,8 @@ import parser from 'cron-parser';
 const DISCORD_LIMIT = 2000;
 const NAME_TTL_MS = 5 * 60_000;
 const TYPING_PULSE_DISCORD_MS = 7_000;
+// Telegram's typing action survives ~5s, so pulse a bit faster than Discord.
+const TYPING_PULSE_TELEGRAM_MS = 4_000;
 
 function tokenHash(token) {
   if (!token) return '';
@@ -323,6 +333,37 @@ async function sendApprovalToSurface({ type, token, channelId, threadId, permiss
     return { ok: true, approvalId, messageId: data.id };
   }
 
+  if (type === 'telegram') {
+    // Same three decisions as the Discord buttons, as inline keyboard. The
+    // callback_data scheme matches the Discord custom_ids so the Telegram
+    // listener feeds the same handleApprovalDecision path.
+    const keyboard = buildTelegramInlineKeyboard([
+      [
+        { text: '✅ Allow Once', callbackData: `openchamber-agent-approve:${approvalId}` },
+        {
+          text: alwaysStr ? `Always: ${alwaysStr}` : '♻️ Always Allow',
+          callbackData: `openchamber-agent-approve-always:${approvalId}`,
+        },
+        { text: '❌ Deny', callbackData: `openchamber-agent-deny:${approvalId}` },
+      ],
+    ]);
+    const r = await sendTelegramMessage({
+      token,
+      chatId: channelId,
+      text: content,
+      messageThreadId: threadId ?? null,
+      replyMarkup: keyboard,
+    });
+    if (!r.ok) {
+      console.error('[BRIDGE] Failed to send approval to Telegram:', r.error);
+      return { ok: false, error: r.error ?? 'telegram send failed' };
+    }
+    storeApprovalContext({
+      surface: { type, token, channelId: String(channelId), messageId: r.messageId ?? null },
+    });
+    return { ok: true, approvalId, messageId: r.messageId };
+  }
+
   return { ok: false, error: `Unsupported messenger type: ${type}` };
 }
 
@@ -402,6 +443,30 @@ function buildQuestionComponents({ questionId, questionIndex, question }) {
       ],
     },
   ];
+}
+
+/**
+ * Inline keyboard for one question on Telegram. Multi-select questions and
+ * long option lists have no faithful Telegram mapping (no select menus), so
+ * they fall back to a typed reply — the bridge already accepts free text as a
+ * custom answer. Single-select questions get one button row per option.
+ */
+function buildTelegramQuestionKeyboard({ questionId, questionIndex, question }) {
+  const options = Array.isArray(question?.options) ? question.options : [];
+  if (options.length === 0 || options.length > 10) return null;
+  if (Boolean(question?.multiple)) return null;
+  return buildTelegramInlineKeyboard(
+    options.map((opt, i) => {
+      const label =
+        typeof opt?.label === 'string' && opt.label.trim() ? opt.label.trim() : `Option ${i + 1}`;
+      return [
+        {
+          text: clipBlock(`${i + 1}. ${label}`, 60),
+          callbackData: `openchamber-agent-question:${questionId}:${questionIndex}:${i}`,
+        },
+      ];
+    }),
+  );
 }
 
 /** PATCH a Discord message (used to edit todo lists / strip stale components). */
@@ -1818,7 +1883,7 @@ export function createMessengerOpencodeBridge({
       approvalContexts.delete(approvalId);
       rejected += 1;
 
-      // Strip the buttons from the Discord message (best-effort).
+      // Strip the buttons from the surface message (best-effort).
       const surface = ctx.surface;
       if (surface?.type === 'discord' && surface.token && surface.channelId && surface.messageId) {
         void fetch(
@@ -1829,6 +1894,17 @@ export function createMessengerOpencodeBridge({
             body: JSON.stringify({ components: [] }),
           },
         ).catch(() => {});
+      } else if (
+        surface?.type === 'telegram' &&
+        surface.token &&
+        surface.channelId &&
+        surface.messageId
+      ) {
+        void editTelegramReplyMarkup({
+          token: surface.token,
+          chatId: surface.channelId,
+          messageId: surface.messageId,
+        }).catch(() => {});
       }
 
       if (typeof _respondToOpenCode === 'function' && ctx.requestID) {
@@ -1878,7 +1954,9 @@ export function createMessengerOpencodeBridge({
    * interactions and typed replies can complete the request.
    */
   async function sendQuestionToSurface({ type, token, channelId, threadId, request, directory }) {
-    if (type !== 'discord') return { ok: false, error: `Unsupported messenger type: ${type}` };
+    if (type !== 'discord' && type !== 'telegram') {
+      return { ok: false, error: `Unsupported messenger type: ${type}` };
+    }
     const questions = Array.isArray(request?.questions) ? request.questions : [];
     if (!request?.id || questions.length === 0) return { ok: false, error: 'empty question request' };
 
@@ -1888,6 +1966,29 @@ export function createMessengerOpencodeBridge({
     for (let qIdx = 0; qIdx < questions.length; qIdx += 1) {
       const content = renderQuestionForMessenger(questions[qIdx], { index: qIdx, total: questions.length });
       if (!content) continue;
+      if (type === 'telegram') {
+        const keyboard = buildTelegramQuestionKeyboard({
+          questionId,
+          questionIndex: qIdx,
+          question: questions[qIdx],
+        });
+        // No keyboard (multi-select / long list) → the user answers by text,
+        // which the bridge accepts as a custom answer. Say so explicitly.
+        const hint = keyboard ? '' : '\n\nReply with your answer as a text message.';
+        const r = await sendTelegramMessage({
+          token,
+          chatId: channelId,
+          text: `${content}${hint}`,
+          messageThreadId: threadId ?? null,
+          replyMarkup: keyboard,
+        });
+        if (!r.ok) {
+          console.error('[BRIDGE] Failed to send question to Telegram:', r.error);
+          continue;
+        }
+        messages.push({ channelId: String(channelId), messageId: r.messageId ?? null, questionIndex: qIdx });
+        continue;
+      }
       const components = buildQuestionComponents({ questionId, questionIndex: qIdx, question: questions[qIdx] });
       const r = await fetch(
         `https://discord.com/api/v10/channels/${encodeURIComponent(ch)}/messages`,
@@ -1921,12 +2022,21 @@ export function createMessengerOpencodeBridge({
     return { ok: true, questionId };
   }
 
-  /** Strip the interactive components from a question's Discord messages. */
+  /** Strip the interactive components from a question's Discord/Telegram messages. */
   function stripQuestionComponents(qctx) {
     const surface = qctx?.surface;
-    if (surface?.type !== 'discord' || !surface.token) return;
+    if (!surface?.token) return;
+    if (surface.type !== 'discord' && surface.type !== 'telegram') return;
     for (const msg of surface.messages ?? []) {
       if (!msg?.channelId || !msg?.messageId) continue;
+      if (surface.type === 'telegram') {
+        void editTelegramReplyMarkup({
+          token: surface.token,
+          chatId: msg.channelId,
+          messageId: msg.messageId,
+        }).catch(() => {});
+        continue;
+      }
       void editDiscordMessage({
         token: surface.token,
         channelId: msg.channelId,
@@ -2103,8 +2213,36 @@ export function createMessengerOpencodeBridge({
     entry.pendingTodos = null;
     const content = renderTodoListForMessenger(todos);
     if (!content || content === entry.lastContent) return;
-    if (ctx.type !== 'discord' || !ctx.token) return;
+    if (!ctx.token || (ctx.type !== 'discord' && ctx.type !== 'telegram')) return;
     const ch = ctx.threadId ?? ctx.channelId;
+
+    if (ctx.type === 'telegram') {
+      if (entry.messageId && entry.channelId === String(ctx.channelId)) {
+        const edited = await editTelegramMessageText({
+          token: ctx.token,
+          chatId: ctx.channelId,
+          messageId: entry.messageId,
+          text: content,
+        });
+        if (edited.ok) {
+          entry.lastContent = content;
+          return;
+        }
+        // The message may have been deleted — fall through and repost.
+      }
+      const sent = await sendTelegramMessage({
+        token: ctx.token,
+        chatId: ctx.channelId,
+        text: content,
+        messageThreadId: ctx.threadId ?? null,
+      });
+      if (sent.ok) {
+        entry.channelId = String(ctx.channelId);
+        entry.messageId = sent.messageId ?? null;
+        entry.lastContent = content;
+      }
+      return;
+    }
 
     if (entry.messageId && entry.channelId === ch) {
       const edited = await editDiscordMessage({
@@ -2581,6 +2719,20 @@ export function createMessengerOpencodeBridge({
       }
       return last;
     }
+    if (type === 'telegram') {
+      const chunks = splitForTelegram(content);
+      let last = { ok: false, error: 'empty content' };
+      for (const chunk of chunks) {
+        last = await sendTelegramMessage({
+          token,
+          chatId: channelId,
+          text: chunk,
+          messageThreadId: threadId ?? null,
+        });
+        if (!last.ok) break;
+      }
+      return last;
+    }
     return { ok: false, error: `Unsupported messenger type: ${type}` };
   }
 
@@ -2609,12 +2761,21 @@ export function createMessengerOpencodeBridge({
       if (!sessionContexts.has(ctx.sessionId)) return;
       if (ctx.type === 'discord') {
         await discordTyping({ token: ctx.token, channelId: ctx.threadId ?? ctx.channelId });
+      } else if (ctx.type === 'telegram') {
+        await telegramChatAction({
+          token: ctx.token,
+          chatId: ctx.channelId,
+          messageThreadId: ctx.threadId ?? null,
+        });
       }
       // Re-check after the await: stopTypingPulse may have run while the
       // typing request was in flight (when typingTimer was still unset),
       // which would otherwise let a stale pulse re-arm the timer forever.
       if (ctx.typingStopped) return;
-      ctx.typingTimer = setTimeout(pulse, TYPING_PULSE_DISCORD_MS);
+      ctx.typingTimer = setTimeout(
+        pulse,
+        ctx.type === 'telegram' ? TYPING_PULSE_TELEGRAM_MS : TYPING_PULSE_DISCORD_MS,
+      );
     };
     // First pulse immediately so the user sees the indicator right away.
     void pulse();
@@ -5407,8 +5568,8 @@ export function createMessengerOpencodeBridge({
     if (!fromQueue && busySessions.has(sessionId)) {
       // Broadcast the incoming message IMMEDIATELY so the UI can show it
       // before the current turn is aborted — avoids the "stuck" gap.
-      broadcastEvent?.('messenger.discord.supersede_incoming', {
-        type: 'discord',
+      broadcastEvent?.(`messenger.${ctx.type}.supersede_incoming`, {
+        type: ctx.type,
         sessionId,
         channelId: ctx.channelId,
         threadId: ctx.threadId,
@@ -5605,13 +5766,15 @@ export function createMessengerOpencodeBridge({
     _respondToOpenCode = respondToOpenCode;
     console.log('[BRIDGE] Approval listener initialized');
 
-    // Also subscribe to global event hub as a fallback
+    // Also subscribe to global event hub as a fallback. Both platforms emit
+    // the same approval event contract; handleApprovalDecision is idempotent
+    // so a direct listener call plus this fallback can never double-reply.
     if (!globalEventHub) return;
     const handler = (event) => {
       const payload = event?.payload ?? event;
       if (!payload || typeof payload !== 'object') return;
       const type = payload.type ?? payload.event ?? null;
-      if (type !== 'messenger.discord.approval') return;
+      if (type !== 'messenger.discord.approval' && type !== 'messenger.telegram.approval') return;
       handleApprovalDecision(payload.approvalId, payload.decision);
     };
     const unsub = globalEventHub.subscribeEvent?.(handler);

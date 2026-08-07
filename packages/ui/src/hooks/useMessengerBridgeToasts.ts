@@ -17,7 +17,7 @@ import { useMessengerStore } from '@/stores/useMessengerStore';
  * Wired into App.tsx so it lives for the lifetime of the session.
  */
 type SessionBoundPayload = {
-  type?: 'discord';
+  type?: 'discord' | 'telegram';
   channelId?: string;
   threadId?: string | null;
   sessionId?: string;
@@ -50,7 +50,7 @@ export function useMessengerBridgeToasts() {
         const data = event.data as SessionBoundPayload | undefined;
         if (!data || !data.sessionId) return;
         const projectName = data.projectLabel ?? data.projectPath ?? 'unknown project';
-        const messengerName = 'Discord';
+        const messengerName = data.type === 'telegram' ? 'Telegram' : 'Discord';
         const auto =
           data.autoResolved === 'slug-match'
             ? ` (auto-matched from "${data.resolvedFromName ?? ''}")`
@@ -126,12 +126,13 @@ export function useMessengerBridgeToasts() {
       }
       if (event.eventType === 'messenger.bridge.bootstrap_prompt') {
         const data = event.data as
-          | { type?: 'discord'; channelId?: string; originalText?: string }
+          | { type?: 'discord' | 'telegram'; channelId?: string; originalText?: string }
           | undefined;
         if (!data) return;
-        const messengerName = 'Discord';
-        toast.info(`${messengerName} — new channel waiting for a project`, {
-          description: `Reply in the channel with \`clone <git-url>\`, \`path </abs/path>\` or \`new <name>\` to set it up. Stashed message: "${(data.originalText ?? '').slice(0, 100)}"`,
+        const messengerName = data.type === 'telegram' ? 'Telegram' : 'Discord';
+        const surfaceName = data.type === 'telegram' ? 'chat' : 'channel';
+        toast.info(`${messengerName} — new ${surfaceName} waiting for a project`, {
+          description: `Reply in the ${surfaceName} with \`clone <git-url>\`, \`path </abs/path>\` or \`new <name>\` to set it up. Stashed message: "${(data.originalText ?? '').slice(0, 100)}"`,
           duration: 14000,
         });
         return;

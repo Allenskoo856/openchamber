@@ -1697,10 +1697,10 @@ async function main(options = {}) {
     permissionAutoAcceptRuntime,
   });
 
-  // Discord messenger bridge routes. The bridge plumbing lets the Discord
+  // Discord + Telegram messenger bridge routes. The bridge plumbing lets each
   // listener forward inbound messages to OpenCode and mirror streamed
-  // responses back into the originating channel/thread.
-  const { router: messengerRouter, discordListener } = createMessengerSyncRouter({
+  // responses back into the originating channel/chat.
+  const { router: messengerRouter, discordListener, telegramListener } = createMessengerSyncRouter({
     // Bridge approval button clicks to both the WS clients (UI) and
     // the global event hub (so the bridge's initApprovalListener can
     // respond to OpenCode).
@@ -1966,6 +1966,103 @@ async function main(options = {}) {
       }
     }, HEALTH_CHECK_INTERVAL_MS);
     healthCheckTimer.unref();
+  })();
+
+  // Auto-start the Telegram long-poll listener when a bot token is saved in
+  // settings — same restart-survival contract as the Discord block above.
+  (async () => {
+    const AUTO_START_RETRIES = 5;
+    const AUTO_START_RETRY_DELAY_MS = 3000;
+    const HEALTH_CHECK_INTERVAL_MS = 60_000;
+
+    for (let attempt = 1; attempt <= AUTO_START_RETRIES; attempt++) {
+      try {
+        const settings = await readSettingsFromDiskMigrated();
+        const telegramConfig = settings?.telegram;
+        if (telegramConfig?.botToken) {
+          if (telegramConfig.listenerEnabled === false) {
+            console.log('[Telegram] Listener disabled in saved config — skipping auto-start');
+            break;
+          }
+          const result = telegramListener.start(telegramConfig.botToken, {
+            autoReply: telegramConfig.autoReply !== false,
+            defaultUserId: telegramConfig.defaultUserId,
+            allowedChatIds: telegramConfig.allowedChatIds,
+            defaultReplyMode: telegramConfig.defaultReplyMode,
+          });
+          if (telegramConfig.bridgeEnabled === false) {
+            try {
+              await persistSettings({
+                telegram: { ...telegramConfig, bridgeEnabled: true },
+              });
+            } catch {
+              // best-effort — live listener is already bridged
+            }
+          }
+          console.log(
+            '[Telegram] Listener auto-start:',
+            result?.alreadyRunning ? 'already running' : 'started',
+            '(connected=' + result?.connected + ')'
+          );
+          // The bridge needs the shared global event hub running to mirror
+          // OpenCode output into Telegram — don't wait for a browser client.
+          void ensureGlobalWatcherStarted().catch((error) => {
+            console.warn('[Telegram] Global event watcher startup failed:', error?.message ?? error);
+          });
+          break; // Success — exit retry loop
+        }
+        console.log('[Telegram] No bot token in saved config — skipping auto-start');
+        break; // No token, nothing to retry
+      } catch (err) {
+        const isLastAttempt = attempt === AUTO_START_RETRIES;
+        console.warn(
+          `[Telegram] Auto-start attempt ${attempt}/${AUTO_START_RETRIES} failed:`, err?.message ?? err,
+          isLastAttempt ? ' — giving up' : ` — retrying in ${AUTO_START_RETRY_DELAY_MS}ms`,
+        );
+        if (isLastAttempt) break;
+        await new Promise((r) => setTimeout(r, AUTO_START_RETRY_DELAY_MS));
+      }
+    }
+
+    // Periodic health check — re-reads settings each tick so Disconnect /
+    // Stop listening are respected (never restart from a stale boot-time
+    // closed-over config). The listener's own backoff recovers transient
+    // poll failures; this only revives a fully stopped loop.
+    const telegramHealthCheckTimer = setInterval(async () => {
+      try {
+        const settings = await readSettingsFromDiskMigrated();
+        const cfg = settings?.telegram;
+        if (!cfg?.botToken) return;
+
+        if (cfg.listenerEnabled === false) {
+          const status = telegramListener.status(cfg.botToken);
+          if (status.running) {
+            console.log('[Telegram] Health check: listener disabled in settings — stopping');
+            telegramListener.stop(cfg.botToken);
+          }
+          return;
+        }
+
+        const status = telegramListener.status(cfg.botToken);
+        if (!status.running) {
+          console.log('[Telegram] Health check: listener not running — restarting...');
+          telegramListener.stop(cfg.botToken);
+          const startResult = telegramListener.start(cfg.botToken, {
+            autoReply: cfg.autoReply !== false,
+            defaultUserId: cfg.defaultUserId,
+            allowedChatIds: cfg.allowedChatIds,
+            defaultReplyMode: cfg.defaultReplyMode,
+          });
+          console.log(
+            '[Telegram] Health check: restart result — running=' + startResult.running +
+            ', connected=' + startResult.connected
+          );
+        }
+      } catch (err) {
+        console.warn('[Telegram] Health check error:', err?.message ?? err);
+      }
+    }, HEALTH_CHECK_INTERVAL_MS);
+    telegramHealthCheckTimer.unref();
   })();
 
   // Only opens a relay control socket when the user opted in (config enabled).

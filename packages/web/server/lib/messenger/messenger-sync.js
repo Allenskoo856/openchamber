@@ -5,6 +5,13 @@ import {
   createDiscordListenerRegistry,
   generateApprovalId,
 } from './discord-listener.js';
+import { createTelegramListenerRegistry } from './telegram-listener.js';
+import {
+  telegramApi,
+  sendTelegramMessage,
+  friendlyTelegramError,
+} from './telegram-api.js';
+import { normalizeTelegramChatIds } from './telegram-access.js';
 import { createMessengerOpencodeBridge } from './messenger-opencode-bridge.js';
 import { createDiscordAgentRouter } from './discord-agent-api.js';
 import { parseVerbosityLevel, VERBOSITY_LEVELS } from './messenger-verbosity.js';
@@ -274,6 +281,21 @@ export async function resolveMessengerTarget({ store, readSettings, sessionId })
       token,
       targetKey: binding.targetKey,
       threadId: null, // targetKey is already the thread
+      projectPath: binding.projectPath,
+    };
+  }
+  if (binding.type === 'telegram') {
+    const telegram = settings.telegram || {};
+    const token = telegram.botToken;
+    if (!token) return null;
+    // targetKey is "chatId" or "chatId:topicId" (forum topic) on Telegram —
+    // split so callers get a usable chatId + optional topic thread.
+    const [chatId, topicId] = String(binding.targetKey).split(':');
+    return {
+      type: 'telegram',
+      token,
+      targetKey: chatId,
+      threadId: topicId ?? null,
       projectPath: binding.projectPath,
     };
   }
@@ -592,6 +614,7 @@ export function createMessengerSyncRouter({
   }
 
   const discordListener = createDiscordListenerRegistry({ broadcastEvent, bridge });
+  const telegramListener = createTelegramListenerRegistry({ broadcastEvent, bridge });
 
   // Agent-facing Discord API — a high-level surface (resolve a project/session
   // to its Discord URL, post a message there, create a new project + channel)
@@ -629,11 +652,16 @@ export function createMessengerSyncRouter({
   // Messenger configuration
   router.get('/config', (_req, res) => {
     res.json({
-      supportedMessengers: ['discord'],
+      supportedMessengers: ['discord', 'telegram'],
       discord: {
         features: ['channels', 'threads', 'embeds', 'reactions', 'files'],
         maxMessageLength: 2000,
         formatting: 'markdown-discord',
+      },
+      telegram: {
+        features: ['chats', 'forum-topics', 'inline-keyboards'],
+        maxMessageLength: 4096,
+        formatting: 'plain-text',
       },
     });
   });
@@ -649,12 +677,34 @@ export function createMessengerSyncRouter({
     if (type === 'discord' && !token) {
       token = await resolveDiscordBotToken(token);
     }
+    if (type === 'telegram' && !token) {
+      token = await resolveTelegramBotToken(token);
+    }
 
     if (!type || !token) {
       return res.status(400).json({ error: 'type and token required' });
     }
 
     try {
+      if (type === 'telegram') {
+        const me = await telegramApi(token, 'getMe');
+        if (!me.ok) {
+          return res.json({
+            ok: false,
+            error: `Telegram: ${friendlyTelegramError(me.status, me.body, me.error)}`,
+          });
+        }
+        const bot = me.body?.result ?? {};
+        return res.json({
+          ok: true,
+          id: bot.id != null ? String(bot.id) : null,
+          username: bot.username ?? null,
+          firstName: bot.first_name ?? null,
+          canJoinGroups: bot.can_join_groups ?? null,
+          canReadAllGroupMessages: bot.can_read_all_group_messages ?? null,
+        });
+      }
+
       if (type === 'discord') {
         const headers = { Authorization: `Bot ${token}` };
         const resp = await fetch('https://discord.com/api/v10/users/@me', { headers });
@@ -702,13 +752,28 @@ export function createMessengerSyncRouter({
    */
   router.post('/send', async (req, res) => {
     const { type, target: explicitTarget, guildId, text } = req.body ?? {};
-    const token = await resolveDiscordBotToken(req.body?.token);
+    const token = type === 'telegram'
+      ? await resolveTelegramBotToken(req.body?.token)
+      : await resolveDiscordBotToken(req.body?.token);
 
     if (!type || !token || !text) {
       return res.status(400).json({ error: 'type, token and text are required' });
     }
 
     try {
+      if (type === 'telegram') {
+        const target = explicitTarget;
+        if (!target) {
+          return res.status(400).json({ error: 'target (chat id) is required' });
+        }
+        const sent = await sendTelegramMessage({ token, chatId: target, text: String(text) });
+        if (!sent.ok) {
+          return res.json({ ok: false, error: `Telegram: ${sent.error}` });
+        }
+        broadcastEvent?.('messenger.telegram.sent', { target, messageId: sent.messageId });
+        return res.json({ ok: true, messageId: sent.messageId, sentAt: new Date().toISOString() });
+      }
+
       if (type === 'discord') {
         // An explicit channel id wins; otherwise resolve the first text channel
         // of the requested server so a client without a saved channel can still
@@ -1293,18 +1358,23 @@ export function createMessengerSyncRouter({
     const { type, token } = req.body ?? {};
     const verbosity = {
       discord: bridge.store.getVerbosityDefault?.('discord') ?? null,
+      telegram: bridge.store.getVerbosityDefault?.('telegram') ?? null,
     };
     const permissionMode = {
       discord: bridge.store.getPermissionModeDefault?.('discord') ?? null,
+      telegram: bridge.store.getPermissionModeDefault?.('telegram') ?? null,
     };
     const notifyOnComplete = {
       discord: bridge.store.getNotifyOnComplete?.('discord') ?? false,
+      telegram: bridge.store.getNotifyOnComplete?.('telegram') ?? false,
     };
     const interruptTimeoutMs = {
       discord: bridge.store.getInterruptTimeoutMs?.('discord') ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
+      telegram: bridge.store.getInterruptTimeoutMs?.('telegram') ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
     };
     const critique = {
       discord: bridge.store.getCritiqueEnabled?.('discord') ?? false,
+      telegram: bridge.store.getCritiqueEnabled?.('telegram') ?? false,
     };
     return res.json({
       ok: true,
@@ -1326,17 +1396,17 @@ export function createMessengerSyncRouter({
   /**
    * Per-messenger default verbosity (`quiet` | `normal` | `verbose`). This is
    * the same value the in-chat `/verbosity default <level>` command writes, so
-   * the OpenChamber UI and Discord stay in sync. A per-conversation
+   * the OpenChamber UI and the messengers stay in sync. A per-conversation
    * `/verbosity <level>` override always wins over this default.
    *
-   * POST body: { type: 'discord', level }  (level null clears it)
+   * POST body: { type: 'discord' | 'telegram', level }  (level null clears it)
    * GET query: ?type=discord
    */
   router.post('/bridge/verbosity', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const { type, level } = req.body ?? {};
-    if (type !== 'discord') {
-      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    if (type !== 'discord' && type !== 'telegram') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord' or 'telegram'" });
     }
     if (level == null || level === '') {
       bridge.store.setVerbosityDefault(type, null);
@@ -1355,7 +1425,7 @@ export function createMessengerSyncRouter({
   router.get('/bridge/verbosity', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const type = typeof req.query?.type === 'string' ? req.query.type : '';
-    if (type === 'discord') {
+    if (type === 'discord' || type === 'telegram') {
       return res.json({ ok: true, type, level: bridge.store.getVerbosityDefault?.(type) ?? null });
     }
     return res.json({
@@ -1363,6 +1433,7 @@ export function createMessengerSyncRouter({
       levels: VERBOSITY_LEVELS,
       verbosity: {
         discord: bridge.store.getVerbosityDefault?.('discord') ?? null,
+        telegram: bridge.store.getVerbosityDefault?.('telegram') ?? null,
       },
     });
   });
@@ -1379,8 +1450,8 @@ export function createMessengerSyncRouter({
   router.post('/bridge/permission-mode', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const { type, mode } = req.body ?? {};
-    if (type !== 'discord') {
-      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    if (type !== 'discord' && type !== 'telegram') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord' or 'telegram'" });
     }
     if (mode == null || mode === '') {
       bridge.store.setPermissionModeDefault(type, null);
@@ -1399,7 +1470,7 @@ export function createMessengerSyncRouter({
   router.get('/bridge/permission-mode', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const type = typeof req.query?.type === 'string' ? req.query.type : '';
-    if (type === 'discord') {
+    if (type === 'discord' || type === 'telegram') {
       return res.json({
         ok: true,
         type,
@@ -1411,6 +1482,7 @@ export function createMessengerSyncRouter({
       modes: PERMISSION_MODES,
       permissionMode: {
         discord: bridge.store.getPermissionModeDefault?.('discord') ?? null,
+        telegram: bridge.store.getPermissionModeDefault?.('telegram') ?? null,
       },
     });
   });
@@ -1418,8 +1490,8 @@ export function createMessengerSyncRouter({
   router.post('/bridge/notify-on-complete', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const { type, enabled } = req.body ?? {};
-    if (type !== 'discord') {
-      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    if (type !== 'discord' && type !== 'telegram') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord' or 'telegram'" });
     }
     bridge.store.setNotifyOnComplete?.(type, Boolean(enabled));
     return res.json({ ok: true, type, enabled: bridge.store.getNotifyOnComplete?.(type) ?? false });
@@ -1428,13 +1500,14 @@ export function createMessengerSyncRouter({
   router.get('/bridge/notify-on-complete', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const type = typeof req.query?.type === 'string' ? req.query.type : '';
-    if (type === 'discord') {
+    if (type === 'discord' || type === 'telegram') {
       return res.json({ ok: true, type, enabled: bridge.store.getNotifyOnComplete?.(type) ?? false });
     }
     return res.json({
       ok: true,
       notifyOnComplete: {
         discord: bridge.store.getNotifyOnComplete?.('discord') ?? false,
+        telegram: bridge.store.getNotifyOnComplete?.('telegram') ?? false,
       },
     });
   });
@@ -1449,8 +1522,8 @@ export function createMessengerSyncRouter({
   router.post('/bridge/critique', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const { type, enabled } = req.body ?? {};
-    if (type !== 'discord') {
-      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    if (type !== 'discord' && type !== 'telegram') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord' or 'telegram'" });
     }
     bridge.store.setCritiqueEnabled?.(type, Boolean(enabled));
     return res.json({ ok: true, type, enabled: bridge.store.getCritiqueEnabled?.(type) ?? false });
@@ -1459,13 +1532,14 @@ export function createMessengerSyncRouter({
   router.get('/bridge/critique', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const type = typeof req.query?.type === 'string' ? req.query.type : '';
-    if (type === 'discord') {
+    if (type === 'discord' || type === 'telegram') {
       return res.json({ ok: true, type, enabled: bridge.store.getCritiqueEnabled?.(type) ?? false });
     }
     return res.json({
       ok: true,
       critique: {
         discord: bridge.store.getCritiqueEnabled?.('discord') ?? false,
+        telegram: bridge.store.getCritiqueEnabled?.('telegram') ?? false,
       },
     });
   });
@@ -1473,8 +1547,8 @@ export function createMessengerSyncRouter({
   router.post('/bridge/interrupt-timeout', (req, res) => {
     if (!bridge) return res.status(503).json({ ok: false, error: 'bridge unavailable' });
     const { type, timeoutMs } = req.body ?? {};
-    if (type !== 'discord') {
-      return res.status(400).json({ ok: false, error: "type must be 'discord'" });
+    if (type !== 'discord' && type !== 'telegram') {
+      return res.status(400).json({ ok: false, error: "type must be 'discord' or 'telegram'" });
     }
     const normalized = normalizeMessengerInterruptTimeoutMs(timeoutMs);
     bridge.store.setInterruptTimeoutMs?.(type, normalized);
@@ -1489,7 +1563,7 @@ export function createMessengerSyncRouter({
       max: MESSENGER_INTERRUPT_TIMEOUT_MAX_MS,
       default: MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
     };
-    if (type === 'discord') {
+    if (type === 'discord' || type === 'telegram') {
       return res.json({
         ok: true,
         type,
@@ -1501,6 +1575,7 @@ export function createMessengerSyncRouter({
       ok: true,
       interruptTimeoutMs: {
         discord: bridge.store.getInterruptTimeoutMs?.('discord') ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
+        telegram: bridge.store.getInterruptTimeoutMs?.('telegram') ?? MESSENGER_INTERRUPT_TIMEOUT_DEFAULT_MS,
       },
       bounds,
     });
@@ -1535,6 +1610,24 @@ export function createMessengerSyncRouter({
     if (typeof bodyToken === 'string' && bodyToken.trim().length > 0) return bodyToken.trim();
     const { discord } = await loadDiscordSettings();
     return typeof discord?.botToken === 'string' ? discord.botToken : '';
+  }
+
+  /** Read the persisted Telegram block. Always returns a usable shape. */
+  async function loadTelegramSettings() {
+    if (!readSettings) return { telegram: {} };
+    try {
+      const settings = await readSettings();
+      return { telegram: settings?.telegram ?? {} };
+    } catch {
+      return { telegram: {} };
+    }
+  }
+
+  /** Same token-resolution contract as resolveDiscordBotToken, for Telegram. */
+  async function resolveTelegramBotToken(bodyToken) {
+    if (typeof bodyToken === 'string' && bodyToken.trim().length > 0) return bodyToken.trim();
+    const { telegram } = await loadTelegramSettings();
+    return typeof telegram?.botToken === 'string' ? telegram.botToken : '';
   }
 
   /**
@@ -2885,6 +2978,277 @@ export function createMessengerSyncRouter({
     return res.json({ ok: true, url });
   });
 
+  /**
+   * Telegram listener lifecycle — mirrors the /discord/listener/* family so
+   * the Settings UI drives both platforms through the same flow. Config
+   * persists to settings.json under `telegram` for boot auto-start.
+   */
+  router.post('/telegram/listener/start', async (req, res) => {
+    const {
+      autoReply,
+      defaultChatId,
+      defaultUserId,
+      allowedChatIds,
+      defaultReplyMode,
+    } = req.body ?? {};
+    const token = await resolveTelegramBotToken(req.body?.token);
+    if (!token) return res.status(400).json({ error: 'token required' });
+    const result = telegramListener.start(token, {
+      autoReply: autoReply !== false,
+      defaultUserId,
+      allowedChatIds,
+      defaultReplyMode,
+    });
+
+    // The bridge mirrors OpenCode output via the shared global event hub —
+    // make sure that upstream stream is running even when no browser client
+    // ever connected to this server.
+    if (typeof ensureEventStream === 'function') {
+      Promise.resolve()
+        .then(() => ensureEventStream())
+        .catch((err) => console.warn('[MESSENGER] Failed to start global event stream:', err?.message ?? err));
+    }
+
+    // Persist the listener config (including the bot token) to settings.json so
+    // the server auto-starts the listener on the next boot — same rationale as
+    // the Discord start route.
+    if (persistSettings) {
+      try {
+        const current = readSettings ? await readSettings() : null;
+        const prev = current?.telegram ?? {};
+        const hasAllowedChatIds = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'allowedChatIds');
+        await persistSettings({
+          telegram: {
+            ...prev,
+            botToken: token,
+            autoReply: autoReply !== false,
+            bridgeEnabled: true,
+            // Explicit start always re-enables listening for future boots /
+            // health-check recovery. Stop persists `false` and must not be
+            // undone by a later start-config merge that omitted the flag.
+            listenerEnabled: true,
+            defaultChatId: defaultChatId || prev.defaultChatId || undefined,
+            defaultUserId: defaultUserId || prev.defaultUserId || undefined,
+            allowedChatIds: hasAllowedChatIds
+              ? normalizeTelegramChatIds(allowedChatIds)
+              : prev.allowedChatIds || undefined,
+            defaultReplyMode:
+              defaultReplyMode === 'always' || defaultReplyMode === 'mention'
+                ? defaultReplyMode
+                : prev.defaultReplyMode || undefined,
+          },
+        });
+      } catch {
+        // best-effort — a failed persist must not block starting the listener
+      }
+    }
+
+    res.json(result);
+  });
+
+  router.post('/telegram/listener/stop', async (req, res) => {
+    try {
+      const token = await resolveTelegramBotToken(req.body?.token);
+      if (!token) return res.status(400).json({ error: 'token required' });
+
+      const result = telegramListener.stop(token);
+
+      // Persist sticky stop so boot auto-start + health checks do not restart
+      // polling until the user explicitly starts listening again.
+      if (persistSettings) {
+        try {
+          const latest = readSettings ? await readSettings() : null;
+          const prev = latest?.telegram ?? {};
+          if (prev.botToken || token) {
+            await persistSettings({
+              telegram: {
+                ...prev,
+                botToken: prev.botToken || token,
+                listenerEnabled: false,
+              },
+            });
+          }
+        } catch {
+          // best-effort — stop still succeeded in-process
+        }
+      }
+
+      return res.json(result);
+    } catch (err) {
+      return res.status(500).json({ error: err?.message ?? 'stop failed' });
+    }
+  });
+
+  router.post('/telegram/listener/status', async (req, res) => {
+    const token = await resolveTelegramBotToken(req.body?.token);
+    if (!token) return res.status(400).json({ error: 'token required' });
+    res.json(telegramListener.status(token));
+  });
+
+  /**
+   * Live Telegram listener status from the server-saved settings.json token.
+   * Mirrors /discord/runtime-status so the UI badge reflects the auto-started
+   * listener without a client-side token.
+   */
+  router.get('/telegram/runtime-status', async (_req, res) => {
+    try {
+      const { telegram } = await loadTelegramSettings();
+      const token = telegram?.botToken;
+      if (!token) {
+        return res.json({
+          ok: true,
+          configured: false,
+          listenerEnabled: false,
+          running: false,
+          connected: false,
+        });
+      }
+      return res.json({
+        ok: true,
+        configured: true,
+        // Absent means start-by-default; only explicit false is sticky-stopped.
+        listenerEnabled: telegram.listenerEnabled !== false,
+        ...telegramListener.status(token),
+        defaultReplyMode: telegram.defaultReplyMode === 'mention' ? 'mention' : 'always',
+        defaultChatId: telegram.defaultChatId ?? undefined,
+        allowedChatIds: Array.isArray(telegram.allowedChatIds) ? telegram.allowedChatIds : undefined,
+      });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: err?.message ?? 'status failed' });
+    }
+  });
+
+  /**
+   * Full Telegram teardown: stop polling and clear saved config. Unlike
+   * /listener/stop, this removes the bot token so reconnect requires adding
+   * credentials again.
+   */
+  router.post('/telegram/disconnect', async (req, res) => {
+    try {
+      const token = await resolveTelegramBotToken(req.body?.token);
+      if (token) {
+        try {
+          telegramListener.stop(token);
+        } catch {
+          // ignore — clearing settings is the source of truth for disconnect
+        }
+      }
+      if (persistSettings) {
+        await persistSettings({ telegram: null });
+      }
+      return res.json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: err?.message ?? 'disconnect failed' });
+    }
+  });
+
+  router.post('/telegram/listener/recent', async (req, res) => {
+    const token = await resolveTelegramBotToken(req.body?.token);
+    if (!token) return res.status(400).json({ error: 'token required' });
+    res.json(telegramListener.recent(token, req.body?.limit ?? 25));
+  });
+
+  /**
+   * Save Telegram listener config to settings.json so it survives server
+   * restarts. Merge semantics match /discord/save-config.
+   */
+  router.post('/telegram/save-config', async (req, res) => {
+    const {
+      botToken,
+      autoReply,
+      defaultChatId,
+      defaultUserId,
+      allowedChatIds,
+      defaultReplyMode,
+    } = req.body ?? {};
+    try {
+      const current = readSettings ? await readSettings() : null;
+      const prev = current?.telegram ?? {};
+      const hasAllowedChatIds = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'allowedChatIds');
+      await persistSettings({
+        telegram: {
+          ...prev,
+          botToken: botToken || prev.botToken || undefined,
+          autoReply: autoReply !== false,
+          bridgeEnabled: true,
+          defaultChatId: defaultChatId || prev.defaultChatId || undefined,
+          defaultUserId: defaultUserId || prev.defaultUserId || undefined,
+          allowedChatIds: hasAllowedChatIds
+            ? normalizeTelegramChatIds(allowedChatIds)
+            : prev.allowedChatIds || undefined,
+          defaultReplyMode:
+            defaultReplyMode === 'always' || defaultReplyMode === 'mention'
+              ? defaultReplyMode
+              : prev.defaultReplyMode || undefined,
+        },
+      });
+
+      // Hot-apply to a live listener so Settings toggles take effect without
+      // Stop → Start.
+      const liveToken = botToken || prev.botToken;
+      if (liveToken && typeof telegramListener.updateConfig === 'function') {
+        telegramListener.updateConfig(liveToken, {
+          autoReply: autoReply !== false,
+          defaultReplyMode:
+            defaultReplyMode === 'always' || defaultReplyMode === 'mention'
+              ? defaultReplyMode
+              : prev.defaultReplyMode,
+          defaultUserId: defaultUserId || prev.defaultUserId,
+          ...(hasAllowedChatIds ? { allowedChatIds: normalizeTelegramChatIds(allowedChatIds) } : {}),
+        });
+      }
+
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err?.message ?? 'save failed' });
+    }
+  });
+
+  /**
+   * Read saved Telegram config from settings.json. Omits the bot token — it
+   * is sensitive and the frontend keeps it in localStorage.
+   */
+  router.get('/telegram/load-config', async (_req, res) => {
+    try {
+      const settings = await readSettings();
+      const config = settings?.telegram ? { ...settings.telegram } : null;
+      if (config) {
+        const hasToken = Boolean(config.botToken);
+        config.botToken = undefined;
+        res.json({ ok: true, config, hasToken });
+      } else {
+        res.json({ ok: true, config: null, hasToken: false });
+      }
+    } catch (err) {
+      res.status(500).json({ error: err?.message ?? 'load failed' });
+    }
+  });
+
+  /**
+   * Start the Telegram listener from saved config (settings.json).
+   * Used for auto-start on server boot.
+   */
+  router.post('/telegram/auto-start', async (req, res) => {
+    try {
+      const { telegram } = await loadTelegramSettings();
+      if (!telegram?.botToken) {
+        return res.json({ ok: false, reason: 'not-configured' });
+      }
+      if (telegram.listenerEnabled === false) {
+        return res.json({ ok: false, reason: 'listener-disabled' });
+      }
+      const result = telegramListener.start(telegram.botToken, {
+        autoReply: telegram.autoReply !== false,
+        defaultUserId: telegram.defaultUserId,
+        allowedChatIds: telegram.allowedChatIds,
+        defaultReplyMode: telegram.defaultReplyMode,
+      });
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(500).json({ error: err?.message ?? 'auto-start failed' });
+    }
+  });
+
   // Webhook for incoming messages from messengers
   router.post('/webhook/:type', (req, res) => {
     const { type } = req.params;
@@ -2915,7 +3279,7 @@ export function createMessengerSyncRouter({
     res.json({ formatted, target });
   });
 
-  return { router, discordListener };
+  return { router, discordListener, telegramListener };
 }
 
 /**

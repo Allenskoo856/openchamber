@@ -939,6 +939,12 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     titleKey: 'settings.page.integrations.title',
     keywords: ['discord', 'messenger', 'bot', 'slack', 'chat', 'connect', 'bridge'],
   },
+  {
+    id: 'integrations.telegram',
+    page: 'integrations',
+    titleKey: 'settings.page.integrations.title',
+    keywords: ['telegram', 'messenger', 'bot', 'chat', 'connect', 'bridge', 'botfather'],
+  },
 ] as const;
 
 interface BuildSettingsSearchResultsOptions {
