@@ -18,6 +18,7 @@ import {
 } from './cli-discovery';
 import { applyLoginShellEnvSnapshot } from './env';
 import { resolvePortFromUrl, waitForReady } from './readiness';
+import { connectExternalOpenCodeUrl } from './external-url';
 import { allocateManagedOpenCodePort, spawnManagedOpenCodeServer } from './spawn';
 import type {
   ConnectionStatus,
@@ -186,11 +187,16 @@ export function createOpenCodeManager(context: vscode.ExtensionContext): OpenCod
 
     if (useConfiguredUrl && configuredApiUrl) {
       setStatus('connecting');
-      const ready = await waitForReady(configuredApiUrl, READY_CHECK_TIMEOUT_MS, getOpenCodeAuthHeaders());
+      const ready = await connectExternalOpenCodeUrl(
+        configuredApiUrl,
+        getOpenCodeAuthHeaders(),
+        READY_CHECK_TIMEOUT_MS,
+      );
       lastReadyElapsedMs = ready.elapsedMs;
       lastReadyAttempts = ready.attempts;
       if (ready.ok) {
         version = ready.version;
+        detectedPort = ready.detectedPort;
         setStatus('connected');
       } else {
         setStatus('error', t('Failed to connect to configured OpenCode API: health check failed'));
