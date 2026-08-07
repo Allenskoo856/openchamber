@@ -29,6 +29,27 @@ describe('directory of a session routed into a workspace', () => {
     expect(resolveSessionDirectoryKey(session)).toBeNull();
   });
 
+  test('recognises the container path even when nothing says the session is routed', () => {
+    // Measured against the running app: OpenCode carries no `workspaceID` on session
+    // records, and asking it for sessions scoped to a workspace returns the same list as
+    // asking unscoped. So a routed session arrives looking ordinary, and only the path
+    // tells the truth. Trusting the flag alone let `/workspace` through, and on Windows
+    // it resolves against the current drive — the host OpenCode was seen bootstrapping an
+    // instance for `C:\workspace` purely because such sessions sat in the list.
+    expect(resolveSessionDirectoryKey(sessionLike({ id: 's1', directory: '/workspace' }))).toBeNull();
+    expect(resolveSessionDirectoryKey(sessionLike({ id: 's1', directory: '/workspace/src' }))).toBeNull();
+    expect(resolveSessionDirectoryKey(sessionLike({
+      id: 's1',
+      directory: '/workspace',
+      project: { worktree: 'C:/Users/me/project' },
+    }))).toBe('C:/Users/me/project');
+  });
+
+  test('does not mistake a host directory that merely begins the same way', () => {
+    expect(resolveSessionDirectoryKey(sessionLike({ id: 's1', directory: '/workspaces/mine' }))).toBe('/workspaces/mine');
+    expect(resolveSessionDirectoryKey(sessionLike({ id: 's1', directory: 'C:/workspace' }))).toBe('C:/workspace');
+  });
+
   test('keeps using the session directory for work that runs on this computer', () => {
     const session = sessionLike({ id: 's1', directory: 'C:/Users/me/project', project: { worktree: 'C:/Users/me/other' } });
 

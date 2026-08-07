@@ -131,7 +131,10 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     },
     onError: noteCapabilityError,
   });
-  const reauthenticate = reauth.requestProof;
+  // Nothing on this panel asks for a credential any more: authorization is the capability
+  // check, and only changing the policy — which lives in settings, not here — still needs
+  // a proof. `reauth` stays for its dialog, which the settings surface renders through the
+  // same hook.
 
   const refreshStatuses = React.useCallback(async (expectedGeneration = generationRef.current) => {
     const requestedDirectory = directory;
@@ -285,9 +288,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     setWorkspaceMessage('');
     try {
       const payload = { type: policy.provider, directory, extra: null };
-      const reauth = await reauthenticate('workspace.create', directory || 'host', payload);
-      if (!reauth) return;
-      const created = await runtimeAPIs.workspaces.create({ ...payload, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
+      const created = await runtimeAPIs.workspaces.create(payload);
       setSelectedWorkspaceID(created.id);
       setWorkspaceList((current) => current.some((item) => item.id === created.id) ? current : [...current, created]);
       pendingCreatedWorkspaceRef.current = created.status === 'connected' ? null : created.id;
@@ -409,9 +410,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     setWorkspaceDiagnostics([]);
     const payload = { id: selectedWorkspaceID, directory };
     try {
-      const reauth = await reauthenticate('workspace.reconcile', directory || 'host', payload);
-      if (!reauth) return;
-      const result = await runtimeAPIs.workspaces.reconcileWorkspace({ ...payload, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
+      const result = await runtimeAPIs.workspaces.reconcileWorkspace(payload);
       setWorkspaceDiagnostics([...result.diagnostics, ...(result.remainingResources ?? [])]);
       if (!result.reconciled) setWorkspaceError(result.error || t('settings.workspaces.lifecycle.reconcileFailed'));
       else setWorkspaceMessage(t('settings.workspaces.lifecycle.reconciled'));
@@ -433,17 +432,11 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     setWorkspaceDiagnostics([]);
       const payload = { id, directory };
       try {
-        const reauth = await reauthenticate('workspace.cleanup', directory || 'host', payload);
-        if (!reauth) {
-          setRemoveWorkspaceID(null);
-          setWorkspaceError(t('settings.workspaces.reauth.failed'));
-          return;
-        }
         // The confirmation has done its job once it is confirmed. Leaving it up during a
         // removal that takes a while left a dialog of dead buttons in front of the panel,
         // dimming the progress banner that reports what is actually happening.
         setRemoveWorkspaceID(null);
-        const result = await runtimeAPIs.workspaces.cleanup({ ...payload, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
+        const result = await runtimeAPIs.workspaces.cleanup(payload);
       setWorkspaceDiagnostics([...(result.diagnostics ?? []), ...(result.remainingResources ?? [])]);
       if (!result.cleaned) {
         setRemoveWorkspaceID(null);
@@ -470,9 +463,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     setWorkspaceError('');
     try {
       const payload = { id: selectedWorkspaceID, directory };
-      const reauth = await reauthenticate('workspace.export', directory || 'host', payload);
-      if (!reauth) return;
-      const exported = await runtimeAPIs.workspaces.exportWorkspace({ ...payload, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
+      const exported = await runtimeAPIs.workspaces.exportWorkspace(payload);
       setExportID(exported.exportID);
       setExportExpiresAt(exported.expiresAt);
       setArtifactReview(exported.review);
@@ -497,9 +488,7 @@ export const WorkspaceLifecycleView: React.FC<{ onOpenSettings?: () => void; onS
     setApplyMessage('');
     try {
       const payload = { directory, exportID, selections, workspaceID: selectedWorkspaceID, checkOnly };
-      const reauth = await reauthenticate('host.apply', directory, payload);
-      if (!reauth) return;
-      const result = await runtimeAPIs.workspaces.applyExport({ ...payload, reauthProof: reauth.proof, reauthNonce: reauth.nonce });
+      const result = await runtimeAPIs.workspaces.applyExport(payload);
       setApplyFailed(Boolean(result.error));
       setApplyMessage(result.error || (checkOnly ? t('settings.workspaces.export.checkPassed') : t('settings.workspaces.export.applied')));
       if (result.error) noteCapabilityError(result.error);

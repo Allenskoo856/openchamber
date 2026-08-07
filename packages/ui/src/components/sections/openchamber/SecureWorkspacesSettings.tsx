@@ -291,12 +291,7 @@ export const SecureWorkspacesSettings: React.FC = () => {
     setSetupBusy(action);
     setSetupMessage(null);
     try {
-      const proof = await reauthenticate('workspace.setup', 'host', { provider, action });
-      if (!proof) {
-        setSetupMessage({ tone: 'warn', text: t('settings.workspaces.setup.actionCancelled') });
-        return;
-      }
-      const result = await runtimeAPIs.workspaces.setupProvider({ provider, action, reauthProof: proof.proof, reauthNonce: proof.nonce });
+      const result = await runtimeAPIs.workspaces.setupProvider({ provider, action });
       // Reported twice on purpose: the message belongs with the step, but a toast
       // outlives any re-render the refresh below causes, so an answer cannot vanish
       // before it has been read.
