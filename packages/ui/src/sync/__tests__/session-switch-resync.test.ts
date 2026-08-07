@@ -4,7 +4,7 @@ import type { Event, PermissionRequest, QuestionRequest } from "@opencode-ai/sdk
 
 const listPendingQuestionsCalls: Array<{ directories?: Array<string | null | undefined> }> = []
 const listPendingPermissionsCalls: Array<{ directories?: Array<string | null | undefined> }> = []
-const todoPersistWrites: Array<{ sessionID: string; todos: unknown }> = []
+const todoPersistWrites: Array<{ directory: string; sessionID: string; todos: unknown }> = []
 let pendingQuestionsResponse: QuestionRequest[] = []
 let pendingPermissionsResponse: PermissionRequest[] = []
 let pendingQuestionsShouldThrow = false
@@ -44,8 +44,8 @@ mock.module("@/stores/useConfigStore", () => ({
 mock.module("@/stores/useTodosPersistStore", () => ({
   useTodosPersistStore: {
     getState: () => ({
-      setSessionTodos: (_directory: string, sessionID: string, todos: unknown) => {
-        todoPersistWrites.push({ sessionID, todos })
+      setSessionTodos: (directory: string, sessionID: string, todos: unknown) => {
+        todoPersistWrites.push({ directory, sessionID, todos })
       },
     }),
   },
@@ -261,7 +261,7 @@ describe("resyncBlockingRequestsForDirectory", () => {
     handleEvent("global", event, childStores, routingIndex, getRuntimeKey())
 
     expect(store.getState().todo.ses_a).toEqual(todos)
-    expect(todoPersistWrites).toEqual([{ sessionID: "ses_a", todos }])
+    expect(todoPersistWrites).toEqual([{ directory: "/target", sessionID: "ses_a", todos }])
     expect(storeWrites).toBe(1)
 
     const stateAfterFirstSnapshot = store.getState()
@@ -276,7 +276,7 @@ describe("resyncBlockingRequestsForDirectory", () => {
     handleEvent("global", duplicateEvent, childStores, routingIndex, getRuntimeKey())
 
     expect(store.getState()).toBe(stateAfterFirstSnapshot)
-    expect(todoPersistWrites).toEqual([{ sessionID: "ses_a", todos }])
+    expect(todoPersistWrites).toEqual([{ directory: "/target", sessionID: "ses_a", todos }])
     expect(storeWrites).toBe(1)
     unsubscribe()
     childStores.disposeAll()
