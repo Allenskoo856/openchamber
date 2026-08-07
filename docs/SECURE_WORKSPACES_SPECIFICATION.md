@@ -330,6 +330,15 @@ Required compensation and upstream direction:
 - a stale failed row MUST be visible and recoverable, not mistaken for a ready workspace;
 - an upstream transactional or explicit provisional-row model SHOULD be contributed.
 
+Reviewed OpenCode additionally bounds its own post-create wait for `connected` to a few
+seconds and reports the missed window as a create failure while the provider resources it
+just started are still booting. When exactly that upstream wait timeout is reported and
+the provisional row exists, OpenChamber MUST NOT compensate immediately: it adopts the
+row and applies its own bounded authoritative status wait, completing on `connected`,
+answering a retryable provisional `connecting` on status-wait timeout, and compensating
+only on authoritative `error`/`disconnected` or a missing row. Every other create failure
+keeps immediate compensation of the exact provisional ID.
+
 ### 6.7 Remove Failure Behavior
 
 Reviewed OpenCode removes associated sessions, suppresses adapter remove failure, and deletes the control-plane row. That can orphan provider resources and credentials without an authoritative record.
@@ -1143,6 +1152,8 @@ Every setting MUST have shared type, sanitizer, persisted format, response forma
 Secure Workspace settings are mutated only through `POST /api/workspaces/settings`. Reauthentication binds the exact submitted body and activation flag; only the separately validated canonical copy reaches persistence and plugin configuration. Generic settings mutation rejects every `secureWorkspaces*` field. Generic plugin CRUD treats the Secure Workspace package and its exact, normalized, or symlink-equivalent resolved filesystem path as reserved.
 
 Settings persistence and plugin-entry replacement form one serialized recoverable transaction. Before the first mutation, OpenChamber writes a private prepared journal containing only the prior Secure Workspace field family and reserved entries. Settings and OpenCode config files publish through fsynced same-directory temporary files and atomic rename. Recovery is awaited before OpenCode bootstrap; recovery failure blocks startup. Windows rename exhaustion fails while preserving the live file and never falls back to an in-place copy. The journal is removed only after the complete new state is durable; caught failure or interrupted startup restores the exact prior field family and plugin entries without erasing unrelated configuration.
+
+After recovery, startup reconciliation converges the plugin registration with persisted settings: a missing entry is registered, and an entry whose options no longer equal the currently computed plugin options is transactionally rewritten. The entry materializes policy defaults at save time, so without convergence a later default change — a repinned image digest — never reaches OpenCode on existing installations and new workspaces keep being built from the superseded image.
 
 Daily workflow MUST not remain embedded in a settings component. A project/workspace surface provides provider/status badges, create, reconcile, cleanup, start session, reviewed continuation in a workspace or on the host, export, review, apply, and download. Mobile uses the same server contract in a responsive surface.
 

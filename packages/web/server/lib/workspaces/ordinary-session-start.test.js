@@ -75,6 +75,41 @@ describe('ordinary workspace session start', () => {
     }))).rejects.toThrow(/unused workspace record was left behind/);
   });
 
+  it('adopts the row OpenCode gave up waiting on instead of destroying a booting workspace', async () => {
+    // OpenCode's own post-create wait is a few seconds; a Docker cold start is longer.
+    // Its timeout says it stopped watching, not that the workspace failed, so the row
+    // it kept is adopted and the bounded connect wait decides the outcome.
+    const fx = fixture({ listed: [] });
+    let provisionalID = '';
+    fx.client.experimental.workspace.create.mockImplementation(async ({ id }) => {
+      provisionalID = id;
+      fx.client.experimental.workspace.list.mockResolvedValue({ data: [{ id, type: 'docker', projectID: 'project-1' }] });
+      fx.client.experimental.workspace.status.mockResolvedValue({ data: [{ workspaceID: id, status: 'connected' }] });
+      fx.client.session.create.mockImplementation(async () => ({ data: { id: 'session-1', projectID: 'project-1', workspaceID: id } }));
+      fx.client.session.get.mockImplementation(async () => ({ data: { id: 'session-1', projectID: 'project-1', workspaceID: id } }));
+      throw new Error('Timed out waiting for global event');
+    });
+    const compensateCreate = vi.fn();
+
+    const result = await startOrdinaryWorkspaceSession(input(fx, { authorizeCreation: vi.fn(async () => true), compensateCreate }));
+
+    expect(result).toMatchObject({ status: 'completed', workspaceID: provisionalID });
+    expect(compensateCreate).not.toHaveBeenCalled();
+  });
+
+  it('compensates the upstream wait timeout when no authoritative row survived it', async () => {
+    const fx = fixture({ listed: [] });
+    fx.client.experimental.workspace.create.mockImplementation(async () => { throw new Error('Timed out waiting for global event'); });
+    const compensateCreate = vi.fn(async () => ({ completed: true, remainingResources: [] }));
+
+    await expect(startOrdinaryWorkspaceSession(input(fx, {
+      authorizeCreation: vi.fn(async () => true),
+      compensateCreate,
+    }))).rejects.toMatchObject({ code: ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE });
+
+    expect(compensateCreate).toHaveBeenCalled();
+  });
+
   it('does not compensate a workspace that was created successfully', async () => {
     const fx = fixture({ listed: [] });
     const compensateCreate = vi.fn();

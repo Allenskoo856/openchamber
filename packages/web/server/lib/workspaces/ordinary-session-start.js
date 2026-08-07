@@ -110,6 +110,28 @@ function validateJournalBinding(journal, input) {
 
 const safeMessage = (error) => error instanceof Error ? error.message : String(error);
 
+/**
+ * OpenCode's own create waits only a few seconds for the new workspace to report
+ * connected and reports the missed window with exactly this message. That failure does
+ * not say the workspace is broken — a Docker cold start routinely needs longer — only
+ * that OpenCode stopped watching. It is the one create failure whose workspace deserves
+ * a second look at authoritative status before being compensated away. If the upstream
+ * wording ever changes, the check misses and the behavior degrades to compensation,
+ * which is the previous, safe answer.
+ */
+export const isUpstreamCreateWaitTimeout = (message) => /timed out waiting for global event/i.test(safe(message));
+
+/** The authoritative row for a create OpenCode gave up waiting on, if one exists. */
+async function findProvisionalRow(client, directory, id) {
+  try {
+    const listed = await client.experimental.workspace.list({ directory });
+    if (listed?.error || !Array.isArray(listed?.data)) return null;
+    return listed.data.find((item) => item?.id === id) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Removes the row OpenCode retained for a failed create, reporting what it could not reclaim. */
 async function compensateProvisionalRow(compensateCreate, id) {
   if (typeof compensateCreate !== 'function') return '';
@@ -165,23 +187,32 @@ async function startOrdinaryWorkspaceSessionUnlocked({
     // the adapter fails, so a failed create leaves a phantom workspace behind. The ID is
     // generated here precisely so the exact row can be compensated (spec section 6.6).
     const provisionalID = `wrk_${crypto.randomUUID().replaceAll('-', '')}`;
-    let created;
+    let created = null;
+    let createFailure = null;
     try {
       created = await client.experimental.workspace.create({ id: provisionalID, type: provider, directory, branch: null });
+      if (created?.error || !created?.data) {
+        createFailure = created?.error
+          ? (typeof created.error === 'string' ? created.error : JSON.stringify(created.error)).slice(0, 400)
+          : created?.response?.status
+            ? `HTTP ${created.response.status}`
+            : 'no authoritative workspace data';
+      }
     } catch (cause) {
-      const compensation = await compensateProvisionalRow(compensateCreate, provisionalID);
-      fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, `Workspace creation failed: ${safeMessage(cause)}${compensation}`, 409, { retryable: true });
+      createFailure = safeMessage(cause);
     }
-    if (created?.error || !created?.data) {
-      const detail = created?.error
-        ? (typeof created.error === 'string' ? created.error : JSON.stringify(created.error)).slice(0, 400)
-        : created?.response?.status
-          ? `HTTP ${created.response.status}`
-          : 'no authoritative workspace data';
-      const compensation = await compensateProvisionalRow(compensateCreate, provisionalID);
-      fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, `Workspace creation failed: ${detail}${compensation}`, 409, { retryable: true });
+    if (createFailure === null) {
+      workspace = created.data;
+    } else {
+      // When OpenCode merely stopped waiting, the row it wrote is adopted and the
+      // bounded connect wait below decides the outcome. Compensating here instead
+      // destroyed a healthy workspace whose containers were still booting.
+      workspace = isUpstreamCreateWaitTimeout(createFailure) ? await findProvisionalRow(client, directory, provisionalID) : null;
+      if (!workspace) {
+        const compensation = await compensateProvisionalRow(compensateCreate, provisionalID);
+        fail(ORDINARY_SESSION_ERRORS.WORKSPACE_UNAVAILABLE, `Workspace creation failed: ${createFailure}${compensation}`, 409, { retryable: true });
+      }
     }
-    workspace = created.data;
     operation.workspaceID = workspace.id;
     operation.state = 'workspace-created';
     await journal.write(principal, operationID, operation);

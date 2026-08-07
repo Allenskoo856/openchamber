@@ -12,7 +12,7 @@ import {
 import { buildPluginOptions, readWorkspaceSettings } from './policy.js';
 import { isWorkspacePluginEntry, WORKSPACE_PLUGIN_PACKAGE } from './plugin-identity.js';
 import { createWorkspaceSessionHandoff, WorkspaceHandoffJournal } from './session-handoff.js';
-import { OrdinarySessionJournal, startOrdinaryWorkspaceSession } from './ordinary-session-start.js';
+import { OrdinarySessionJournal, isUpstreamCreateWaitTimeout, startOrdinaryWorkspaceSession } from './ordinary-session-start.js';
 import { workspaceSetupSteps } from './setup-steps.js';
 
 const WORKSPACE_ADAPTER_PROBE_TIMEOUT_MS = 10_000;
@@ -311,21 +311,52 @@ export function registerWorkspaceRoutes(app, dependencies) {
     await restoreWorkspaceConfiguration(transaction);
     await clearSettingsTransaction();
   };
+  const canonicalJson = (value) => JSON.stringify(value, (key, item) => (
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right)))
+      : item
+  ));
   /**
-   * Registers the plugin when settings say Secure Workspaces are on but OpenCode has no
-   * entry for it. Those two facts are written by the same request and can still drift —
-   * an interrupted save, a restored profile, a settings file edited outside the app — and
-   * nothing reconciled them. The surfaces then contradict each other: the setup step
-   * reads the persisted flag and shows the feature enabled, while the panel reads the
-   * registration and reports it unconfigured, leaving no control that repairs either.
+   * Converges the OpenCode plugin registration with what persisted settings say it must
+   * be. Registering a missing entry repairs an interrupted save or a restored profile,
+   * where the persisted flag and the registration contradict each other. Rewriting an
+   * entry whose options differ repairs a quieter drift: the entry materializes the
+   * policy at the moment settings were last saved, so a policy default that moved since
+   * — a repinned image digest — never reached OpenCode, and every new workspace kept
+   * being built from the superseded image while the code pinned the new one. Nothing
+   * else rewrites the entry, so without this the two copies drift apart forever.
    */
   const reconcilePluginRegistration = async () => {
-    const settings = readWorkspaceSettings(await readSettingsFromDiskMigrated());
+    const persisted = await readSettingsFromDiskMigrated();
+    const settings = readWorkspaceSettings(persisted);
     if (!settings.enabled) return;
     const pluginSpec = resolvedWorkspacePluginSpec();
-    if (workspacePluginEntries(pluginSpec).length > 0) return;
-    createPluginEntry({ spec: pluginSpec, scope: 'user', options: buildPluginOptions(settings, { requireComplete: true }) }, null);
-    console.log('[Secure Workspaces] Registered the workspace plugin, which enabled settings expected and OpenCode did not have');
+    const entries = workspacePluginEntries(pluginSpec);
+    const options = buildPluginOptions(settings, { requireComplete: true });
+    if (entries.length === 0) {
+      createPluginEntry({ spec: pluginSpec, scope: 'user', options }, null);
+      console.log('[Secure Workspaces] Registered the workspace plugin, which enabled settings expected and OpenCode did not have');
+      return;
+    }
+    if (entries.length === 1 && entries[0].scope === 'user' && canonicalJson(entries[0].options ?? null) === canonicalJson(options)) return;
+    const transaction = {
+      version: 1,
+      phase: 'prepared',
+      pluginSpec,
+      previousSettings: Object.fromEntries(Object.entries(persisted).filter(([key]) => key.startsWith('secureWorkspaces'))),
+      previousEntries: entries.map((entry) => ({ spec: entry.spec, scope: entry.scope, options: entry.options })),
+    };
+    await atomicWritePrivateJson(settingsTransactionFile, transaction);
+    try {
+      for (const entry of entries) deletePluginEntry(entry.id, null);
+      createPluginEntry({ spec: pluginSpec, scope: 'user', options }, null);
+      await clearSettingsTransaction();
+      console.log('[Secure Workspaces] Rewrote the workspace plugin registration, whose options had fallen behind the current policy');
+    } catch (error) {
+      await restoreWorkspaceConfiguration(transaction);
+      await clearSettingsTransaction();
+      throw error;
+    }
   };
 
   const settingsRecoveryPromise = recoverSettingsTransaction()
@@ -517,6 +548,17 @@ export function registerWorkspaceRoutes(app, dependencies) {
     } catch (error) {
       diagnostics.push(`Compensation failed: ${safeErrorMessage(error, 'unknown compensation failure')}`);
       return { completed: false, retryable: true, recordPresent: true, remainingResources: Array.isArray(error?.remainingResources) ? error.remainingResources : [], diagnostics };
+    }
+  }
+
+  /** The authoritative row for a create OpenCode gave up waiting on, if one exists. */
+  async function findAuthoritativeRow(client, id, directory) {
+    try {
+      const list = await client.experimental.workspace.list({ directory });
+      if (list?.error || !Array.isArray(list?.data)) return null;
+      return list.data.find((item) => item?.id === id) ?? null;
+    } catch {
+      return null;
     }
   }
 
@@ -739,6 +781,23 @@ export function registerWorkspaceRoutes(app, dependencies) {
     } catch (error) {
       const originalError = safeErrorMessage(error, 'Failed to create workspace');
       if (!context || !client) return res.status(error?.statusCode || 400).json({ error: originalError, provisionalID, retryable: false, diagnostics: [] });
+      // OpenCode's own post-create wait is a few seconds and reports the missed window
+      // as a create failure while the containers it just started are still booting.
+      // Before compensating — which destroys a healthy workspace — ask authoritative
+      // status with a wait sized to how long creation actually takes, and give the
+      // same answers the successful-create path gives for the same evidence.
+      if (isUpstreamCreateWaitTimeout(originalError)) {
+        const row = await findAuthoritativeRow(client, provisionalID, context.directory);
+        if (row) {
+          const connection = await waitForWorkspaceConnection(client, provisionalID, context.directory);
+          if (connection.status === 'connected') {
+            return res.status(201).json({ ...row, status: 'connected', provisional: false, retryable: false, diagnostics: [...connection.diagnostics, `OpenCode stopped waiting before workspace ${provisionalID} connected; authoritative status confirmed the connection`] });
+          }
+          if (connection.status === 'timeout') {
+            return res.status(202).json({ ...row, status: 'connecting', provisional: true, retryable: true, diagnostics: [...connection.diagnostics, `Workspace ${provisionalID} is still provisional; retry authoritative status before use`] });
+          }
+        }
+      }
       const compensation = await compensateCreate({ id: provisionalID, context, client });
       return res.status(error?.statusCode || 409).json({ error: originalError, provisionalID, retryable: compensation.retryable, compensation, remainingResources: compensation.remainingResources, diagnostics: [...(Array.isArray(error?.diagnostics) ? error.diagnostics : []), ...compensation.diagnostics] });
     }

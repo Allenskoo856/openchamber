@@ -195,6 +195,16 @@ function dependencies(overrides = {}) {
   };
 }
 
+// The exact options startup reconciliation computes from the settings dependencies() persists.
+const reconciledOptions = () => buildPluginOptions(readWorkspaceSettings({
+  secureWorkspacesEnabled: true,
+  secureWorkspacesImage: runtimeImage,
+  secureWorkspacesEgressMode: 'external',
+  secureWorkspacesEgressProxyUrl: 'http://trusted-proxy:3128',
+  secureWorkspacesEgressProxyCIDR: '10.0.0.4/32',
+  secureWorkspacesEgressDnsCIDRs: '10.0.0.53/32',
+}), { requireComplete: true });
+
 describe('workspace provider operation routes', () => {
   it('does not load provider operations during route registration', () => {
     const registry = routeRegistry();
@@ -217,6 +227,73 @@ describe('workspace provider operation routes', () => {
     await registry.route('POST', '/api/workspaces/create')({ body: { type: 'docker', directory: deps.directory }, query: {} }, res);
 
     expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({ id: expect.stringMatching(/^wrk_[a-f0-9]{32}$/) }));
+  });
+
+  it('adopts a create OpenCode gave up waiting on once authoritative status proves it connected', async () => {
+    // OpenCode's post-create wait is a few seconds; a Docker cold start is longer. Its
+    // timeout says it stopped watching, not that the workspace failed, so the row it
+    // kept is checked against authoritative status before anything is destroyed.
+    const registry = routeRegistry();
+    const deps = dependencies();
+    let provisionalID = '';
+    deps.create.mockImplementation(async ({ id }) => { provisionalID = id; throw new Error('Timed out waiting for global event'); });
+    deps.list.mockImplementation(async () => ({ data: provisionalID ? [{ ...workspace(deps.directory), id: provisionalID }] : [] }));
+    deps.workspaceStatus.mockImplementation(async () => ({ data: provisionalID ? [{ workspaceID: provisionalID, status: 'connected' }] : [] }));
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const res = response();
+    await registry.route('POST', '/api/workspaces/create')({ body: { type: 'docker', directory: deps.directory }, query: {} }, res);
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body).toMatchObject({ id: provisionalID, status: 'connected', provisional: false });
+    expect(deps.operations.cleanupWorkspace).not.toHaveBeenCalled();
+    expect(deps.remove).not.toHaveBeenCalled();
+  });
+
+  it('answers connecting for an adopted create that has not connected within the bounded wait', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({ dependencies: { workspaceCreateStatusMaxAttempts: 2, workspaceCreateStatusPollIntervalMs: 0 } });
+    let provisionalID = '';
+    deps.create.mockImplementation(async ({ id }) => { provisionalID = id; throw new Error('Timed out waiting for global event'); });
+    deps.list.mockImplementation(async () => ({ data: provisionalID ? [{ ...workspace(deps.directory), id: provisionalID }] : [] }));
+    deps.workspaceStatus.mockImplementation(async () => ({ data: provisionalID ? [{ workspaceID: provisionalID, status: 'connecting' }] : [] }));
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const res = response();
+    await registry.route('POST', '/api/workspaces/create')({ body: { type: 'docker', directory: deps.directory }, query: {} }, res);
+
+    // Same evidence as a successful create whose status wait timed out — same answer:
+    // the row stays visible and retryable rather than being silently destroyed.
+    expect(res.statusCode).toBe(202);
+    expect(res.body).toMatchObject({ id: provisionalID, status: 'connecting', provisional: true, retryable: true });
+    expect(deps.operations.cleanupWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('still compensates a create failure that is not the upstream wait timeout', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies();
+    deps.create.mockImplementation(async () => { throw new Error('adapter refused'); });
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const res = response();
+    await registry.route('POST', '/api/workspaces/create')({ body: { type: 'docker', directory: deps.directory }, query: {} }, res);
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body.error).toContain('adapter refused');
+    expect(deps.workspaceStatus).not.toHaveBeenCalled();
+  });
+
+  it('compensates the upstream wait timeout when no authoritative row survived it', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies({ list: vi.fn(async () => ({ data: [] })) });
+    deps.create.mockImplementation(async () => { throw new Error('Timed out waiting for global event'); });
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const res = response();
+    await registry.route('POST', '/api/workspaces/create')({ body: { type: 'docker', directory: deps.directory }, query: {} }, res);
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({ compensation: expect.objectContaining({ recordPresent: false }) });
   });
 
   it('reports remote external OpenCode as explicitly unsupported from runtime authority', async () => {
@@ -870,23 +947,47 @@ describe('workspace provider operation routes', () => {
     expect(pluginEntries).toEqual([expect.objectContaining({ scope: 'user' })]);
   });
 
-  it('leaves an existing registration alone rather than duplicating it', async () => {
+  it('leaves a registration alone when its options already match the policy', async () => {
     const registry = routeRegistry();
-    const existing = { id: 'plugin-1', spec: '@openchamber/opencode-container-workspace', scope: 'user', options: {} };
+    const existing = { id: 'plugin-1', spec: '@openchamber/opencode-container-workspace', scope: 'user', options: reconciledOptions() };
     const deps = dependencies({ dependencies: {
       listPluginEntries: vi.fn(() => [existing]),
       createPluginEntry: vi.fn(),
+      deletePluginEntry: vi.fn(),
     } });
     registerWorkspaceRoutes(registry.app, deps);
 
     await registry.route('GET', '/api/workspaces/readiness')({ query: {} }, response());
 
     expect(deps.createPluginEntry).not.toHaveBeenCalled();
+    expect(deps.deletePluginEntry).not.toHaveBeenCalled();
+  });
+
+  it('rewrites a registration whose options fell behind the current policy', async () => {
+    // The entry materializes the policy at the moment settings were last saved. A
+    // policy default that moved since — a repinned image digest — never reached
+    // OpenCode, so every new workspace kept being built from the superseded image
+    // while the code pinned the new one. Startup converges the entry.
+    const registry = routeRegistry();
+    const existing = { id: 'plugin-1', spec: '@openchamber/opencode-container-workspace', scope: 'user', options: { defaultImage: 'registry.example/workspace@sha256:' + 'b'.repeat(64) } };
+    let pluginEntries = [existing];
+    const deps = dependencies({ dependencies: {
+      listPluginEntries: vi.fn(() => pluginEntries),
+      deletePluginEntry: vi.fn(() => { pluginEntries = []; }),
+      createPluginEntry: vi.fn((entry) => { pluginEntries.push({ ...entry, id: 'rewritten' }); }),
+    } });
+    registerWorkspaceRoutes(registry.app, deps);
+
+    await registry.route('GET', '/api/workspaces/readiness')({ query: {} }, response());
+
+    expect(deps.deletePluginEntry).toHaveBeenCalledWith('plugin-1', null);
+    expect(pluginEntries).toEqual([expect.objectContaining({ scope: 'user', options: reconciledOptions() })]);
   });
 
   it('rolls persisted settings and plugin configuration back when activation fails', async () => {
     const registry = routeRegistry();
-    const previousPlugin = { id: 'plugin-1', spec: '@openchamber/opencode-container-workspace', scope: 'user', options: { old: true } };
+    // Matching options keep startup reconciliation out of this test's way.
+    const previousPlugin = { id: 'plugin-1', spec: '@openchamber/opencode-container-workspace', scope: 'user', options: reconciledOptions() };
     let pluginEntries = [previousPlugin];
     const deps = dependencies({ dependencies: {
       listPluginEntries: vi.fn(() => pluginEntries),
@@ -929,7 +1030,9 @@ describe('workspace provider operation routes', () => {
 
     expect(res.statusCode).toBe(200);
     expect(deps.restoreSettingsFields).toHaveBeenCalledWith({ secureWorkspacesEnabled: false }, 'secureWorkspaces');
-    expect(pluginEntries).toEqual([{ ...previousPlugin, id: 'restored' }]);
+    // Recovery restores the interrupted transaction's exact prior entry first; startup
+    // convergence then brings the restored entry to the current policy.
+    expect(pluginEntries).toEqual([expect.objectContaining({ spec: pluginSpec, scope: 'user', options: reconciledOptions() })]);
     expect(fs.existsSync(path.join(openchamberDataDir, 'workspace-settings-transaction.json'))).toBe(false);
   });
 
