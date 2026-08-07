@@ -1140,7 +1140,7 @@ const formatWorktreePopulateError = (message: string | null | undefined): string
   ].join('\n');
 };
 
-export const ensureWorktreeLongpaths = async (directory: string): Promise<void> => {
+const ensureWorktreeLongpaths = async (directory: string): Promise<void> => {
   const current = await runGitCommand(directory, ['config', '--get', 'core.longpaths']);
   if (String(current.stdout || '').trim().toLowerCase() === 'true') {
     return;
