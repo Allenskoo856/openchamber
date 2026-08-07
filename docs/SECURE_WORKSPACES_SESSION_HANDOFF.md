@@ -1,0 +1,149 @@
+# Secure Workspaces — handoff
+
+State of the work on `feature/secure-workspaces-plugin` as of 2026-08-07, written for
+whoever picks it up next. The authoritative requirements live in
+`docs/SECURE_WORKSPACES_SPECIFICATION.md`; the working rules live in
+`.agents/skills/secure-workspaces/SKILL.md` and **must** be read before editing, along
+with the other skills `AGENTS.md` routes to.
+
+`main` moves fast — around fifty commits every two days — so expect the PR to go DIRTY
+repeatedly. Merge rather than rebase, and resolve conflicted hunks **by hand**: on this
+branch `git checkout --theirs` twice discarded work that had merged cleanly, most
+recently the whole Secure Workspaces settings page, which left the page in the navigation
+rendering nothing.
+
+---
+
+## The test profile
+
+Everything below runs against a disposable profile so the operator's real OpenChamber is
+never involved. Two separate things point at it, and both are needed:
+
+- `OPENCHAMBER_DATA_DIR` — where OpenChamber keeps settings, the OpenCode data root, the
+  workspace journals, and credential stores.
+- `--user-data-dir` — where Electron/Chromium keeps its own profile, including the logs.
+
+```powershell
+$profile = Join-Path $env:TEMP 'openchamber-functional-profile'
+$env:OPENCHAMBER_DATA_DIR = $profile
+Start-Process 'C:\…\packages\electron\dist\win-unpacked\OpenChamber.exe' `
+  -ArgumentList "--user-data-dir=`"$profile\chromium`""
+```
+
+What lives where, once it has run:
+
+| Path | Holds |
+| --- | --- |
+| `%TEMP%\openchamber-functional-profile\settings.json` | Every `secureWorkspaces*` setting, `projects`, `activeProjectId`, `lastDirectory`, and `desktopLocalPort` / `desktopLocalClientToken` |
+| `…\chromium\logs\main.log` | The Electron main log — the first place to look |
+| `…\opencode-data\opencode\log\` | The managed OpenCode's own log, which reports the directories it bootstraps |
+| `…\workspace-sessions\` | The ordinary-session-start journal |
+| `%TEMP%\openchamber-functional-project` | The project used for testing, with files earlier applies produced |
+
+**Never hand-edit `settings.json` while the app is running.** Doing that once wrote a BOM
+and the app silently reset every workspace setting and wiped the projects list. Drive the
+app, or query it.
+
+### Querying the running app
+
+Everything the UI can do is reachable over the loopback API. The port and token are in
+`settings.json`, and the header is `authorization: Bearer …` — **not**
+`x-openchamber-client-token`, which returns 401.
+
+```powershell
+$s = Get-Content (Join-Path $env:TEMP 'openchamber-functional-profile\settings.json') -Raw | ConvertFrom-Json
+$hdr = @{ authorization = "Bearer $($s.desktopLocalClientToken)" }
+$base = "http://127.0.0.1:$($s.desktopLocalPort)"
+Invoke-RestMethod -Uri "$base/api/workspaces/readiness" -Headers $hdr
+```
+
+`/api/workspaces/readiness` is the most useful single call: it reports whether the plugin
+is registered, which providers are available, and the ordered setup steps with their
+status. `/api/session` and `/api/experimental/workspace` go through to OpenCode.
+
+### Clusters
+
+Two kind clusters exist for isolation testing, and the difference between them is the
+point:
+
+- `kind-openchamber-np` — kindnet, **enforces** NetworkPolicy. Both published images are
+  pre-pulled into its node.
+- `kind-openchamber-open` — flannel plus manually installed CNI plugins, **does not
+  enforce**.
+
+A cluster accepting a NetworkPolicy is not a cluster enforcing one, which is why the
+enforcement probe exists and why it must be exercised against both.
+
+### Building
+
+`bun run electron:build`, roughly twelve minutes. Two traps:
+
+- Close the running app first. Packaging fails on a locked `d3dcompiler_47.dll`, and the
+  message does not say so.
+- Run it detached from a `.ps1` file with the script path **quoted** in
+  `Start-Process -ArgumentList`. A space in the path silently kills it, and plain
+  background builds get reaped mid-run.
+
+### Running tests
+
+There is no root test script. `packages/web` uses vitest (`npx vitest run`), `packages/ui`
+uses `bun test`; `bun run test` fails because bun resolves `test` to Git's `test.exe`, and
+`bunx` is absent from the Git Bash PATH.
+
+Fourteen `packages/web` files fail on Windows on `origin/main` as well — compare against a
+worktree of `origin/main` before treating a failure as this branch's. Twenty-eight
+`packages/ui/src/sync` tests fail when the directory is run as a whole and pass per file,
+which is cross-test interference and **unfixed**; the operator has asked that these be
+diagnosed properly rather than tolerated, and that work has not started.
+
+---
+
+## Where the feature stands
+
+The plugin is pinned by immutable commit SHA in `packages/web/package.json`,
+`packages/electron/package.json`, and the specification. Repin after every plugin merge,
+then `bun install`. Current pin: `b263b906`.
+
+Verified working: Docker and Kubernetes providers on Windows, NetworkPolicy enforcement
+observed in both directions on real clusters, workspace creation, session start, and the
+plugin's own suite (157 tests, green on Windows).
+
+Never completed by a person: the full Kubernetes cycle through the UI — create, session,
+message, review, apply, delete.
+
+### Open work, in the order it matters
+
+1. **The runtime image still contains OpenCode 1.18.4** while the host runs 1.18.12.
+   `runtime-image/Dockerfile` says 1.18.12, but the image publish job only fires on a `v*`
+   tag and the only tag is `v0.1.0`. Getting 1.18.12 in front of operators means cutting
+   `v0.1.1` — which publishes and signs a public image — then repinning
+   `DEFAULT_WORKSPACE_IMAGE` in `packages/web/server/lib/workspaces/policy.js` to the new
+   digest. **Awaiting the operator's decision**, because publishing is outward-facing.
+   The current Dockerfile has been verified to build locally.
+2. **Windows credential stores** (`packages/web/server/lib/quota/credentials/store.js`,
+   `remote-clients.json`) declare `0o700`/`0o600`, which Windows does not implement. The
+   plugin's `src/windows-acl.js` is the working reference for the fix.
+3. **The executable bit is lost** snapshotting a Windows project into a Linux container.
+   Git's index has it (`git ls-files -s`) for a Git project.
+4. **The SSE heartbeat proxy test** drives real timers with margins smaller than a loaded
+   Windows machine's scheduling jitter.
+
+### Things that cost hours before they were measured
+
+- **`tar` flavour depends on PATH order.** Git for Windows ships GNU tar, which reads
+  `C:\path` as `host:path`. The same shadowing hides `whoami`. Name System32 binaries by
+  absolute path and never hand a Windows path to a tool whose flavour varies.
+- **A Kubernetes create legitimately takes ~80 seconds.** Shorter waits report healthy
+  workspaces as timed out.
+- **A container path is not a path here.** `/workspace` is what a routed session reports,
+  and OpenCode carries no `workspaceID` on session records — scoping a session query to a
+  workspace returns the same list as not scoping it. So routed sessions arrive looking
+  ordinary and only the path tells the truth. On Windows `/workspace` resolves against the
+  current drive, and the host OpenCode was caught bootstrapping `C:\workspace` purely
+  because such sessions sat in the list.
+- **A protection asserted by a test that would pass without it is not asserted.** `%TEMP%`
+  is already private on a normal profile, so permission tests must open their own
+  directory to everyone first.
+- **A prompt on every adjacent action is a security problem.** The step-up password was
+  removed from everything except changing the policy; see section 23 of the specification
+  for the reasoning, which is that nothing hostile can reach those endpoints anyway.
