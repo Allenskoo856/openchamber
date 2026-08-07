@@ -25,7 +25,7 @@
   "dependencies": {
     "@clack/prompts": "^1.1.0",
     "@octokit/rest": "^22.0.1",
-    "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#f422cac7e2acefeaa65b65412c1704681f17ba78",
+    "@openchamber/opencode-container-workspace": "github:openchamber/opencode-container-workspace#b263b90632c7f2c1191eae288057b89de2c96f22",
     "@opencode-ai/sdk": "1.18.12",
     "@simplewebauthn/server": "13.3.1",
     "adm-zip": "^0.6.0",
