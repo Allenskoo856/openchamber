@@ -863,8 +863,8 @@ Production references: the same package names pinned as @sha256:<digest>
 Release run `30022813361` published and verified these public multi-architecture manifests:
 
 ```text
-Runtime: ghcr.io/openchamber/opencode-workspace@sha256:8bf416c08e3e8ca3b540ee0b834a818770b701bc03be1fac74b919e0c992376c
-Gateway: ghcr.io/openchamber/workspace-egress-gateway@sha256:e12d6c43d598a994cd1825eb0b1f838df7a57c2186b9c4e013c61c30ef7e1b94
+Runtime: ghcr.io/openchamber/opencode-workspace@sha256:40266ce54560149396cdc89395fa26df08f8924e4f377acbf12a88da08b2c141
+Gateway: ghcr.io/openchamber/workspace-egress-gateway@sha256:37c1452849212c5e9b2b62257792ca092c44c5ebba6d165667f235164e571555
 Platforms: linux/amd64, linux/arm64
 ```
 

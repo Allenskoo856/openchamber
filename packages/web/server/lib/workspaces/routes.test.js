@@ -16,9 +16,9 @@ describe('workspace release defaults', () => {
     const settings = readWorkspaceSettings({});
     const options = buildPluginOptions(settings, { requireComplete: true });
 
-    expect(options.defaultImage).toBe('ghcr.io/openchamber/opencode-workspace@sha256:8bf416c08e3e8ca3b540ee0b834a818770b701bc03be1fac74b919e0c992376c');
+    expect(options.defaultImage).toBe('ghcr.io/openchamber/opencode-workspace@sha256:40266ce54560149396cdc89395fa26df08f8924e4f377acbf12a88da08b2c141');
     expect(options.allowedImages).toEqual([options.defaultImage]);
-    expect(options.egress.gatewayImage).toBe('ghcr.io/openchamber/workspace-egress-gateway@sha256:e12d6c43d598a994cd1825eb0b1f838df7a57c2186b9c4e013c61c30ef7e1b94');
+    expect(options.egress.gatewayImage).toBe('ghcr.io/openchamber/workspace-egress-gateway@sha256:37c1452849212c5e9b2b62257792ca092c44c5ebba6d165667f235164e571555');
   });
 
   it('saves a Kubernetes configuration that leaves DNS to be discovered from the cluster', () => {

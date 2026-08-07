@@ -121,6 +121,14 @@ The plugin is pinned by immutable commit SHA in `packages/web/package.json`,
 `packages/electron/package.json`, and the specification. Repin after every plugin merge,
 then `bun install`. Current pin: `b263b906`.
 
+The images are published from a `v*` tag only — nothing reaches operators from a merge to
+`main`. `v0.1.1` was cut on 2026-08-07 and is the first release carrying OpenCode 1.18.12;
+before it every workspace ran 1.18.4 while the host ran 1.18.12, because the Dockerfile had
+moved forward and no tag had. After any future release, repin both digests in
+`packages/web/server/lib/workspaces/policy.js`, the assertions in `routes.test.js`, and the
+specification, and confirm the version by running the published digest rather than trusting
+the build.
+
 Verified working: Docker and Kubernetes providers on Windows, NetworkPolicy enforcement
 observed in both directions on real clusters, workspace creation, session start, and the
 plugin's own suite (157 tests, green on Windows).
@@ -130,19 +138,12 @@ message, review, apply, delete.
 
 ### Open work, in the order it matters
 
-1. **The runtime image still contains OpenCode 1.18.4** while the host runs 1.18.12.
-   `runtime-image/Dockerfile` says 1.18.12, but the image publish job only fires on a `v*`
-   tag and the only tag is `v0.1.0`. Getting 1.18.12 in front of operators means cutting
-   `v0.1.1` — which publishes and signs a public image — then repinning
-   `DEFAULT_WORKSPACE_IMAGE` in `packages/web/server/lib/workspaces/policy.js` to the new
-   digest. **Awaiting the operator's decision**, because publishing is outward-facing.
-   The current Dockerfile has been verified to build locally.
-2. **Windows credential stores** (`packages/web/server/lib/quota/credentials/store.js`,
+1. **Windows credential stores** (`packages/web/server/lib/quota/credentials/store.js`,
    `remote-clients.json`) declare `0o700`/`0o600`, which Windows does not implement. The
    plugin's `src/windows-acl.js` is the working reference for the fix.
-3. **The executable bit is lost** snapshotting a Windows project into a Linux container.
+2. **The executable bit is lost** snapshotting a Windows project into a Linux container.
    Git's index has it (`git ls-files -s`) for a Git project.
-4. **The SSE heartbeat proxy test** drives real timers with margins smaller than a loaded
+3. **The SSE heartbeat proxy test** drives real timers with margins smaller than a loaded
    Windows machine's scheduling jitter.
 
 ### Things that cost hours before they were measured
