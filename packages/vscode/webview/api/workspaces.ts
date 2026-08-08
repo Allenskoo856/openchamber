@@ -40,6 +40,9 @@ export const createVSCodeWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
   async policyState(): Promise<{ mismatched: string[] }> {
     return { mismatched: [] };
   },
+  async sessionRoutes(): Promise<{ routes: Array<{ sessionID: string; workspaceID: string; projectDirectory: string }> }> {
+    return { routes: [] };
+  },
   async compatibility(): Promise<WorkspaceCompatibilityResult> {
     return unsupportedCompatibility;
   },

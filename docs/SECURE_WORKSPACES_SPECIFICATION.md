@@ -1074,6 +1074,8 @@ sdk.session.create({
 
 The returned/refetched session MUST confirm `Session.workspaceID` before UI navigation. Creating a host-side record with body-only `workspaceID` is not a substitute for remote routing.
 
+OpenChamber MUST durably record the session↔workspace↔project association at creation, at both creation paths, because reviewed OpenCode exposes it on no read path: directory-scoped session lists exclude routed sessions, the `workspace` list parameter is ignored, and session reads omit `workspaceID`. Without the record, a client that did not create the session — or was restarted since — has nothing to group it by, and the session becomes unfindable. The record holds identifiers and the host project directory only, is bounded, and its failure degrades grouping without blocking creation. An upstream fix serializing the persisted `workspaceID` on session reads SHOULD be contributed; OpenCode's session table already stores it.
+
 ### 21.2 Continue In Workspace
 
 The user reviews an editable deterministic text draft and explicitly confirms creation of a new target-routed session. The source remains unchanged. UI routing changes only after the new target and its single `noReply` text context message are authoritatively refetched and hash-verified.

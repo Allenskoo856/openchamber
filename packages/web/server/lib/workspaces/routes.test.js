@@ -136,6 +136,8 @@ function dependencies(overrides = {}) {
   const list = overrides.list ?? vi.fn(async () => ({ data: [currentWorkspace] }));
   const create = vi.fn(async () => ({ data: currentWorkspace }));
   const status = vi.fn(async () => ({ data: [{ workspaceID: currentWorkspace.id, status: 'connected' }] }));
+  const sessionCreate = vi.fn(async (input) => ({ data: { id: 'ses_routed00000001', directory: '/workspace', workspaceID: input?.workspace }, response: { status: 201 } }));
+  const sessionGet = vi.fn(async () => ({ data: { id: 'ses_routed00000001', workspaceID: currentWorkspace.id } }));
   const createWorkspaceProviderOperations = vi.fn(() => operations);
   return {
     directory,
@@ -177,6 +179,8 @@ function dependencies(overrides = {}) {
     deletePluginEntry: vi.fn(),
     buildOpenCodeUrl: (route) => `http://opencode.test${route}`,
     getOpenCodeAuthHeaders: () => ({ Authorization: 'Bearer test' }),
+    sessionCreate,
+    sessionGet,
     createOpenCodeClient: vi.fn(() => ({
       experimental: { workspace: {
         list,
@@ -185,6 +189,7 @@ function dependencies(overrides = {}) {
         status,
         adapter: { list: vi.fn(async () => ({ data: [], response: { status: 200 } })) },
       } },
+      session: { create: sessionCreate, get: sessionGet },
     })),
     createWorkspaceProviderOperations,
     uiAuthController: {
@@ -525,6 +530,51 @@ describe('workspace provider operation routes', () => {
     expect(res.statusCode).toBe(409);
     expect(res.body).toMatchObject({ cleaned: false, retryable: true, remainingResources: ['container:runtime'] });
     expect(deps.remove).not.toHaveBeenCalled();
+  });
+
+  it('records the route of a session created through the intercepted proxy path', async () => {
+    // OpenCode exposes no session→workspace link on any read path, so the record
+    // written here at creation is the only durable association the sidebar can use.
+    const registry = routeRegistry();
+    const deps = dependencies();
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const res = response();
+    await registry.route('POST', '/api/session')({ query: { directory: deps.directory, workspace: 'workspace-1' }, body: { title: 'Routed' } }, res, () => { throw new Error('must not fall through when workspace is explicit'); });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.body).toMatchObject({ id: 'ses_routed00000001' });
+    expect(deps.sessionCreate).toHaveBeenCalledWith(expect.objectContaining({ workspace: 'workspace-1', directory: deps.directory, title: 'Routed' }));
+
+    const routesRes = response();
+    await registry.route('GET', '/api/workspaces/session-routes')({ query: {} }, routesRes);
+    expect(routesRes.body.routes).toEqual([expect.objectContaining({ sessionID: 'ses_routed00000001', workspaceID: 'workspace-1', projectDirectory: deps.directory })]);
+  });
+
+  it('leaves an ordinary session create to the generic proxy untouched', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies();
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const next = vi.fn();
+    await registry.route('POST', '/api/session')({ query: { directory: deps.directory }, body: { title: 'Host session' } }, response(), next);
+
+    expect(next).toHaveBeenCalled();
+    expect(deps.sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it('records the route of a session started through the ordinary session route', async () => {
+    const registry = routeRegistry();
+    const deps = dependencies();
+    registerWorkspaceRoutes(registry.app, deps);
+
+    const res = response();
+    await registry.route('POST', '/api/workspaces/sessions/start')({ headers: {}, body: { operationID: 'op-routed-1', directory: deps.directory, title: '' } }, res);
+
+    expect(res.statusCode).toBe(201);
+    const routesRes = response();
+    await registry.route('GET', '/api/workspaces/session-routes')({ query: {} }, routesRes);
+    expect(routesRes.body.routes).toEqual([expect.objectContaining({ sessionID: 'ses_routed00000001', workspaceID: 'workspace-1', projectDirectory: deps.directory })]);
   });
 
   it('starts a workspace session from chat without a second credential', async () => {

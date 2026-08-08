@@ -13,6 +13,7 @@ import { opencodeClient } from "@/lib/opencode/client"
 import { mergeSessionDirectoryMetadata, rememberConfirmedSessionWorkspaceRoute, resolveConfirmedSessionWorkspaceRoute, resolveGlobalSessionDirectory, useGlobalSessionsStore } from "@/stores/useGlobalSessionsStore"
 import { useConfigStore } from "@/stores/useConfigStore"
 import { registerSessionDirectory } from "./sync-refs"
+import { rememberSessionHostDirectory } from "./session-host-directory"
 import { recordSendFailure } from "./send-failure-log"
 import { isSyntheticPart } from "@/lib/messages/synthetic"
 import { materializeSessionSnapshots } from "./materialization"
@@ -797,7 +798,12 @@ export async function createSessionInWorkspace(
   // path into the file tree, the terminal, and `lastDirectory`, so the tree came up empty
   // and the terminal had nowhere to start.
   const sessionDirectory = effectiveDirectory ?? null
-  if (sessionDirectory) registerSessionDirectory(session.id, sessionDirectory)
+  if (sessionDirectory) {
+    registerSessionDirectory(session.id, sessionDirectory)
+    // Sidebar ownership groups by this map: the session's own record will only ever
+    // say `/workspace`, so what the creating client knows is written down here.
+    rememberSessionHostDirectory(session.id, sessionDirectory)
+  }
   useSessionUIStore.getState().setCurrentSession(session.id, sessionDirectory)
   useSessionUIStore.getState().markSessionAsOpenChamberCreated(session.id)
   useGlobalSessionsStore.getState().upsertSession(session)

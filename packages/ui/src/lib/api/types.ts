@@ -1015,6 +1015,12 @@ export interface WorkspaceSecurityAPI {
   setupProvider(input: { provider: WorkspaceProviderKind; action: 'create-namespace' | 'check-isolation'; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceSetupResult>;
   providerEnvironment(input: { provider: WorkspaceProviderKind }): Promise<WorkspaceProviderEnvironment>;
   policyState(input?: { directory?: string | null }): Promise<{ mismatched: string[] }>;
+  /**
+   * Server-recorded session↔workspace↔project routes. OpenCode exposes no such
+   * association on any session read, so the record written at creation is the only
+   * durable way a client can group a workspace-routed session under its project.
+   */
+  sessionRoutes(): Promise<{ routes: Array<{ sessionID: string; workspaceID: string; projectDirectory: string }> }>;
   updateSettings(input: { changes: Partial<SettingsPayload>; activate?: boolean; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceConfigureResult>;
   create(input: { type: WorkspaceProviderKind; directory?: string | null; extra?: Record<string, unknown> | null; reauthProof?: string; reauthNonce?: string }): Promise<{ id: string; type: string; name: string; directory?: string | null; status: 'connected' | 'connecting'; provisional: boolean; retryable: boolean; diagnostics: string[] }>;
   cleanup(input: { id: string; directory?: string | null; reauthProof?: string; reauthNonce?: string }): Promise<WorkspaceLifecycleResult>;

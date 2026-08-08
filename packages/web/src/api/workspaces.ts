@@ -73,6 +73,20 @@ export const createWebWorkspaceSecurityAPI = (): WorkspaceSecurityAPI => ({
     return response.ok ? payload : { provider: input.provider, contexts: [], currentContext: null };
   },
 
+  async sessionRoutes(): Promise<{ routes: Array<{ sessionID: string; workspaceID: string; projectDirectory: string }> }> {
+    const response = await runtimeFetch('/api/workspaces/session-routes', {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await readJson<{ routes?: Array<{ sessionID?: string; workspaceID?: string; projectDirectory?: string }> }>(response, {});
+    const routes = Array.isArray(payload.routes) ? payload.routes : [];
+    return {
+      routes: routes.filter((route): route is { sessionID: string; workspaceID: string; projectDirectory: string } => Boolean(
+        route && typeof route.sessionID === 'string' && typeof route.workspaceID === 'string' && typeof route.projectDirectory === 'string',
+      )),
+    };
+  },
+
   async policyState(input?: { directory?: string | null }): Promise<{ mismatched: string[] }> {
     const response = await runtimeFetch('/api/workspaces/policy-state', {
       method: 'GET',

@@ -13,6 +13,7 @@ import { buildPluginOptions, readWorkspaceSettings } from './policy.js';
 import { isWorkspacePluginEntry, WORKSPACE_PLUGIN_PACKAGE } from './plugin-identity.js';
 import { createWorkspaceSessionHandoff, WorkspaceHandoffJournal } from './session-handoff.js';
 import { OrdinarySessionJournal, isUpstreamCreateWaitTimeout, startOrdinaryWorkspaceSession } from './ordinary-session-start.js';
+import { WorkspaceSessionRouteStore } from './session-routes.js';
 import { workspaceSetupSteps } from './setup-steps.js';
 
 const WORKSPACE_ADAPTER_PROBE_TIMEOUT_MS = 10_000;
@@ -263,6 +264,7 @@ export function registerWorkspaceRoutes(app, dependencies) {
   const artifactCache = exportArtifactCache ?? new WorkspaceArtifactCache({ rootDirectory: path.join(openchamberDataDir, 'workspace-exports') });
   const operationJournal = handoffJournal ?? new WorkspaceHandoffJournal({ rootDirectory: path.join(openchamberDataDir, 'workspace-handoffs') });
   const ordinarySessionJournal = new OrdinarySessionJournal({ rootDirectory: path.join(openchamberDataDir, 'workspace-sessions') });
+  const sessionRouteStore = new WorkspaceSessionRouteStore({ rootDirectory: path.join(openchamberDataDir, 'workspace-session-routes') });
   const settingsTransactionFile = path.join(openchamberDataDir, 'workspace-settings-transaction.json');
   let settingsMutationQueue = Promise.resolve();
 
@@ -809,6 +811,55 @@ export function registerWorkspaceRoutes(app, dependencies) {
   app.post('/api/workspaces/create', handleWorkspaceCreate);
   app.post('/api/experimental/workspace', handleWorkspaceCreate);
 
+  /**
+   * Creating a session routed into a workspace is intercepted ahead of the generic
+   * proxy so the server can record which workspace the session went to, and from which
+   * host project. OpenCode keeps that association in its own database but exposes it on
+   * no read path — scoped lists exclude routed sessions, the `workspace` list filter is
+   * ignored, and session reads omit `workspaceID` — so without this record a client
+   * that did not create the session (or was restarted since) has nothing to group it
+   * by. A create without an explicit workspace falls through to the proxy untouched.
+   * Authorization mirrors the proxy's rule for workspace-explicit calls: a host UI
+   * session, or a client principal holding `workspace.use`.
+   */
+  app.post('/api/session', async (req, res, next) => {
+    const explicit = [req.query?.workspace, req.query?.workspaceID, req.body?.workspace, req.body?.workspaceID]
+      .find((value) => typeof value === 'string' && value.trim());
+    const workspaceID = typeof explicit === 'string' ? explicit.trim() : '';
+    if (!workspaceID) return next();
+    const directorySource = typeof req.query?.directory === 'string' ? req.query.directory : req.body?.directory;
+    const directory = typeof directorySource === 'string' ? directorySource.trim() : '';
+    const authorization = await authorizeCapabilityRequest(req, res, 'workspace.use');
+    if (!authorization) return;
+    try {
+      const client = await sdkClient(directory || undefined);
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+      const created = await client.session.create({ ...body, ...(directory ? { directory } : {}), workspace: workspaceID });
+      if (created?.error || !created?.data?.id) {
+        const status = created?.response?.status && created.response.status >= 400 ? created.response.status : 502;
+        return res.status(status).json(created?.error ?? { error: 'Failed to create workspace session' });
+      }
+      if (directory) {
+        await sessionRouteStore.record({ sessionID: created.data.id, workspaceID, projectDirectory: directory }).catch((error) => {
+          console.warn(`[Secure Workspaces] Session route for ${created.data.id} could not be recorded: ${safeErrorMessage(error, 'unknown failure')}`);
+        });
+      }
+      return res.status(created.response?.status === 201 ? 201 : 200).json(created.data);
+    } catch (error) {
+      return res.status(error?.statusCode || 502).json({ error: safeErrorMessage(error, 'Failed to create workspace session') });
+    }
+  });
+
+  /** Recorded session↔workspace↔project routes; the read is capability-only like readiness. */
+  app.get('/api/workspaces/session-routes', async (req, res) => {
+    if (!await authorizeCapabilityRequest(req, res, 'workspace.read', { allowUnsupported: true })) return;
+    try {
+      return res.json({ routes: await sessionRouteStore.routes() });
+    } catch (error) {
+      return res.status(500).json({ error: safeErrorMessage(error, 'Failed to read workspace session routes') });
+    }
+  });
+
   app.post('/api/workspaces/sessions/start', async (req, res) => {
     const operationID = typeof req.body?.operationID === 'string' ? req.body.operationID : '';
     const directory = typeof req.body?.directory === 'string' ? req.body.directory.trim() : '';
@@ -827,6 +878,11 @@ export function registerWorkspaceRoutes(app, dependencies) {
         if (authorization.context?.type !== 'session' && !capabilities.includes('workspace.admin')) throw Object.assign(new Error('Client capability required: workspace.admin'), { statusCode: 403, code: 'WORKSPACE_SESSION_UNAUTHORIZED' });
         return true;
       } });
+      if (result.sessionID && result.workspaceID) {
+        await sessionRouteStore.record({ sessionID: result.sessionID, workspaceID: result.workspaceID, projectDirectory: context.directory }).catch((recordError) => {
+          console.warn(`[Secure Workspaces] Session route for ${result.sessionID} could not be recorded: ${safeErrorMessage(recordError, 'unknown failure')}`);
+        });
+      }
       return res.status(result.status === 'completed' ? 201 : 202).json(result);
     } catch (error) {
       const message = safeErrorMessage(error, 'Failed to start workspace session');
