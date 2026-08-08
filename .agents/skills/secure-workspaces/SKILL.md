@@ -64,7 +64,9 @@ Keep entrypoints, routes, bridges, and UI thin. Security decisions belong in the
 
 ### Host And Container Boundaries
 
-- A path inside a workspace means nothing on this computer. A session routed into a workspace reports the directory it works in — `/workspace` — and host-side state must never take it: the file tree points at nothing, and it persists as `lastDirectory` past the session that introduced it. Convert at the transport boundary.
+- A path inside a workspace means nothing on this computer. A session routed into a workspace reports the directory it works in — `/workspace` — and host-side state must never take it: the file tree points at nothing, and it persists as `lastDirectory` past the session that introduced it. Convert at one boundary, and route every host-side consumer through the same chain — session record, recorded route, child-store membership. Five separate raw reads of that path were found one at a time, each breaking a different surface: the file tree, sidebar ownership, the known-directory filter, in-section grouping, and tab scoping for a session opened cold. A consumer that skips a link in the chain goes empty exactly for the sessions the chain exists for.
+- `"/"` is not a directory. OpenCode's placeholder `global` project reports `worktree: "/"`, and a resolver that returns it hands every consumer the filesystem root — which no project owns, so a routed session is silently dropped before ownership can attribute it. Treat the placeholder project and a `"/"` worktree as no answer at all.
+- Nothing links a session to its workspace on any OpenCode read path: directory-scoped session lists exclude routed sessions, the `workspace` list parameter is ignored, and session reads omit `workspaceID`. Record the association server-side at every creation path, or a workspace session cannot be found again after a restart, or by a client that did not create it. A session that reports the container path and has no recorded route is a phantom: mark it, never guess a project for it.
 - Ask a person only for what the machine cannot determine. The cluster states its own DNS service address and kubeconfig names its own contexts; requiring either by hand blocks the case Kubernetes exists for and breaks name resolution invisibly when mistyped. Ask only where RBAC genuinely hides the answer, and say what to request.
 - One rule, one owner. When the provider learned to discover the DNS address, the requirement stayed in OpenChamber's completeness check and refused every save — including changes about something else, which then rolled back. A rule enforced in two places will drift, and the second copy fails silently.
 - Hold the plugin API and the host SDK at one OpenCode version. Two copies of the SDK in one dependency tree stop the Electron package from building, and the runtime image must track that version too so the CLI inside a workspace matches the API the host talks to. Before moving, compare the workspace surface across the versions — the v2 client, the generated SDK and the generated types — rather than assuming a patch release is inert.
@@ -77,6 +79,8 @@ Keep entrypoints, routes, bridges, and UI thin. Security decisions belong in the
 - Reconciliation may repair only ownership-verified resources and must report each repair.
 - Make interrupted create, changed-source recovery, credential rotation, restart recovery, collision handling, retention, and cleanup behavior explicit.
 - Never hide rollback or cleanup failure behind a successful UI state.
+- A status that means "not yet" must never end a wait. Upstream stamps `disconnected` on every workspace at sync start, before its connect loop has tried anything, and bounds its own post-create wait to a few seconds — reading either as failure makes compensation destroy a healthy workspace mid-boot. End a wait on `connected`, on an explicit `error`, or on a bounded ceiling that keeps the row for a retry.
+- An interrupted create can leave a helper pod holding the very volumes cleanup must delete; the PVC protection finalizer then blocks every attempt, forever, and no retry can help because the one blocking resource is the one nobody deletes. Cleanup removes ownership-verified leftovers first, and refuses a foreign resource wearing the expected name.
 
 ### Export, Apply, And Handoff
 
@@ -176,6 +180,8 @@ Use package scripts as the command source of truth and validate the real risk:
 | Source/export/import shape | `bun run dead-code` in addition to affected checks |
 
 Static checks do not prove isolation, transport, provider, rollback, or platform correctness. Do not claim those gates without live evidence.
+
+Two habits that saved hours on Windows, and cost them when skipped. A packaged build is not deployed until `resources/app.asar` has a fresh mtime — a detached build once never started and a stale completion marker reported success, so the next hour was spent debugging code that was not running. And before calling a failing test suite this branch's fault, run the same suite in a worktree of `origin/main`: fourteen `packages/web` files fail there too, and two that fail there pass here.
 
 ## Release Discipline
 
