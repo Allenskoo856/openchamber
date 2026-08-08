@@ -1,3 +1,6 @@
+# Operator-run fixture, not CI — see secure-workspace-physical.yaml and
+# docs/SECURE_WORKSPACES_PHYSICAL_TEST_SETUP.md §8. Run after the physical flow to
+# leave the disposable device and remote server without workspace state.
 appId: com.openchamber.app
 androidWebViewHierarchy: devtools
 ---

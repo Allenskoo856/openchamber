@@ -1,4 +1,4 @@
-# Secure Workspaces Production Specification
+﻿# Secure Workspaces Production Specification
 
 Status: authoritative implementation and release specification
 Last audited: 2026-07-31
@@ -106,7 +106,7 @@ Binary changes MUST NOT expose fake hunk selection. Rename, symlink, and mode ch
 ### 4.1 OpenChamber
 
 Repository: `openchamber/openchamber`
-Local checkout: `/Users/iivashko/projects/openchamber`
+Local checkout: `<local-checkouts>/openchamber`
 
 OpenChamber owns:
 
@@ -136,7 +136,7 @@ OpenChamber MUST NOT:
 ### 4.2 Container Workspace Plugin
 
 Repository: `openchamber/opencode-container-workspace`
-Local checkout: `/Users/iivashko/projects/opencode-container-workspace`
+Local checkout: `<local-checkouts>/opencode-container-workspace`
 Package: `@openchamber/opencode-container-workspace`
 
 The plugin repository owns:
@@ -181,7 +181,7 @@ This section records the audited state of the current candidate. Evidence is ide
 ### 5.1 Current Candidate Identity
 
 - OpenChamber pins `@opencode-ai/sdk@1.18.12`.
-- Web and Electron pin `@openchamber/opencode-container-workspace` to immutable plugin commit `5dc9ef84de826e4404cfe610aa8460834dcfb8d3` (plugin PR #12 on the default branch). It carries everything the previous pin `b263b906` carried — the cleanup, snapshot-source, provider-readiness, and granted-egress fixes from live Windows Docker validation, OpenCode 1.18.12, the home-directory/filesystem-root snapshot refusals, the Windows workspace-state access list (PR #9–#11) — plus the Kubernetes cleanup fix for the seed pod an interrupted create leaves mounted on both PVCs, which blocked their deletion forever through the PVC protection finalizer.
+- Web and Electron pin `@openchamber/opencode-container-workspace` to immutable plugin commit `5dc9ef84de826e4404cfe610aa8460834dcfb8d3` (plugin PR #12 on the default branch). It carries everything the previous pin `b263b906` carried â€” the cleanup, snapshot-source, provider-readiness, and granted-egress fixes from live Windows Docker validation, OpenCode 1.18.12, the home-directory/filesystem-root snapshot refusals, the Windows workspace-state access list (PR #9â€“#11) â€” plus the Kubernetes cleanup fix for the seed pod an interrupted create leaves mounted on both PVCs, which blocked their deletion forever through the PVC protection finalizer.
 - That plugin payload is version `0.1.1` and compiles against `@opencode-ai/plugin@1.18.12`. The plugin API and the host SDK are held at one version deliberately: two copies of the same SDK in one dependency tree stop the Electron package from building.
 - The `v0.1.1` images published on 2026-08-07 are the first carrying OpenCode `1.18.12`, closing the earlier gap where a workspace ran a `1.18.4` CLI against a `1.18.12` host SDK. The version was confirmed by running the published runtime digest rather than trusting the build that produced it.
 - Electron stages and verifies the exact installed plugin payload and bundles an OpenCode CLI matching the OpenChamber SDK version.
@@ -210,7 +210,10 @@ Historical evidence must not be used to certify SDK `1.18.12`, the current plugi
 
 - Publish and certify exact signed runtime/gateway image digests for the current matrix, including both architectures, vulnerability gates, anonymous pulls, Docker, Kubernetes, transport, rollback, reconciliation, and cleanup.
 - Resolve Apple Container managed egress. It remains fail-closed because the current CLI lacks an isolation-capable multi-network primitive for gateway-only egress without direct outbound.
-- Run guided target-host sessions: packaged Windows with Docker Desktop and focused Kubernetes; native Linux AppImage with full Docker and disposable `kind`; supported macOS with Apple Container.
+- Run the remaining guided target-host sessions: native Linux AppImage with full Docker and disposable `kind`, and supported macOS with Apple Container. **Packaged Windows with Docker Desktop and Kubernetes passed end to end on 2026-08-08** â€” create, routed session, agent message, export/review/apply, restart, and cleanup of both connected and disconnected workspaces.
+- Restrict the Windows credential stores. `packages/web/server/lib/quota/credentials/store.js` and `remote-clients.json` declare `0o700`/`0o600`, which Windows does not implement, so those stores inherit whatever privacy their location happens to have and lose it when the data directory moves. The plugin's `src/windows-acl.js` is the working reference.
+- Preserve the executable bit when snapshotting a Windows project into a Linux container. Git's index carries it (`git ls-files -s`) for a Git project.
+- Stabilize the SSE heartbeat proxy test, which drives real timers with margins smaller than a loaded Windows machine's scheduling jitter.
 - Run exact TestFlight and signed-APK physical-device checks against disposable Windows/Linux servers.
 - Complete interactive review, selection, dry-run, exact atomic apply, conflict, recovery, and cleanup evidence.
 
@@ -1048,10 +1051,10 @@ to the host keeps appearing in later exports of the same workspace. Apply MUST c
 each selected entry against the current host state rather than against the baseline
 alone:
 
-- host matches the artifact baseline — the change is pending and is applied;
-- host already matches the intended outcome — the change was applied earlier, so it is
+- host matches the artifact baseline â€” the change is pending and is applied;
+- host already matches the intended outcome â€” the change was applied earlier, so it is
   reported as skipped and MUST NOT be treated as a conflict or reapplied;
-- host matches neither — an external change occurred and the operation fails as a
+- host matches neither â€” an external change occurred and the operation fails as a
   conflict.
 
 Review results carry the same per-entry classification so the surface can preselect only
@@ -1074,7 +1077,7 @@ sdk.session.create({
 
 The returned/refetched session MUST confirm `Session.workspaceID` before UI navigation. Creating a host-side record with body-only `workspaceID` is not a substitute for remote routing.
 
-OpenChamber MUST durably record the session↔workspace↔project association at creation, at both creation paths, because reviewed OpenCode exposes it on no read path: directory-scoped session lists exclude routed sessions, the `workspace` list parameter is ignored, and session reads omit `workspaceID`. Without the record, a client that did not create the session — or was restarted since — has nothing to group it by, and the session becomes unfindable. The record holds identifiers and the host project directory only, is bounded, and its failure degrades grouping without blocking creation. An upstream fix serializing the persisted `workspaceID` on session reads SHOULD be contributed; OpenCode's session table already stores it.
+OpenChamber MUST durably record the sessionâ†”workspaceâ†”project association at creation, at both creation paths, because reviewed OpenCode exposes it on no read path: directory-scoped session lists exclude routed sessions, the `workspace` list parameter is ignored, and session reads omit `workspaceID`. Without the record, a client that did not create the session â€” or was restarted since â€” has nothing to group it by, and the session becomes unfindable. The record holds identifiers and the host project directory only, is bounded, and its failure degrades grouping without blocking creation. An upstream fix serializing the persisted `workspaceID` on session reads SHOULD be contributed; OpenCode's session table already stores it.
 
 ### 21.2 Continue In Workspace
 
@@ -1088,17 +1091,17 @@ Host continuation uses the same immutable handoff with an exact null workspace b
 
 A workspace is a disposable execution sandbox for one task, not a persistent development
 environment. The snapshot flows in once, at creation; changes flow out only through
-export/review/apply; there is deliberately no mechanism to bring host changes — including
-ones just applied from this very workspace — back into an existing workspace, so after a
+export/review/apply; there is deliberately no mechanism to bring host changes â€” including
+ones just applied from this very workspace â€” back into an existing workspace, so after a
 successful apply the workspace is stale relative to the project and a further export from
-it conflicts with what it itself produced. The productive lifecycle is create → work →
-export/apply → delete.
+it conflicts with what it itself produced. The productive lifecycle is create â†’ work â†’
+export/apply â†’ delete.
 
 Consequences, measured live on 2026-08-08:
 
 - Export and cleanup run through provider operations and MUST work on a workspace whose
   sync connection is absent. A disconnected workspace remains fully usable for
-  review/apply/delete — a first-try clean deletion of a workspace with a dead sync
+  review/apply/delete â€” a first-try clean deletion of a workspace with a dead sync
   connection is verified behavior, not an accident.
 - Reconnecting sync after an application restart is **best-effort, not a lifecycle
   requirement**. Live sync serves only in-workspace session continuation; upstream
@@ -1109,7 +1112,7 @@ Consequences, measured live on 2026-08-08:
   `error`. Products built on this reconnect at their own risk.
 - A restarted application therefore presents an existing workspace as *disconnected,
   state preserved*, with review/apply/delete available, and offers session continuation
-  through a new workspace and the immutable handoff — never by promising a reconnect.
+  through a new workspace and the immutable handoff â€” never by promising a reconnect.
 - Reviewed upstream (`workspace/warp`, `sync/steal`, per-workspace `branch`,
   `timeUsed`, discovery re-sync) is shaped toward persistent session-mobile
   environments. This product intentionally diverges: with an immutable baseline and a
@@ -1146,9 +1149,9 @@ the selection is made against a listing of exactly what will be written.
 **Only changing the Secure Workspace policy requires a second credential.** That
 operation MUST carry a short-lived one-time proof bound to client/user, operation type,
 target project, request-body hash, nonce, and expiration; WebAuthn is preferred with
-password fallback, and replay is rejected. Every other privileged operation —
+password fallback, and replay is rejected. Every other privileged operation â€”
 validating a provider, completing a setup step, creating, reconciling, cleaning up,
-exporting for review, and apply itself — requires the capability and nothing further.
+exporting for review, and apply itself â€” requires the capability and nothing further.
 
 The distinction is what the operation acts on. Everything else acts *within* the
 protections and states what it will do before doing it. Changing the policy acts *on*
@@ -1156,11 +1159,11 @@ them: it can widen the egress allowlist, replace the runtime image, or switch th
 feature off, and it takes effect quietly and stays in effect.
 
 A second credential elsewhere was found to defend against nothing. The workspace network
-is created `--internal`, so a runtime has no route to the host API at all — the agent
+is created `--internal`, so a runtime has no route to the host API at all â€” the agent
 this feature exists to contain cannot reach these endpoints with or without a password.
 A remote caller is refused on scope before credentials are considered. What remained was
 a prompt answered by a person on their own machine, in front of a screen listing what
-they had just asked for, and asked often enough that it stopped being read — which costs
+they had just asked for, and asked often enough that it stopped being read â€” which costs
 more than it defends, because a credential entered without reading is not a decision.
 
 A successful password or passkey ceremony opens a server-side step-up authorization
@@ -1194,7 +1197,7 @@ Secure Workspace settings are mutated only through `POST /api/workspaces/setting
 
 Settings persistence and plugin-entry replacement form one serialized recoverable transaction. Before the first mutation, OpenChamber writes a private prepared journal containing only the prior Secure Workspace field family and reserved entries. Settings and OpenCode config files publish through fsynced same-directory temporary files and atomic rename. Recovery is awaited before OpenCode bootstrap; recovery failure blocks startup. Windows rename exhaustion fails while preserving the live file and never falls back to an in-place copy. The journal is removed only after the complete new state is durable; caught failure or interrupted startup restores the exact prior field family and plugin entries without erasing unrelated configuration.
 
-After recovery, startup reconciliation converges the plugin registration with persisted settings: a missing entry is registered, and an entry whose options no longer equal the currently computed plugin options is transactionally rewritten. The entry materializes policy defaults at save time, so without convergence a later default change — a repinned image digest — never reaches OpenCode on existing installations and new workspaces keep being built from the superseded image.
+After recovery, startup reconciliation converges the plugin registration with persisted settings: a missing entry is registered, and an entry whose options no longer equal the currently computed plugin options is transactionally rewritten. The entry materializes policy defaults at save time, so without convergence a later default change â€” a repinned image digest â€” never reaches OpenCode on existing installations and new workspaces keep being built from the superseded image.
 
 Daily workflow MUST not remain embedded in a settings component. A project/workspace surface provides provider/status badges, create, reconcile, cleanup, start session, reviewed continuation in a workspace or on the host, export, review, apply, and download. Mobile uses the same server contract in a responsive surface.
 
@@ -1204,7 +1207,7 @@ The shield remains a secondary project-scoped management and recovery entrypoint
 
 Workspace list and connection status recover automatically after startup, managed OpenCode restart, reconnect, and runtime switch. A connected provider resource MUST NOT remain at permanent `Unknown status` pending a manual `load workspaces` action. Partial success is represented explicitly: a session or workspace created before a later response/navigation failure is reconciled and offered for continuation or cleanup, never reported only as an undifferentiated create failure that encourages duplicate retries.
 
-The product distinguishes the primary `Start working in workspace` action from advanced handoff directions such as continuing an existing session in a workspace or on the host. Reviewing changes MUST NOT ask for a credential: review is what makes apply safe, and charging for it discourages the step the design depends on. Where a credential is genuinely required — changing the policy — the UX explains the independent Desktop UI password prerequisite before the action, and consecutive changes reuse a still-valid step-up authorization window rather than repeating the ceremony.
+The product distinguishes the primary `Start working in workspace` action from advanced handoff directions such as continuing an existing session in a workspace or on the host. Reviewing changes MUST NOT ask for a credential: review is what makes apply safe, and charging for it discourages the step the design depends on. Where a credential is genuinely required â€” changing the policy â€” the UX explains the independent Desktop UI password prerequisite before the action, and consecutive changes reuse a still-valid step-up authorization window rather than repeating the ceremony.
 
 OpenChamber implements this boundary with `SecureWorkspacesSettings` limited to activation/provider/policy controls and a project-scoped Workspaces surface in desktop web/Electron and hosted/Capacitor mobile navigation. The surface is intentionally hidden in VS Code, resets workspace/export state across runtime and directory changes, preserves same-scope authoritative list/status data on refresh failure, and keeps read/use available when capability-aware remote clients lack admin or host-apply grants.
 

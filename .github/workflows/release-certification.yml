@@ -44,12 +44,13 @@ jobs:
           CERTIFICATION_EVIDENCE_SHA256: ${{ vars.SECURE_WORKSPACE_CERTIFICATION_EVIDENCE_SHA256 }}
         run: |
           set -euo pipefail
-          mode='--allow-incomplete'
+          # The script takes `--release` or nothing; the report-only default needs no flag.
           if [[ '${{ inputs.release_mode || false }}' == 'true' || '${{ github.ref }}' == refs/tags/* ]]; then
-            mode='--release'
+            # Release evidence is immutable, commit-bound, and digest-pinned.
+            node scripts/release-certification.mjs --release
+          else
+            node scripts/release-certification.mjs
           fi
-          # Release evidence is immutable, commit-bound, and digest-pinned.
-          node scripts/release-certification.mjs "$mode"
 
       - name: Run certification script tests
         run: node --test scripts/release-certification.test.mjs

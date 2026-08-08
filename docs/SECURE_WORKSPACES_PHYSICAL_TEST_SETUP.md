@@ -101,6 +101,51 @@ docker run --rm hello-world
 
 ### 5.3 Windows run
 
+**Status: passed end to end on 2026-08-08** (Windows 11, Docker Desktop, disposable `kind`),
+packaged `win-unpacked` against an isolated profile. Кроки нижче — точний рецепт того run.
+
+Два окремі значення вказують на disposable profile, і потрібні обидва:
+`OPENCHAMBER_DATA_DIR` (settings, OpenCode data root, workspace journals, credential stores)
+і Chromium `--user-data-dir` (Electron profile та логи).
+
+```powershell
+$profile = Join-Path $env:TEMP 'openchamber-functional-profile'
+$env:OPENCHAMBER_DATA_DIR = $profile
+Start-Process '…\packages\electron\dist\win-unpacked\OpenChamber.exe' `
+  -ArgumentList "--user-data-dir=`"$profile\chromium`""
+```
+
+| Шлях | Що містить |
+| --- | --- |
+| `$profile\settings.json` | `secureWorkspaces*`, `projects`, `activeProjectId`, `desktopLocalPort`/`desktopLocalClientToken` |
+| `$profile\chromium\logs\main.log` | Electron main log — перше місце, куди дивитись |
+| `$profile\opencode-data\opencode\log\` | Лог managed OpenCode |
+| `$profile\workspace-session-routes\` | Записи маршрутів сесія↔workspace↔project |
+
+Все, що робить UI, доступне через loopback API з `authorization: Bearer <desktopLocalClientToken>`
+(не `x-openchamber-client-token` — він дає 401). `GET /api/workspaces/readiness` — найкорисніший
+одиничний виклик. **Ніколи не редагувати `settings.json` вручну під час роботи застосунку:**
+одного разу це записало BOM і застосунок мовчки скинув усі workspace-налаштування та список проєктів.
+
+Пастки, кожна з яких коштувала годин:
+
+- **`bun run electron:build` ≈ 12 хвилин**, і падає, якщо застосунок запущено (locked
+  `d3dcompiler_47.dll`, повідомлення про це не каже). Запускати detached із `.ps1`, шлях скрипта
+  в `Start-Process -ArgumentList` — **у лапках**. Перед тим як вважати білд розгорнутим, звірити
+  `LastWriteTime` у `resources\app.asar`: одного разу detached-білд тихо не стартував, і старий
+  маркер завершення видав хибний BUILD_OK.
+- **Kubernetes create легітимно триває ~80-120 секунд.** Коротші очікування звітують здоровий
+  workspace як timeout.
+- **Flavour `tar` залежить від порядку PATH.** Git for Windows постачає GNU tar, який читає
+  `C:\path` як `host:path`; те саме приховує `whoami`. Системні бінарники — за абсолютним шляхом.
+- Два `kind`-кластери для isolation-тестування: `kind-openchamber-np` (kindnet, **enforces**
+  NetworkPolicy) і `kind-openchamber-open` (flannel, **не enforces**). Кластер, що приймає
+  NetworkPolicy, не є кластером, що її застосовує — тому enforcement-probe і потрібна на обох.
+- **Тести:** root-скрипта `test` немає. `packages/web` — `npx vitest run`; `packages/ui` —
+  `bun test` (`bun run test` резолвиться в `test.exe` від Git). Частина `packages/web` падає на
+  Windows і на `origin/main` — звіряти з worktree чистого `origin/main`, перш ніж вважати падіння
+  своїм.
+
 1. Install dependencies із frozen lockfile та запустити package-scoped checks.
 2. Побудувати native Windows package через `bun run electron:build`.
 3. Запустити exact installer/package в isolated profile; не використовувати іншу встановлену OpenChamber copy.

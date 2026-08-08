@@ -106,7 +106,7 @@ jobs:
             echo "version_name=$version_name"
             echo "build_number=$build_number"
             echo "release_tag=$release_tag"
-           } >> "$GITHUB_OUTPUT"
+          } >> "$GITHUB_OUTPUT"
 
   ios-simulator-evidence:
     name: iOS Simulator evidence

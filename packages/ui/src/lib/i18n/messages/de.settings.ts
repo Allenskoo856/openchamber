@@ -2450,6 +2450,4 @@ export const settingsDict = {
   'settings.workspaces.handoff.cleanupTarget': 'Verwaiste Sitzung bereinigen',
   'settings.workspaces.handoff.cleanupComplete': 'Die verwaiste Zielsitzung wurde entfernt.',
   'settings.workspaces.handoff.cleanupFailed': 'Die verwaiste Zielsitzung konnte nicht entfernt werden.',
-  'session.workspaceBadge.fallback': 'Isolierter Workspace',
-  'session.workspaceBadge.hint': 'Dieser Chat läuft in einem isolierten Workspace auf {runtime}. Ihre Dateien ändern sich erst, nachdem Sie überprüft und angewendet haben.',
 };
