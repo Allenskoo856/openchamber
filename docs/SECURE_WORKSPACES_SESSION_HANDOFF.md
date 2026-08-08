@@ -138,7 +138,21 @@ message, review, apply, delete.
 
 ### Open work, in the order it matters
 
-1. **Windows credential stores** (`packages/web/server/lib/quota/credentials/store.js`,
+1. **A cold workspace session cannot be found again.** OpenCode exposes no
+   session→workspace link in any read API — measured on 1.18.12: directory-scoped
+   session lists exclude routed sessions entirely, the `?workspace=` list parameter is
+   ignored (returns the same host sessions), and the single-session GET omits
+   `workspaceID` (`directory=/workspace`, `projectID=global` is all it says). The live
+   SSE envelope is the only carrier. Client-side route memory works within one app run;
+   after a restart, or for a session another client created, the sidebar has nothing to
+   attach the session to. The designed fix is an OpenChamber server-owned session-route
+   record (session ↔ workspace ↔ project), written at both creation paths, served to
+   clients, surviving restarts — the ordinary-session journal under
+   `workspace-sessions/` already holds this shape for the primary flow but is
+   principal-bound and 24h-scoped. Upstream, a persisted `workspaceID` on session reads
+   is the real fix and OpenCode's session table already stores it (`sessionWarp` reads
+   `SessionTable.workspace_id`); it is simply not serialized.
+2. **Windows credential stores** (`packages/web/server/lib/quota/credentials/store.js`,
    `remote-clients.json`) declare `0o700`/`0o600`, which Windows does not implement. The
    plugin's `src/windows-acl.js` is the working reference for the fix.
 2. **The executable bit is lost** snapshotting a Windows project into a Linux container.
