@@ -15,10 +15,33 @@ import { getSyncSessionDirectory } from './sync-refs';
  */
 const hostDirectoryBySessionId = new Map<string, string>();
 
+/**
+ * Routes arrive after the components that need them: a restored session resolves its
+ * directory before the sidebar has fetched the server record, and a plain Map gives
+ * consumers no way to notice the late arrival — the Files and Terminal tabs stayed
+ * scoped to nothing until an unrelated re-render. Consumers subscribe to this version
+ * instead, so hydration re-renders exactly the components that asked.
+ */
+let version = 0;
+const listeners = new Set<() => void>();
+const notify = (): void => {
+  version += 1;
+  for (const listener of listeners) listener();
+};
+
+export const subscribeSessionHostDirectories = (listener: () => void): (() => void) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+
+export const getSessionHostDirectoriesVersion = (): number => version;
+
 export const rememberSessionHostDirectory = (sessionId: string, directory: string | null | undefined): void => {
   const normalized = normalizePath(directory ?? null);
   if (!sessionId || !normalized) return;
+  if (hostDirectoryBySessionId.get(sessionId) === normalized) return;
   hostDirectoryBySessionId.set(sessionId, normalized);
+  notify();
 };
 
 export const getSessionHostDirectory = (sessionId: string): string | null => (
@@ -52,5 +75,6 @@ export const hydrateSessionHostDirectories = (
     hostDirectoryBySessionId.set(route.sessionID, normalized);
     changed = true;
   }
+  if (changed) notify();
   return changed;
 };

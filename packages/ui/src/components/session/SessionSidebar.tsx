@@ -9,7 +9,7 @@ import { formatDirectoryName, cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useChildStoreManager } from '@/sync/sync-context';
 import { getAllSyncSessionMap, getSyncSessionDirectory } from '@/sync/sync-refs';
-import { getSessionHostDirectory, hydrateSessionHostDirectories } from '@/sync/session-host-directory';
+import { getSessionHostDirectoriesVersion, getSessionHostDirectory, hydrateSessionHostDirectories, subscribeSessionHostDirectories } from '@/sync/session-host-directory';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSync } from '@/sync/use-sync';
 import { SessionPrefetchEffect } from './sidebar/hooks/useSessionPrefetch';
@@ -1089,17 +1089,18 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   // Server-recorded session↔workspace routes are the only durable way to attribute a
   // workspace-routed session to its project: the session record itself names only the
   // container path. Hydrate once per mount; creation-time writes cover the live run.
-  const [sessionRoutesVersion, setSessionRoutesVersion] = React.useState(0);
+  // The version subscription re-buckets ownership whenever routes land, from either
+  // source, no matter which component learned them first.
+  const sessionRoutesVersion = React.useSyncExternalStore(
+    subscribeSessionHostDirectories,
+    getSessionHostDirectoriesVersion,
+    getSessionHostDirectoriesVersion,
+  );
   React.useEffect(() => {
     if (!workspacesAPI?.sessionRoutes) return;
-    let cancelled = false;
     workspacesAPI.sessionRoutes()
-      .then((result) => {
-        if (cancelled) return;
-        if (hydrateSessionHostDirectories(result.routes)) setSessionRoutesVersion((version) => version + 1);
-      })
+      .then((result) => { hydrateSessionHostDirectories(result.routes); })
       .catch(() => { /* grouping degrades to the remaining fallbacks */ });
-    return () => { cancelled = true; };
   }, [workspacesAPI]);
   const githubAuthStatus = useGitHubAuthStore((state) => state.status);
   const githubAuthChecked = useGitHubAuthStore((state) => state.hasChecked);

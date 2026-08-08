@@ -10,7 +10,7 @@ import { isVSCodeRuntime } from "@/lib/desktop"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { reduceGlobalEvent, applyGlobalProject, applyDirectoryEvent, type SessionMaterializationReason } from "./event-reducer"
 import { useGlobalSyncStore } from "./global-sync-store"
-import { getSessionHostDirectory, resolveSessionHostDirectory } from "./session-host-directory"
+import { getSessionHostDirectoriesVersion, getSessionHostDirectory, resolveSessionHostDirectory, subscribeSessionHostDirectories } from "./session-host-directory"
 import {
   ChildStoreManager,
   markDirectorySessionPartChanged,
@@ -2742,10 +2742,14 @@ export function useSession(sessionID?: string | null, directory?: string) {
  */
 export function useSessionDirectory(sessionID?: string | null, directory?: string): string | undefined {
   const session = useSession(sessionID, directory)
+  // Recorded routes can arrive after this hook first answered — a restored session
+  // resolves before the sidebar has fetched them — so subscribe to their version and
+  // re-answer when they land.
+  React.useSyncExternalStore(subscribeSessionHostDirectories, getSessionHostDirectoriesVersion, getSessionHostDirectoriesVersion)
   if (session) return resolveSessionHostDirectory(session) ?? undefined
   // A workspace-routed session is held by no directory child store — OpenCode's
   // scoped lists exclude routed sessions — so there is no record here to resolve.
-  // The recorded route still knows the owning project; without this, the Files and
+  // The recorded route still knows the owning project; without it, the Files and
   // Terminal tabs of a session opened from the sidebar scope to nothing.
   if (sessionID) return getSessionHostDirectory(sessionID) ?? undefined
   return undefined
