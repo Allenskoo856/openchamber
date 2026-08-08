@@ -10,7 +10,7 @@ import { isVSCodeRuntime } from "@/lib/desktop"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { reduceGlobalEvent, applyGlobalProject, applyDirectoryEvent, type SessionMaterializationReason } from "./event-reducer"
 import { useGlobalSyncStore } from "./global-sync-store"
-import { resolveSessionDirectoryKey } from "./session-directory"
+import { resolveSessionHostDirectory } from "./session-host-directory"
 import {
   ChildStoreManager,
   markDirectorySessionPartChanged,
@@ -2743,7 +2743,7 @@ export function useSession(sessionID?: string | null, directory?: string) {
 export function useSessionDirectory(sessionID?: string | null, directory?: string): string | undefined {
   const session = useSession(sessionID, directory)
   if (!session) return undefined
-  return resolveSessionDirectoryKey(session) ?? undefined
+  return resolveSessionHostDirectory(session) ?? undefined
 }
 
 /** Get the SDK client */

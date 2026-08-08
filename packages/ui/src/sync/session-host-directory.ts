@@ -1,4 +1,7 @@
+import type { Session } from '@opencode-ai/sdk/v2';
 import { normalizePath } from '@/lib/pathNormalization';
+import { resolveSessionDirectoryKey } from './session-directory';
+import { getSyncSessionDirectory } from './sync-refs';
 
 /**
  * Which host project directory a workspace-routed session belongs to.
@@ -20,6 +23,21 @@ export const rememberSessionHostDirectory = (sessionId: string, directory: strin
 
 export const getSessionHostDirectory = (sessionId: string): string | null => (
   hostDirectoryBySessionId.get(sessionId) ?? null
+);
+
+/**
+ * The one canonical answer to "which directory on this computer does this session
+ * belong to": the session's own record first, then the creation-time/server-recorded
+ * route, then child-store membership. Every host-side consumer — the Files/Terminal
+ * scope, selection-time directory resolution, sidebar ownership — must give the same
+ * answer, and a consumer that skips a link in this chain goes empty exactly for the
+ * sessions the chain exists for: workspace-routed ones, whose records name only the
+ * container path.
+ */
+export const resolveSessionHostDirectory = (session: Session): string | null => (
+  resolveSessionDirectoryKey(session)
+    ?? getSessionHostDirectory(session.id)
+    ?? normalizePath(getSyncSessionDirectory(session.id))
 );
 
 /** Merges server-recorded routes in; returns whether anything new was learned. */

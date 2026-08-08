@@ -31,6 +31,7 @@ import { getDeferredSafeStorage } from "@/stores/utils/safeStorage"
 import { markPendingUserSendAnimation } from "@/lib/userSendAnimation"
 import { normalizePath } from "@/lib/pathNormalization"
 import { resolveSessionDirectoryKey } from "./session-directory"
+import { getSessionHostDirectory } from "./session-host-directory"
 import { flattenAssistantTextParts } from "@/lib/messages/messageText"
 import { composeForkSessionMessage } from "@/lib/messages/executionMeta"
 import { findLatestUserModelChoice } from "@/lib/messages/userModelChoice"
@@ -451,6 +452,11 @@ const getAuthoritativeSessionDirectory = (sessionId: string): string | null => {
   const target = getAllSyncSessions().find((s) => s.id === sessionId)
   const recordDirectory = target ? resolveSessionDirectoryKey(target) : null
   if (recordDirectory) return normalizePath(recordDirectory)
+  // A workspace-routed session's record resolves to nothing; the route recorded at
+  // creation (or served by the server) is what selection must scope by, or the
+  // Files/Terminal tabs of a session opened from the sidebar go empty.
+  const routedDirectory = getSessionHostDirectory(sessionId)
+  if (routedDirectory) return routedDirectory
   const owningDirectory = getSyncSessionDirectory(sessionId)
   return owningDirectory ? normalizePath(owningDirectory) : null
 }
