@@ -10,7 +10,7 @@ description: Use when changing Secure Workspaces policy, lifecycle, providers, i
 Read the sources that own the touched boundary before editing:
 
 1. `docs/SECURE_WORKSPACES_SPECIFICATION.md` for the authoritative product, security, provider, and release contract.
-2. `docs/SECURE_WORKSPACES_PHYSICAL_TEST_SETUP.md` for guided target-host, packaged-app, provider, physical-mobile, interactive-apply, and cleanup validation.
+2. `docs/SECURE_WORKSPACES.md` for where the work stands, what is proven on which platform, the guided click-through for a platform that has not been covered, and the traps that cost time.
 3. `packages/web/server/lib/workspaces/DOCUMENTATION.md` for the server trust boundary, lifecycle, artifact, apply, and handoff invariants.
 4. `packages/electron/README.md` for plugin staging and packaged-payload verification when Electron dependencies or packaging change.
 5. `../opencode-container-workspace/README.md` when the sibling plugin checkout is available and provider, image, or plugin contracts change.
@@ -28,7 +28,7 @@ Also load every other matching skill. Common combinations are `openchamber-chang
 | Native authority and exact packaged plugin payload | `packages/electron` |
 | Unsupported VS Code behavior | `packages/vscode` |
 | Product and release contract | `docs/SECURE_WORKSPACES_SPECIFICATION.md` |
-| Guided platform and physical validation runbook | `docs/SECURE_WORKSPACES_PHYSICAL_TEST_SETUP.md` |
+| Status, platform runbook, and open work | `docs/SECURE_WORKSPACES.md` |
 
 Keep entrypoints, routes, bridges, and UI thin. Security decisions belong in the owning server or provider boundary.
 

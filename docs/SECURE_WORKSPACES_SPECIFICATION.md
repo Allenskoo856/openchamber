@@ -194,30 +194,12 @@ The implementation includes transactional Docker, Kubernetes, and Apple Containe
 
 Ordinary Secure Workspace session start is server-owned and principal-bound. It uses stable operation identity, deterministic reuse/create, canonical reauthentication for create, routed-session verification, a restart-safe journal, and explicit partial/recovery errors. UI selection between Host and Secure Workspace does not replace those server checks.
 
-### 5.3 Current Automated Validation
+### 5.3 Status, Validation, And Platform Runbook
 
-The current OpenChamber candidate has passed the full workspace build, type-check, and lint; 129 focused workspace server tests; UI regressions for session routing, sidebar ownership, and locale parity; Electron packaging, architecture, and updater tests; mobile helper tests; workflow YAML parsing; and documentation validation. These checks prove their covered code and packaging contracts only.
-
-Current-candidate live Windows Docker and Kubernetes, including interactive apply, passed on 2026-08-08 in the packaged application. Live Apple Container, Linux, iOS, Android, and exact image-digest recertification have not yet run. Simulator/emulator, fixture, packaged startup, and Maestro dry-run results must not be promoted to physical platform or interactive host-apply evidence.
-
-### 5.4 Historical Evidence
-
-The `v0.1.0` plugin/image milestone remains historical evidence for its exact `1.18.4` compatibility matrix only. Tag commit `eedfd5b3a08e99285f3f167c7e7d83799844c03d`, release run `30022813361`, and the signed public runtime/gateway digests recorded in section 15 validated that older matrix. Later historical plugin commit `d9567f00fa5d1c2115fed613d8fe5b9aafe69cbb` and run `30027172196` do not validate the current pin.
-
-Historical evidence must not be used to certify SDK `1.18.12`, the current plugin commit, plugin API/OpenCode `1.18.12`, newly built images, or current native packages.
-
-### 5.5 Remaining Gates And Validation Model
-
-- Publish and certify exact signed runtime/gateway image digests for the current matrix, including both architectures, vulnerability gates, anonymous pulls, Docker, Kubernetes, transport, rollback, reconciliation, and cleanup.
-- Resolve Apple Container managed egress. It remains fail-closed because the current CLI lacks an isolation-capable multi-network primitive for gateway-only egress without direct outbound.
-- Run the remaining guided target-host sessions: native Linux AppImage with full Docker and disposable `kind`, and supported macOS with Apple Container. **Packaged Windows with Docker Desktop and Kubernetes passed end to end on 2026-08-08** â€” create, routed session, agent message, export/review/apply, restart, and cleanup of both connected and disconnected workspaces.
-- Restrict the Windows credential stores. `packages/web/server/lib/quota/credentials/store.js` and `remote-clients.json` declare `0o700`/`0o600`, which Windows does not implement, so those stores inherit whatever privacy their location happens to have and lose it when the data directory moves. The plugin's `src/windows-acl.js` is the working reference.
-- Preserve the executable bit when snapshotting a Windows project into a Linux container. Git's index carries it (`git ls-files -s`) for a Git project.
-- Stabilize the SSE heartbeat proxy test, which drives real timers with margins smaller than a loaded Windows machine's scheduling jitter.
-- Run exact TestFlight and signed-APK physical-device checks against disposable Windows/Linux servers.
-- Complete interactive review, selection, dry-run, exact atomic apply, conflict, recovery, and cleanup evidence.
-
-These runs use an OpenChamber session directly on each target host. The assistant runs commands and validation; the operator handles UAC, reboot, system dialogs, device trust, and UI confirmation. Self-hosted GitHub runners are not required. The complete procedure is `SECURE_WORKSPACES_PHYSICAL_TEST_SETUP.md`.
+Where the current candidate has been validated, what remains, how to test it on a platform
+that has not been covered yet, and the traps that cost time are all recorded in one place:
+`SECURE_WORKSPACES.md`. That document is operational and changes often; this one is the
+contract and changes only when the contract does.
 
 ## 6. OpenCode Upstream Compatibility Contract
 
@@ -1227,155 +1209,11 @@ Every package and release workflow MUST install frozen dependencies, stage the e
 
 The final verifier checks plugin entrypoint, package version, contracts, runtime assets, image references, and exclusion of tests/secrets.
 
-## 26. Validation Matrix
+## 26. Release Readiness
 
-### 26.1 Plugin Unit And Contract Tests
-
-- policy parsing and rejection;
-- metadata and provider-resource identity;
-- recovered control-plane ID verification, immutable ownership, idempotent adoption, export rebinding, and cleanup;
-- public plugin compatibility against pinned OpenCode/plugin versions;
-- ownership and collision checks;
-- process redaction and output bounds;
-- state corruption and concurrent writes;
-- lifecycle journals and rollback provenance;
-- safe snapshot traversal;
-- Git/non-Git artifact generation;
-- auth proxy HTTP/SSE/WebSocket;
-- egress destination policy;
-- provider manifests and commands.
-- generated create-ID fidelity, exact-row compensation ordering and partial cleanup, connected success, explicit error, and provisional timeout responses.
-
-### 26.2 Failure Injection
-
-For every provider create and cleanup step, test command failure, timeout, process kill, malformed output, foreign resource, missing resource, partial resource, cleanup failure, interrupted retry, concurrent operation, and restart recovery.
-
-### 26.3 Docker Live
-
-Validate both image architectures where available, source/baseline isolation, no writable host mount, per-workspace network, no lateral workspace access, blocked direct egress, allowed managed/external proxy egress, blocked private host targets, authenticated HTTP/SSE/WebSocket, stable target, restart/reconcile, export, cleanup, and foreign collision.
-
-### 26.4 Kubernetes Live
-
-Use a pinned CI cluster with a NetworkPolicy-capable CNI and cover RBAC denial, PVC/Secret/rollout failure, policy enforcement, managed gateway, direct-egress denial, port-forward recovery, ingress controller, TLS, controller-only ingress, pod restart, sync restart, export, cleanup, and foreign collision. Local ingress certification uses the separate reachable Colima profile defined in section 14.3; the existing minimal port-forward cluster is not repurposed.
-
-### 26.5 Apple Container Live
-
-Cover host-only network, managed gateway, loopback publish, port collision, authenticated HTTP/SSE/WebSocket, export, system stop/start, target reconciliation, cleanup, and foreign collision.
-
-### 26.6 Artifact And Apply
-
-Cover clean/dirty Git, non-Git, add/modify/delete/rename/binary/mode/symlink, unusual paths, large files, file and hunk selection, duplicate/unknown IDs, wrong workspace/resource/project/directory/generation, expiration, replay, concurrent host edit, conflict, apply failure, rollback failure, process crash, startup recovery, and proof that failed operations leave no partial host changes.
-
-### 26.7 UI And Runtime
-
-Cover navigation, settings persistence, provider validation, list/status/event reconciliation, create/reconcile/cleanup, routed session creation, immutable reviewed handoff, omitted part types, pagination and stale-source rejection, idempotency and timeout recovery, cleanup-required restart recovery, visual review, file/hunk/binary selection, confirmation, expiration/conflicts, admin reauth, mobile layout, runtime switching, and VS Code hidden/unsupported behavior.
-
-### 26.8 Release
-
-Cover plugin tarball and clean consumer, immutable Git pin, registry preflight, public GHCR pulls, per-architecture manifests, exact-digest smoke, image signatures/SBOM/provenance, clean OpenChamber install, all Electron release workflows, hosted web, remote mobile, and the exact compatibility matrix.
-
-Current-candidate certification additionally requires Apple Container and Kubernetes ingress on dedicated local environments plus native iOS, Android, Windows, and Linux packaged-app validation. Historical completion of these gates for another matrix does not satisfy the current candidate.
-
-## 27. Release Gates
-
-### 27.1 Immediate `v0.1.0` Image And Provider Milestone
-
-The image/provider milestone is blocked until all of the following are true:
-
-- public pullable signed multi-arch runtime image;
-- public pullable signed egress gateway image;
-- exact immutable plugin Git commit with verified package payload;
-- green plugin `test`, both `image`, `docker-live`, and `kubernetes-live` jobs at the tagged commit;
-- successful registry preflight proving package creation, public visibility, and unauthenticated pulls without a personal PAT;
-- exact candidate-digest vulnerability scans and smoke before semver promotion;
-- keyless Cosign verification with the expected repository/workflow/tag identity;
-- final runtime and gateway digests recorded as authoritative OpenChamber defaults;
-- exact supported OpenCode/SDK/plugin compatibility matrix;
-- plugin-owned authenticated HTTP/SSE/WebSocket compatibility transport validated against each supported OpenCode version;
-- safe create failure reconciliation;
-- provider cleanup before control-plane deletion;
-- stable recovery identity;
-- restart-recoverable immutable context handoff;
-- explicit sync startup and stable target recovery;
-- no raw patch apply endpoint;
-- no inspect-visible or logged secrets;
-- no metadata trust for sensitive operations;
-- no shared cross-workspace provider network;
-- settings round-trip passes;
-- complete product UI is reachable;
-- start and reviewed workspace/host continuation pass end to end;
-- Git and non-Git export/apply pass;
-- file and hunk selection pass;
-- atomic rollback and crash recovery pass;
-- Docker, Kubernetes, and Apple Container live suites pass;
-- Electron packaged GUI smoke passes;
-- host-admin capability and reauthentication pass;
-- documentation matches released behavior.
-
-Passing this milestone certifies Secure Workspace images/providers and their currently validated OpenChamber integration. It is not the final cross-platform application release.
-
-### 27.2 Deferred Complete Product Release Gates
-
-The complete cross-platform product release additionally requires:
-
-- native iOS package/simulator/device validation;
-- native Android package/emulator/device validation;
-- native Windows package, GUI, process, Docker Desktop, and provider validation;
-- native Linux AppImage, GUI, and provider validation;
-- physical hosted/Capacitor mobile smoke where applicable;
-- release signing and notarization credentials for the platform artifacts that require them;
-- npm trusted publication only when the later npm distribution milestone is activated.
-
-These remain required before claiming a complete cross-platform production release. Platform testing is a guided target-host QA workstream rather than a dependency of ordinary release CI, and passing a local smoke does not automatically promote it to release certification evidence.
-
-Each Windows, Linux, and macOS check runs in an OpenChamber session on the target host against an exact candidate checkout and native package. The assistant owns commands, provider setup, assertions, recovery, and cleanup; the operator owns UAC, reboot, system dialogs, and interactive UI confirmation. Tests use disposable projects and isolated OpenChamber, Chromium, OpenCode, Docker, and Kubernetes profiles. Windows covers Docker Desktop and focused Kubernetes integration; Linux covers direct AppImage execution, full Docker, and disposable `kind`; macOS covers Apple Container without weakening fail-closed managed egress. VM, unpacked package, and automated packaged smoke cannot satisfy target-host or interactive-apply gates.
-
-Physical mobile testing is owner-operated. iOS uses the exact TestFlight version/build delivered by the GitHub-hosted mobile release workflow and installed by the designated operator from a dedicated App Store Connect group containing no other testers. Android uses the exact signed APK after certificate, version, and build verification. Each device receives a distinct fresh single-use pairing URL for a disposable Windows/Linux OpenChamber server. Pairing credentials and device identities are not logged. Maestro proves routed session, change, export dry-run, and destructive cleanup; it does not prove interactive host apply. Self-hosted physical-device runners are not required.
-
-## 28. Implementation Dependency Order
-
-The implementation and certification work is delivered as one release candidate and one non-bypassable release gate. Workstreams may execute concurrently, but no partial workstream changes release status. Completion requires:
-
-1. Keep this specification synchronized with current implementation, exact identities, evidence, and release decisions.
-2. Produce and certify the exact compatibility matrix and immutable image digests.
-3. Complete transport, collision, credential rotation, failure-injection, artifact/apply, and restart-recovery coverage.
-4. Complete hosted web, Electron, iOS, Android, Windows, Linux, physical-device, and platform-signing evidence.
-5. Pass the unified current-commit certification gate and final security review before publication.
-
-## 29. Validation Responsibilities
-
-The implementation reviewer should run all available automated suites, type-checks, lints, builds, package consumer tests, Git/non-Git fixtures, Docker/Colima tests, kind/CNI tests, Apple Container tests, macOS Electron package/GUI smoke, security inspections, and restart/failure-injection scenarios.
-
-### 29.1 Current Contributor Permissions
-
-The current contributor account `yulia-ivashko` is an active `openchamber` organization member with `maintain`, `push`, `workflow`, and pull access to both repositories, but without repository `admin`. No plugin repository ruleset or branch protection was found at the audit time. These rights are sufficient to change code/workflows, push commits, manually dispatch workflows, and normally push the `v0.1.0` tag.
-
-The local `gh` OAuth token currently has `repo`, `workflow`, `read:org`, and `gist`, but not `read:packages` or `write:packages`. Therefore local CLI package listing/manual package administration is unavailable. This does not restrict the separate per-job Actions `GITHUB_TOKEN`.
-
-### 29.2 Secrets And Signing Model
-
-No personal registry secret, Docker Hub account, GHCR password, Cosign private key, or long-lived signing secret is required for the immediate image release:
-
-- GHCR push uses the ephemeral Actions `GITHUB_TOKEN` with `packages: write`;
-- keyless Cosign uses GitHub OIDC with `id-token: write`;
-- SBOM and provenance use build attestations without a private key;
-- public-pull verification runs after registry logout;
-- the CI registry is ephemeral and unauthenticated on runner loopback;
-- local Kubernetes certification uses an ephemeral local CA, not production DNS/TLS credentials;
-- Apple Container installation requires an interactive local administrator authorization, which MUST NOT be stored in GitHub or repository files;
-- npm credentials are not required while npm publication remains deferred.
-
-### 29.3 Owner Or Administrator Actions
-
-The contributor cannot inspect or change organization-level Actions/package policy; those APIs returned authorization failure without admin rights. An organization owner or package administrator is needed only if registry preflight proves that organization policy blocks one of the following:
-
-- repository Actions creating `ghcr.io/openchamber/opencode-workspace`;
-- repository Actions creating `ghcr.io/openchamber/workspace-egress-gateway`;
-- either package becoming public;
-- repository-scoped `packages: write` or OIDC signing.
-
-The preferred remedy is a one-time organization/package policy or visibility change. The owner MUST NOT share a personal token or password. A PAT secret is not the default design.
-
-Complete-product gates require owner-provided protected infrastructure or credentials for Apple application signing/notarization, native Windows/Linux release infrastructure, physical mobile devices, and production-like Kubernetes environments. npm organization trusted-publisher setup is required only when npm distribution is activated.
-
-For every owner-run check, contributors MUST provide exact commands, prerequisites, expected results, cleanup steps, and evidence to record.
+A release requires the exact compatibility matrix and immutable image digests to be
+certified together, live provider evidence for every platform the release claims, and a
+security review — evidence is identity-bound and must be recollected after any code,
+dependency, plugin pin, image, or workflow change. Which of those exist today, and what a
+run to produce a missing one looks like, is recorded in `SECURE_WORKSPACES.md`; nothing in
+this document may be read as a claim that a gate has been passed.

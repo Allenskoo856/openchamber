@@ -1,5 +1,5 @@
 # Operator-run fixture, not CI. Nothing invokes Maestro in this repository: the
-# physical-device runbook (docs/SECURE_WORKSPACES_PHYSICAL_TEST_SETUP.md §8) has a
+# physical-device runbook (docs/SECURE_WORKSPACES.md, "Per-platform notes") has a
 # person run `maestro test` against a real device after
 # packages/mobile/scripts/physical-device-smoke.mjs launches the app. A dry run of
 # this flow is explicitly not physical-device or interactive-apply evidence.
