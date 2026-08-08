@@ -196,9 +196,9 @@ Ordinary Secure Workspace session start is server-owned and principal-bound. It 
 
 ### 5.3 Current Automated Validation
 
-The current OpenChamber candidate has passed the full workspace build, type-check, and lint; 77 focused workspace server tests; 6 UI regressions; 8 Electron packaging tests; 19 Electron architecture tests; 18 Electron updater tests; 4 mobile helper tests; release-certification tests; workflow YAML parsing; and documentation validation across 396 pages and 44 sidebar links. These checks prove their covered code and packaging contracts only.
+The current OpenChamber candidate has passed the full workspace build, type-check, and lint; 129 focused workspace server tests; UI regressions for session routing, sidebar ownership, and locale parity; Electron packaging, architecture, and updater tests; mobile helper tests; workflow YAML parsing; and documentation validation. These checks prove their covered code and packaging contracts only.
 
-Current-candidate live Docker, Kubernetes, Apple Container, Windows, Linux, iOS, Android, interactive apply, and exact image-digest recertification have not yet run. Simulator/emulator, fixture, packaged startup, and Maestro dry-run results must not be promoted to physical platform or interactive host-apply evidence.
+Current-candidate live Windows Docker and Kubernetes, including interactive apply, passed on 2026-08-08 in the packaged application. Live Apple Container, Linux, iOS, Android, and exact image-digest recertification have not yet run. Simulator/emulator, fixture, packaged startup, and Maestro dry-run results must not be promoted to physical platform or interactive host-apply evidence.
 
 ### 5.4 Historical Evidence
 
