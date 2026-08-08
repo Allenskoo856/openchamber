@@ -1,0 +1,20 @@
+[12228:0808/023414.312938:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[12228:0808/023414.326211:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[12228:0808/023414.328808:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[12228:0808/023414.329990:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[12228:0808/023414.377795:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+[repro] mode=show-after-load paintDelay=4000ms windowCreated
+[repro] t+140ms dom-ready url=data:text/html;charset=utf-8,%
+[repro] t+143ms did-finish-load url=data:text/html;charset=utf-8,%
+[repro] t+144ms loadURL resolved -> show() (renderer has not painted yet)
+[repro] screen capture t147ms: saved 0000-screen-t147ms.png
+[repro] capture failed (t147ms): UnknownVizError
+[repro] t+147ms capture=FAILED (no frame -> window shows backgroundColor) paintedAt=4142
+[repro] screen capture t4449ms: saved 0001-screen-t4449ms.png
+[repro] t+4449ms capture=0002-t4449ms.png paintedAt=4142
+[repro] screen capture t5336ms: saved 0003-screen-t5336ms.png
+[repro] t+5336ms capture=0004-t5336ms.png paintedAt=4142
+[repro] screen capture t7424ms: saved 0005-screen-t7424ms.png
+[repro] t+7424ms capture=0006-t7424ms.png paintedAt=4142
+[repro] t+13053ms capture=0007-after-paint.png paintedAt=4142
+[repro] done. frames written to /home/runner/work/openchamber/openchamber/repro/black-frames
