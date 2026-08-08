@@ -517,6 +517,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.session.menu.betaBadge': 'beta',
   'sessions.sidebar.session.menu.label': '세션 메뉴',
   'sessions.sidebar.session.untitled': '제목 없는 세션',
+  'sessions.sidebar.session.workspaceRemoved': '워크스페이스가 더 이상 존재하지 않습니다',
   'sessions.sidebar.session.export.nothingToExport': '내보낼 내용 없음',
   'sessions.sidebar.session.export.failedLoadHistory': '전체 세션 기록을 불러오지 못했습니다',
   'sessions.sidebar.session.export.success': '세션 내보냄',

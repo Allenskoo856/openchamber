@@ -1,6 +1,6 @@
 import type { Session } from '@opencode-ai/sdk/v2';
 import { normalizePath } from '@/lib/pathNormalization';
-import { resolveSessionDirectoryKey } from './session-directory';
+import { isWorkspaceRuntimeSessionRecord, resolveSessionDirectoryKey } from './session-directory';
 import { getSyncSessionDirectory } from './sync-refs';
 
 /**
@@ -61,6 +61,17 @@ export const resolveSessionHostDirectory = (session: Session): string | null => 
   resolveSessionDirectoryKey(session)
     ?? getSessionHostDirectory(session.id)
     ?? normalizePath(getSyncSessionDirectory(session.id))
+);
+
+/**
+ * A phantom: a session that reports working inside a workspace container while nothing
+ * on this computer can say which project or workspace it belonged to — no resolvable
+ * record, no recorded route, no store membership. Its workspace is gone, or the session
+ * predates the route record. The transcript is still readable, but Files and Terminal
+ * have nothing to scope to, so the sidebar marks the session instead of pretending.
+ */
+export const isPhantomWorkspaceSession = (session: Session): boolean => (
+  isWorkspaceRuntimeSessionRecord(session) && resolveSessionHostDirectory(session) === null
 );
 
 /** Merges server-recorded routes in; returns whether anything new was learned. */

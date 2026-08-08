@@ -517,6 +517,7 @@ export const dict: Record<I18nKey, string> = {
   "sessions.sidebar.session.menu.betaBadge": "бета-версія",
   "sessions.sidebar.session.menu.label": "Меню сесії",
   "sessions.sidebar.session.untitled": "Сесія без назви",
+  "sessions.sidebar.session.workspaceRemoved": "Воркспейсу більше немає",
   "sessions.sidebar.session.export.nothingToExport": "Нічого для експорту",
   "sessions.sidebar.session.export.failedLoadHistory": "Не вдалося завантажити повну історію сесії",
   "sessions.sidebar.session.export.success": "Сесія експортовано",

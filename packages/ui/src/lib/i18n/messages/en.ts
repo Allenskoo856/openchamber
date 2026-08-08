@@ -516,6 +516,7 @@ export const dict = {
   'sessions.sidebar.session.menu.betaBadge': 'beta',
   'sessions.sidebar.session.menu.label': 'Session menu',
   'sessions.sidebar.session.untitled': 'Untitled Session',
+  'sessions.sidebar.session.workspaceRemoved': 'Workspace no longer exists',
   'sessions.sidebar.session.export.nothingToExport': 'Nothing to export',
   'sessions.sidebar.session.export.failedLoadHistory': 'Failed to load the complete session history',
   'sessions.sidebar.session.export.success': 'Session exported',

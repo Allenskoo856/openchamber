@@ -352,6 +352,7 @@ export const dict = {
   'sessions.sidebar.session.menu.betaBadge': 'bêta',
   'sessions.sidebar.session.menu.label': 'Menu des sessions',
   'sessions.sidebar.session.untitled': 'Session sans titre',
+  'sessions.sidebar.session.workspaceRemoved': "L'espace de travail n'existe plus",
   'sessions.sidebar.session.export.nothingToExport': 'Rien à exporter',
   'sessions.sidebar.session.export.failedLoadHistory': 'Impossible de charger l’historique complet de la session',
   'sessions.sidebar.session.export.success': 'Session exportée',

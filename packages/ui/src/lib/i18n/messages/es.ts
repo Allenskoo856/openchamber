@@ -517,6 +517,7 @@ export const dict: Record<I18nKey, string> = {
   "sessions.sidebar.session.menu.betaBadge": "beta",
   "sessions.sidebar.session.menu.label": "Menú de sesión",
   "sessions.sidebar.session.untitled": "Sesión sin título",
+  "sessions.sidebar.session.workspaceRemoved": "El workspace ya no existe",
   "sessions.sidebar.session.export.nothingToExport": "No hay nada para exportar",
   "sessions.sidebar.session.export.failedLoadHistory": "No se pudo cargar el historial completo de la sesión",
   "sessions.sidebar.session.export.success": "Sesión exportada",

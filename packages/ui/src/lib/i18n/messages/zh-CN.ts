@@ -517,6 +517,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.session.menu.betaBadge': '测试版',
   'sessions.sidebar.session.menu.label': '会话菜单',
   'sessions.sidebar.session.untitled': '未命名会话',
+  'sessions.sidebar.session.workspaceRemoved': '工作区已不存在',
   'sessions.sidebar.session.export.nothingToExport': '没有可导出的内容',
   'sessions.sidebar.session.export.failedLoadHistory': '无法加载完整的会话历史记录',
   'sessions.sidebar.session.export.success': '会话已导出',

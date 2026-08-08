@@ -517,6 +517,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.session.menu.betaBadge': 'ベータ',
   'sessions.sidebar.session.menu.label': 'セッションメニュー',
   'sessions.sidebar.session.untitled': '無題のセッション',
+  'sessions.sidebar.session.workspaceRemoved': 'ワークスペースは存在しません',
   'sessions.sidebar.session.export.nothingToExport': 'エクスポートするものがありません',
   'sessions.sidebar.session.export.failedLoadHistory': 'セッション履歴全体を読み込めませんでした',
   'sessions.sidebar.session.export.success': 'セッションをエクスポートしました',

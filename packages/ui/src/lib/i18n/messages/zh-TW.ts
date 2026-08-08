@@ -530,6 +530,7 @@ export const dict: Record<I18nKey, string> = {
   'sessions.sidebar.session.menu.betaBadge': 'beta',
   'sessions.sidebar.session.menu.label': '會話選單',
   'sessions.sidebar.session.untitled': '未命名會話',
+  'sessions.sidebar.session.workspaceRemoved': '工作區已不存在',
   'sessions.sidebar.session.export.nothingToExport': '沒有可匯出的內容',
   'sessions.sidebar.session.export.failedLoadHistory': '無法載入完整的工作階段記錄',
   'sessions.sidebar.session.export.success': '會話已匯出',

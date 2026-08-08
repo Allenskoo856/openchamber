@@ -54,6 +54,12 @@ function isWorkspaceRuntimePath(value: string | null): boolean {
  * seen bootstrapping an instance for `C:\workspace` purely because such sessions existed
  * in the list. Paths are converted at the transport boundary, and this is that boundary.
  */
+/** Whether a session record reports working inside a workspace container. */
+export function isWorkspaceRuntimeSessionRecord(session: Session): boolean {
+  const record = session as SessionDirectoryFields;
+  return isWorkspaceRuntimePath(normalizePath(record.directory ?? null));
+}
+
 export function resolveSessionDirectoryKey(session: Session): string | null {
   const record = session as SessionDirectoryFields;
   const worktree = ownedWorktree(record);
