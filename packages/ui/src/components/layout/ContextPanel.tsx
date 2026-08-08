@@ -2249,6 +2249,7 @@ export const ContextPanel: React.FC = () => {
   const openContextSurface = useUIStore((state) => state.openContextSurface);
   const toggleContextPanelExpanded = useUIStore((state) => state.toggleContextPanelExpanded);
   const setContextPanelWidth = useUIStore((state) => state.setContextPanelWidth);
+  const setContextPanelTabTargetPath = useUIStore((state) => state.setContextPanelTabTargetPath);
   const setActiveContextPanelTab = useUIStore((state) => state.setActiveContextPanelTab);
   const reorderContextPanelTabs = useUIStore((state) => state.reorderContextPanelTabs);
   const setSelectedFilePath = useFilesViewTabsStore((state) => state.setSelectedPath);
@@ -3054,15 +3055,21 @@ export const ContextPanel: React.FC = () => {
           >
             <React.Suspense fallback={null}>
               <DiffView
-                // Expanded review shows the file list beside the diff (VS Code-style).
-                // Collapsed / narrow keeps a single focused diff pane.
-                hideStackedFileSidebar={!isExpanded}
+                // Context-panel review: sessions stay left; changed files sit in a
+                // horizontal strip above a single focused diff (not a second
+                // vertical Files column stacked over accordion diffs).
+                hideStackedFileSidebar
+                horizontalFileStrip
                 stackedDefaultCollapsedAll
                 pinSelectedFileHeaderToTopOnNavigate
                 showOpenInEditorAction
                 diffScope={tab.diffScope ?? (tab.stagedDiff ? 'staged' : 'working')}
                 onDiffScopeChange={handleDiffScopeChange}
                 targetFilePath={tab.targetPath}
+                onActiveFileChange={(path) => {
+                  if (!directoryKey) return;
+                  setContextPanelTabTargetPath(directoryKey, tab.id, path);
+                }}
                 flushContent
               />
             </React.Suspense>
