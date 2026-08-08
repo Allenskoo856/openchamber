@@ -50,6 +50,23 @@ describe('directory of a session routed into a workspace', () => {
     expect(resolveSessionDirectoryKey(sessionLike({ id: 's1', directory: 'C:/workspace' }))).toBe('C:/workspace');
   });
 
+  test('treats the global placeholder project and its "/" worktree as no directory at all', () => {
+    // OpenCode's "global" project reports worktree "/" — a spelling of "nowhere".
+    // Taking it at face value made a routed session resolve to the filesystem root,
+    // which no project owns, so the sidebar filter dropped it before ownership could
+    // seat it from the recorded route.
+    expect(resolveSessionDirectoryKey(sessionLike({
+      id: 's1',
+      directory: '/workspace',
+      project: { id: 'global', worktree: '/' },
+    }))).toBeNull();
+    expect(resolveSessionDirectoryKey(sessionLike({
+      id: 's1',
+      directory: '/workspace',
+      project: { id: 'proj_1', worktree: '/' },
+    }))).toBeNull();
+  });
+
   test('keeps using the session directory for work that runs on this computer', () => {
     const session = sessionLike({ id: 's1', directory: 'C:/Users/me/project', project: { worktree: 'C:/Users/me/other' } });
 

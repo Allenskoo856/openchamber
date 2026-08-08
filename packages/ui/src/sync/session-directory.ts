@@ -3,9 +3,25 @@ import { normalizePath } from '@/lib/pathNormalization';
 
 type SessionDirectoryFields = Session & {
   directory?: string | null;
-  project?: { worktree?: string | null } | null;
+  project?: { id?: string | null; worktree?: string | null } | null;
   workspaceID?: string | null;
 };
+
+/**
+ * The worktree a session's project record can vouch for, or null.
+ *
+ * OpenCode's placeholder "global" project reports `worktree: "/"` — the filesystem
+ * root is a spelling of "nowhere", not a directory a session can belong to on this
+ * computer. Sessions routed into a secure workspace arrive under that placeholder, and
+ * taking "/" at face value sent the sidebar filter looking for a project that owns the
+ * filesystem root and the status poller asking OpenCode about directory "/". No real
+ * project roots at "/" either — the workspace plugin refuses to snapshot one.
+ */
+function ownedWorktree(record: SessionDirectoryFields): string | null {
+  if (record.project?.id === 'global') return null;
+  const worktree = normalizePath(record.project?.worktree ?? null);
+  return worktree === '/' ? null : worktree;
+}
 
 /**
  * Where a secure workspace mounts the project it is working on. Every workspace uses the
@@ -40,7 +56,7 @@ function isWorkspaceRuntimePath(value: string | null): boolean {
  */
 export function resolveSessionDirectoryKey(session: Session): string | null {
   const record = session as SessionDirectoryFields;
-  const worktree = normalizePath(record.project?.worktree ?? null);
+  const worktree = ownedWorktree(record);
   if (typeof record.workspaceID === 'string' && record.workspaceID) return worktree;
   const reported = normalizePath(record.directory ?? null);
   if (isWorkspaceRuntimePath(reported)) return worktree;
