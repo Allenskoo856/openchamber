@@ -10,7 +10,7 @@ import { isVSCodeRuntime } from "@/lib/desktop"
 import { isMobileSurfaceRuntime } from "@/lib/runtimeSurface"
 import { reduceGlobalEvent, applyGlobalProject, applyDirectoryEvent, type SessionMaterializationReason } from "./event-reducer"
 import { useGlobalSyncStore } from "./global-sync-store"
-import { resolveSessionHostDirectory } from "./session-host-directory"
+import { getSessionHostDirectory, resolveSessionHostDirectory } from "./session-host-directory"
 import {
   ChildStoreManager,
   markDirectorySessionPartChanged,
@@ -2742,8 +2742,13 @@ export function useSession(sessionID?: string | null, directory?: string) {
  */
 export function useSessionDirectory(sessionID?: string | null, directory?: string): string | undefined {
   const session = useSession(sessionID, directory)
-  if (!session) return undefined
-  return resolveSessionHostDirectory(session) ?? undefined
+  if (session) return resolveSessionHostDirectory(session) ?? undefined
+  // A workspace-routed session is held by no directory child store — OpenCode's
+  // scoped lists exclude routed sessions — so there is no record here to resolve.
+  // The recorded route still knows the owning project; without this, the Files and
+  // Terminal tabs of a session opened from the sidebar scope to nothing.
+  if (sessionID) return getSessionHostDirectory(sessionID) ?? undefined
+  return undefined
 }
 
 /** Get the SDK client */
