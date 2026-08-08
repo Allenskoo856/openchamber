@@ -6,6 +6,7 @@ import { getReviewTransferDirection, type ReviewTransferDirection } from '@/lib/
 import { getOriginalSessionID, getReviewSessionID } from '@/lib/sessionReviewMetadata';
 import { normalizePath } from '@/lib/pathNormalization';
 import { raiseSessionOrderingBaselines } from '@/sync/session-ordering';
+import { resolveSessionDirectoryKey } from '@/sync/session-directory';
 import { mapWithConcurrency } from '@/lib/concurrency';
 
 type GlobalSessionsStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -87,15 +88,19 @@ const restoreConfirmedWorkspaceRoutes = (sessions: Session[]): Session[] => {
   return changed ? next : sessions;
 };
 
-export const resolveGlobalSessionDirectory = (session: Session): string | null => {
-  const record = session as Session & {
-    directory?: string | null;
-    project?: { worktree?: string | null } | null;
-  };
-
-  return normalizePath(record.directory ?? null)
-    ?? normalizePath(record.project?.worktree ?? null);
-};
+/**
+ * The directory on this computer that a global session record belongs to.
+ *
+ * Every consumer of this value is host-side — the sidebar's known-directory filter,
+ * the tray, auto-cleanup, directory resolution fallbacks — so the workspace-routed
+ * container path `/workspace` must never come out of it: returned raw, it made the
+ * sidebar filter drop routed sessions as belonging to an unknown directory before
+ * ownership could attribute them. The canonical resolver converts it to the owning
+ * worktree, or to null, which callers already treat as "unknown".
+ */
+export const resolveGlobalSessionDirectory = (session: Session): string | null => (
+  resolveSessionDirectoryKey(session)
+);
 
 export const mergeSessionDirectoryMetadata = (incoming: Session, existing?: Session | null): Session => {
   const incomingParentID = (incoming as Session & { parentID?: string | null }).parentID;
