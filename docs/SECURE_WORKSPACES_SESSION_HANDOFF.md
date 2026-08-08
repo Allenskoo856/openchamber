@@ -150,7 +150,16 @@ message, review, apply, delete.
    the persisted `workspaceID` on session reads is still the real fix and OpenCode's
    session table already stores it (`sessionWarp` reads `SessionTable.workspace_id`);
    contribute it.
-2. **Windows credential stores** (`packages/web/server/lib/quota/credentials/store.js`,
+2. **Phantom workspace sessions deserve a marker, not a hiding place.** A session with
+   `directory=/workspace` and no recorded route is a transcript whose workspace no
+   longer exists — it now passes the sidebar filter (the old invisibility was an
+   accident of the raw-path bug) and renders with nothing to scope Files/Terminal to.
+   The designed treatment: a muted "workspace no longer exists" badge in the sidebar,
+   session opens read-only-ish, tabs stay on the active project. Predicate is exact
+   (`/workspace` + no route); the work is the badge, a locale key in **all ten
+   dictionaries** (the German key-parity lesson), and a test. Until then such leftovers
+   can simply be deleted — sixteen were, on 2026-08-08.
+3. **Windows credential stores** (`packages/web/server/lib/quota/credentials/store.js`,
    `remote-clients.json`) declare `0o700`/`0o600`, which Windows does not implement. The
    plugin's `src/windows-acl.js` is the working reference for the fix.
 2. **The executable bit is lost** snapshotting a Windows project into a Linux container.
