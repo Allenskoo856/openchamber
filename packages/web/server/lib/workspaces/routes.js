@@ -15,6 +15,22 @@ import { createWorkspaceSessionHandoff, WorkspaceHandoffJournal } from './sessio
 import { OrdinarySessionJournal, isUpstreamCreateWaitTimeout, startOrdinaryWorkspaceSession } from './ordinary-session-start.js';
 import { WorkspaceSessionRouteStore } from './session-routes.js';
 import { workspaceSetupSteps } from './setup-steps.js';
+import { createWorkspaceAuthorization } from './authorization.js';
+import { createSettingsTransaction } from './settings-transaction.js';
+import {
+  SECURE_WORKSPACE_PROVIDERS,
+  atomicWritePrivateJson,
+  authoritativeIdentity,
+  createCompatibilityResult,
+  isolationVerdict,
+  loadOpenCodeWorkspace,
+  loadWorkspaceOperationsFactory,
+  platformProviders,
+  reauthBodyHash,
+  safeErrorMessage,
+  verifiedAuthoritativeWorkspace,
+  verifiedCleanupWorkspace,
+} from './identity.js';
 
 const WORKSPACE_ADAPTER_PROBE_TIMEOUT_MS = 10_000;
 const WORKSPACE_CREATE_STATUS_REQUEST_TIMEOUT_MS = 3_000;
@@ -26,7 +42,6 @@ const WORKSPACE_CREATE_STATUS_POLL_INTERVAL_MS = 250;
 // moment the workspace reports connected, so a longer ceiling only buys patience.
 const WORKSPACE_CREATE_STATUS_MAX_ATTEMPTS = 240;
 const WORKSPACE_PLUGIN_RESOURCE_PATH = path.join('opencode-container-workspace', 'src', 'plugin.js');
-const SECURE_WORKSPACE_PROVIDERS = new Set(['docker', 'kubernetes', 'apple-container']);
 
 export function resolveWorkspacePluginSpec(options = {}) {
   const env = options.env ?? process.env;
@@ -40,189 +55,6 @@ export function resolveWorkspacePluginSpec(options = {}) {
   const unpackedCandidate = resolved.replace(/\.asar([/\\])/, '.asar.unpacked$1');
   if (unpackedCandidate !== resolved && fs.existsSync(unpackedCandidate)) return unpackedCandidate;
   throw new Error('Secure workspace plugin is inside app.asar and no unpacked plugin resource is available');
-}
-
-async function loadWorkspaceOperationsFactory() {
-  try {
-    const operationsSpecifier = `${WORKSPACE_PLUGIN_PACKAGE}/operations`;
-    const module = await import(/* @vite-ignore */ operationsSpecifier);
-    if (typeof module.createWorkspaceProviderOperations !== 'function') throw new Error('operations factory is missing');
-    return module.createWorkspaceProviderOperations;
-  } catch (error) {
-    throw Object.assign(new Error(`Secure workspace provider operations are unavailable in the pinned plugin package: ${safeErrorMessage(error, 'incompatible package')}`), { statusCode: 503 });
-  }
-}
-
-function safeErrorMessage(error, fallback) {
-  const message = error instanceof Error
-    ? error.message
-    : typeof error?.data?.message === 'string'
-      ? error.data.message
-      : typeof error?.message === 'string'
-        ? error.message
-        : fallback;
-  return message
-    .replace(/(OPENCHAMBER_WORKSPACE_AUTH_TOKEN=)[^\s]+/g, '$1[redacted]')
-    .replace(/(x-openchamber-workspace-token[:=]\s*)[^\s]+/gi, '$1[redacted]')
-    .replace(/(token[:=]\s*)[A-Za-z0-9._~+/-]{16,}/gi, '$1[redacted]');
-}
-
-function reauthBodyHash(payload) {
-  const canonicalize = (value) => {
-    if (Array.isArray(value)) return value.map(canonicalize);
-    if (!value || typeof value !== 'object') return value;
-    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
-  };
-  return crypto.createHash('sha256').update(JSON.stringify(canonicalize(payload))).digest('hex');
-}
-
-async function atomicWritePrivateJson(file, value) {
-  const directory = path.dirname(file);
-  const temporary = path.join(directory, `.${path.basename(file)}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`);
-  await fs.promises.mkdir(directory, { recursive: true, mode: 0o700 });
-  let handle;
-  try {
-    handle = await fs.promises.open(temporary, 'wx', 0o600);
-    await handle.writeFile(JSON.stringify(value), 'utf8');
-    await handle.sync();
-    await handle.close();
-    handle = null;
-    await fs.promises.rename(temporary, file);
-    await fs.promises.chmod(file, 0o600);
-    try {
-      const directoryHandle = await fs.promises.open(directory, 'r');
-      try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
-    } catch {
-      // Directory fsync is not supported by every platform/filesystem.
-    }
-  } catch (error) {
-    if (handle) await handle.close().catch(() => {});
-    await fs.promises.rm(temporary, { force: true }).catch(() => {});
-    throw error;
-  }
-}
-
-const ISOLATION_VERDICTS = new Set(['enforced', 'not-enforced', 'inconclusive']);
-
-/**
- * The verdict of an earlier isolation probe, which the provider carries forward because
- * the probe itself is too slow to run on a readiness check. Read as a field: matching on
- * diagnostic wording silently lost every passing verdict, which carries no diagnostics.
- */
-function isolationVerdict(result) {
-  const verdict = result?.isolation?.verdict;
-  return ISOLATION_VERDICTS.has(verdict) ? { verdict } : null;
-}
-
-function platformProviders() {
-  const providers = ['docker', 'kubernetes'];
-  if (process.platform === 'darwin') providers.push('apple-container');
-  return providers;
-}
-
-function createCompatibilityResult({ configured, spec, adapterProbe, boundary }) {
-  const adapterKinds = adapterProbe.adapters.map((adapter) => adapter?.kind ?? adapter?.id ?? adapter?.type).filter(Boolean);
-  const active = adapterProbe.ok && adapterKinds.some((kind) => SECURE_WORKSPACE_PROVIDERS.has(kind));
-  if (boundary?.supported === false) {
-    return {
-      configured,
-      active: false,
-      supported: false,
-      adapterKinds,
-      spec,
-      status: configured ? 'pending-activation' : 'not-configured',
-      error: boundary.error,
-      diagnostics: boundary.diagnostics ?? [],
-      handoffSupported: false,
-      platform: process.platform,
-      platformProviders: platformProviders(),
-    };
-  }
-  return {
-    configured,
-    active,
-    supported: adapterProbe.status !== 404 && adapterProbe.status !== 501,
-    adapterKinds,
-    spec,
-    status: active ? 'active' : configured ? 'pending-activation' : 'not-configured',
-    error: adapterProbe.error,
-    diagnostics: boundary?.diagnostics ?? [],
-    handoffSupported: true,
-    platform: process.platform,
-    platformProviders: platformProviders(),
-  };
-}
-
-async function loadOpenCodeWorkspace({ id, directory, buildOpenCodeUrl, getOpenCodeAuthHeaders, createClient = createOpencodeClient }) {
-  const client = createClient({
-    baseUrl: buildOpenCodeUrl('/', '').replace(/\/$/, ''),
-    directory: directory || undefined,
-    headers: getOpenCodeAuthHeaders(),
-  });
-  const response = await client.experimental.workspace.list(directory ? { directory } : undefined);
-  if (response?.error) throw new Error('Failed to list OpenCode workspaces');
-  if (!Array.isArray(response?.data)) throw new Error('OpenCode returned an invalid workspace list');
-  const workspace = response.data.find((item) => item?.id === id);
-  if (!workspace) throw Object.assign(new Error('Workspace not found'), { statusCode: 404 });
-  return workspace;
-}
-
-function authoritativeIdentity(workspace) {
-  if (!workspace || typeof workspace !== 'object' || typeof workspace.id !== 'string' || !workspace.id || typeof workspace.projectID !== 'string' || !workspace.projectID || !SECURE_WORKSPACE_PROVIDERS.has(workspace.type)) {
-    throw Object.assign(new Error('Workspace record has invalid authoritative identity'), { statusCode: 409 });
-  }
-  const metadata = workspace.extra;
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata) || metadata.version !== 1 || metadata.provider !== workspace.type || metadata.controlPlaneWorkspaceID !== workspace.id || metadata.projectID !== workspace.projectID || typeof metadata.providerResourceID !== 'string' || !metadata.providerResourceID) {
-    throw Object.assign(new Error('Workspace metadata does not match the authoritative workspace record'), { statusCode: 409 });
-  }
-  return {
-    controlPlaneWorkspaceID: workspace.id,
-    providerResourceID: metadata.providerResourceID,
-    projectID: workspace.projectID,
-    provider: workspace.type,
-  };
-}
-
-function recoverableIdentityMismatch(workspace) {
-  const metadata = workspace?.extra;
-  return Boolean(workspace && typeof workspace.id === 'string' && workspace.id
-    && typeof workspace.projectID === 'string' && workspace.projectID
-    && SECURE_WORKSPACE_PROVIDERS.has(workspace.type)
-    && metadata && typeof metadata === 'object' && !Array.isArray(metadata)
-    && metadata.version === 1 && metadata.provider === workspace.type
-    && metadata.projectID === workspace.projectID
-    && typeof metadata.providerResourceID === 'string' && metadata.providerResourceID
-    && typeof metadata.controlPlaneWorkspaceID === 'string' && metadata.controlPlaneWorkspaceID
-    && metadata.controlPlaneWorkspaceID !== workspace.id);
-}
-
-async function verifiedAuthoritativeWorkspace(workspace, operations) {
-  try {
-    authoritativeIdentity(workspace);
-    return workspace;
-  } catch (error) {
-    if (!recoverableIdentityMismatch(workspace) || typeof operations?.adoptWorkspace !== 'function') throw error;
-    const metadata = workspace.extra;
-    const adopted = await operations.adoptWorkspace(workspace);
-    const identity = authoritativeIdentity(adopted);
-    if (adopted.id !== workspace.id || identity.providerResourceID !== metadata.providerResourceID || identity.projectID !== metadata.projectID || identity.provider !== metadata.provider) {
-      throw Object.assign(new Error('Workspace recovery operation returned a mismatched identity'), { statusCode: 409 });
-    }
-    return adopted;
-  }
-}
-
-// Cleanup verification tolerates a control-plane ID drift without requiring a healthy
-// adoption: a degraded workspace must remain deletable, and the identity drift is
-// resolved by the plugin operations layer against persisted provider state.
-function verifiedCleanupWorkspace(workspace) {
-  try {
-    authoritativeIdentity(workspace);
-    return workspace;
-  } catch (error) {
-    if (!recoverableIdentityMismatch(workspace)) throw error;
-    return workspace;
-  }
 }
 
 export function registerWorkspaceRoutes(app, dependencies) {
@@ -265,210 +97,26 @@ export function registerWorkspaceRoutes(app, dependencies) {
   const operationJournal = handoffJournal ?? new WorkspaceHandoffJournal({ rootDirectory: path.join(openchamberDataDir, 'workspace-handoffs') });
   const ordinarySessionJournal = new OrdinarySessionJournal({ rootDirectory: path.join(openchamberDataDir, 'workspace-sessions') });
   const sessionRouteStore = new WorkspaceSessionRouteStore({ rootDirectory: path.join(openchamberDataDir, 'workspace-session-routes') });
-  const settingsTransactionFile = path.join(openchamberDataDir, 'workspace-settings-transaction.json');
   let settingsMutationQueue = Promise.resolve();
-
   const resolvedWorkspacePluginSpec = () => workspacePluginSpec ?? resolvePluginSpec();
-  const workspacePluginEntries = (pluginSpec) => listPluginEntries(null).filter((entry) => isWorkspacePluginEntry(entry, pluginSpec));
-  const restoreWorkspaceConfiguration = async ({ previousSettings, previousEntries, pluginSpec }) => {
-    await restoreSettingsFields(previousSettings, 'secureWorkspaces');
-    for (const entry of workspacePluginEntries(pluginSpec)) deletePluginEntry(entry.id, null);
-    for (const entry of previousEntries) {
-      createPluginEntry({ spec: entry.spec, scope: entry.scope, options: entry.options }, null);
-    }
-  };
-  const clearSettingsTransaction = async () => {
-    await fs.promises.rm(settingsTransactionFile, { force: true });
-    try {
-      const directoryHandle = await fs.promises.open(path.dirname(settingsTransactionFile), 'r');
-      try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
-    } catch {
-      // Directory fsync is not supported by every platform/filesystem.
-    }
-  };
-  const recoverSettingsTransaction = async () => {
-    let raw;
-    try {
-      raw = await fs.promises.readFile(settingsTransactionFile, 'utf8');
-    } catch (error) {
-      if (error?.code === 'ENOENT') return;
-      throw error;
-    }
-    let transaction;
-    try {
-      transaction = JSON.parse(raw);
-    } catch {
-      throw new Error('Secure Workspace settings transaction journal is corrupt');
-    }
-    if (!transaction || transaction.version !== 1 || transaction.phase !== 'prepared') {
-      throw new Error('Secure Workspace settings transaction journal is invalid');
-    }
-    if (!transaction.previousSettings || typeof transaction.previousSettings !== 'object' || !Array.isArray(transaction.previousEntries) || typeof transaction.pluginSpec !== 'string' || !transaction.pluginSpec) {
-      throw new Error('Secure Workspace settings transaction journal is invalid');
-    }
-    if (Object.keys(transaction.previousSettings).some((key) => !key.startsWith('secureWorkspaces'))
-      || transaction.previousEntries.some((entry) => !entry || typeof entry !== 'object' || !isWorkspacePluginEntry(entry, transaction.pluginSpec))) {
-      throw new Error('Secure Workspace settings transaction journal is invalid');
-    }
-    await restoreWorkspaceConfiguration(transaction);
-    await clearSettingsTransaction();
-  };
-  const canonicalJson = (value) => JSON.stringify(value, (key, item) => (
-    item && typeof item === 'object' && !Array.isArray(item)
-      ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right)))
-      : item
-  ));
-  /**
-   * Converges the OpenCode plugin registration with what persisted settings say it must
-   * be. Registering a missing entry repairs an interrupted save or a restored profile,
-   * where the persisted flag and the registration contradict each other. Rewriting an
-   * entry whose options differ repairs a quieter drift: the entry materializes the
-   * policy at the moment settings were last saved, so a policy default that moved since
-   * — a repinned image digest — never reached OpenCode, and every new workspace kept
-   * being built from the superseded image while the code pinned the new one. Nothing
-   * else rewrites the entry, so without this the two copies drift apart forever.
-   */
-  const reconcilePluginRegistration = async () => {
-    const persisted = await readSettingsFromDiskMigrated();
-    const settings = readWorkspaceSettings(persisted);
-    if (!settings.enabled) return;
-    const pluginSpec = resolvedWorkspacePluginSpec();
-    const entries = workspacePluginEntries(pluginSpec);
-    const options = buildPluginOptions(settings, { requireComplete: true });
-    if (entries.length === 0) {
-      createPluginEntry({ spec: pluginSpec, scope: 'user', options }, null);
-      console.log('[Secure Workspaces] Registered the workspace plugin, which enabled settings expected and OpenCode did not have');
-      return;
-    }
-    if (entries.length === 1 && entries[0].scope === 'user' && canonicalJson(entries[0].options ?? null) === canonicalJson(options)) return;
-    const transaction = {
-      version: 1,
-      phase: 'prepared',
-      pluginSpec,
-      previousSettings: Object.fromEntries(Object.entries(persisted).filter(([key]) => key.startsWith('secureWorkspaces'))),
-      previousEntries: entries.map((entry) => ({ spec: entry.spec, scope: entry.scope, options: entry.options })),
-    };
-    await atomicWritePrivateJson(settingsTransactionFile, transaction);
-    try {
-      for (const entry of entries) deletePluginEntry(entry.id, null);
-      createPluginEntry({ spec: pluginSpec, scope: 'user', options }, null);
-      await clearSettingsTransaction();
-      console.log('[Secure Workspaces] Rewrote the workspace plugin registration, whose options had fallen behind the current policy');
-    } catch (error) {
-      await restoreWorkspaceConfiguration(transaction);
-      await clearSettingsTransaction();
-      throw error;
-    }
-  };
+  const {
+    settingsTransactionFile,
+    settingsRecoveryPromise,
+    workspacePluginEntries,
+    restoreWorkspaceConfiguration,
+    clearSettingsTransaction,
+  } = createSettingsTransaction({
+    openchamberDataDir,
+    readSettingsFromDiskMigrated,
+    restoreSettingsFields,
+    listPluginEntries,
+    createPluginEntry,
+    deletePluginEntry,
+    resolvedWorkspacePluginSpec,
+  });
 
-  const settingsRecoveryPromise = recoverSettingsTransaction()
-    .then(() => reconcilePluginRegistration())
-    .catch((error) => {
-      // A configuration that cannot be repaired is reported, not hidden: readiness will
-      // still describe the provider as unconfigured, which is the honest answer.
-      console.warn('[Secure Workspaces] Could not reconcile plugin registration:', safeErrorMessage(error, 'reconciliation failed'));
-    });
-
-  function principalFor(context) {
-    if (context?.type === 'client' && context.clientId) return `client:${context.clientId}`;
-    if (context?.type === 'session' && context.token) return `session:${crypto.createHash('sha256').update(context.token).digest('hex')}`;
-    return null;
-  }
-
-  function requireSupportedBoundary(res) {
-    const boundary = getWorkspaceRuntimeBoundary();
-    if (boundary?.supported !== false) return true;
-    res.status(501).json({ error: boundary.error || 'Secure Workspace management is unavailable for this OpenCode runtime', diagnostics: boundary.diagnostics ?? [] });
-    return false;
-  }
-
-  /**
-   * Who may ask for a privileged workspace operation. This is the authorization: a host UI
-   * session or a client holding the capability, and never a request arriving over a tunnel.
-   *
-   * It deliberately does not ask for the password again. Nothing that this feature exists
-   * to contain can reach these endpoints: the workspace network is created `--internal`,
-   * so the runtime has no route to the host at all, and a tunnel request is refused above
-   * regardless of credentials. What remained was a prompt that a person answered on their
-   * own machine, in front of a screen listing exactly what they had asked for — and asked
-   * often enough that it stopped being read, which costs more than it defends. Changing
-   * the policy itself still asks; see {@link authorizePolicyChange}.
-   */
-  async function authorizeAdminRequest(req, res, capability) {
-    if (!requireSupportedBoundary(res)) return false;
-    if (!uiAuthController?.resolveAuthContext) {
-      res.status(500).json({ error: 'Workspace authorization is unavailable' });
-      return false;
-    }
-    const context = await uiAuthController.resolveAuthContext(req, res, { allowClientAuth: true, allowUrlToken: false });
-    if (!context) {
-      res.status(401).json({ error: 'Authentication required' });
-      return false;
-    }
-    const capabilities = Array.isArray(context.client?.capabilities) ? context.client.capabilities : [];
-    const requestScope = tunnelAuthController?.classifyRequestScope?.(req);
-    if (context.type === 'session' && (requestScope === 'tunnel' || requestScope === 'unknown-public')) {
-      res.status(403).json({ error: 'Host workspace administration requires a host UI session' });
-      return false;
-    }
-    if (context.type !== 'session' && !capabilities.includes(capability)) {
-      res.status(403).json({ error: `Client capability required: ${capability}`, requiredCapability: capability });
-      return false;
-    }
-    return true;
-  }
-
-  /**
-   * The same authorization, plus a single-use proof bound to the exact submitted body.
-   *
-   * Reserved for changing the Secure Workspace policy, which is the one operation that
-   * operates on the protections rather than within them: it can widen the egress
-   * allowlist, change the runtime image, or switch the feature off. Every other action
-   * shows what it will do before doing it — this one takes effect quietly and stays in
-   * effect, so it is worth the interruption.
-   */
-  async function authorizePolicyChange(req, res, capability, operation, project, payload) {
-    if (!await authorizeAdminRequest(req, res, capability)) return false;
-    if (!uiAuthController?.consumeReauthProof) {
-      res.status(500).json({ error: 'Workspace authorization is unavailable' });
-      return false;
-    }
-    const validProof = await uiAuthController.consumeReauthProof(req, { operation, project, bodyHash: reauthBodyHash(payload) });
-    if (!validProof) {
-      res.status(428).json({ error: 'Reauthentication required', reauthRequired: true, operation, project });
-      return false;
-    }
-    return true;
-  }
-
-  async function authorizeCapabilityRequest(req, res, capability, { allowUnsupported = false } = {}) {
-    if (!allowUnsupported && !requireSupportedBoundary(res)) return null;
-    if (!uiAuthController?.resolveAuthContext) {
-      res.status(500).json({ error: 'Workspace authorization is unavailable' });
-      return null;
-    }
-    const context = await uiAuthController.resolveAuthContext(req, res, { allowClientAuth: true, allowUrlToken: false });
-    if (!context) {
-      res.status(401).json({ error: 'Authentication required' });
-      return null;
-    }
-    const capabilities = Array.isArray(context.client?.capabilities) ? context.client.capabilities : [];
-    const requestScope = tunnelAuthController?.classifyRequestScope?.(req);
-    if (context.type === 'session' && (requestScope === 'tunnel' || requestScope === 'unknown-public')) {
-      res.status(403).json({ error: 'Workspace access requires a capability-scoped client' });
-      return null;
-    }
-    if (context.type !== 'session' && !capabilities.includes(capability)) {
-      res.status(403).json({ error: `Client capability required: ${capability}`, requiredCapability: capability });
-      return null;
-    }
-    const principal = principalFor(context);
-    if (!principal) {
-      res.status(401).json({ error: 'Authenticated principal is required' });
-      return null;
-    }
-    return { context, principal };
-  }
+  const { principalFor, requireSupportedBoundary, authorizeAdminRequest, authorizePolicyChange, authorizeCapabilityRequest } =
+    createWorkspaceAuthorization({ uiAuthController, tunnelAuthController, getWorkspaceRuntimeBoundary });
 
   async function persistedContext(directory, workspace) {
     await settingsRecoveryPromise;
