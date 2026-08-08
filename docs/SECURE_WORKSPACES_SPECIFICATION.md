@@ -1084,6 +1084,38 @@ The user reviews an editable deterministic text draft and explicitly confirms cr
 
 Host continuation uses the same immutable handoff with an exact null workspace binding. It creates a new host session and never detaches or rewrites the source. File changes are excluded and the UI directs users to explicit export/review/apply.
 
+### 21.4 Workspace Lifetime Is Task-Scoped
+
+A workspace is a disposable execution sandbox for one task, not a persistent development
+environment. The snapshot flows in once, at creation; changes flow out only through
+export/review/apply; there is deliberately no mechanism to bring host changes — including
+ones just applied from this very workspace — back into an existing workspace, so after a
+successful apply the workspace is stale relative to the project and a further export from
+it conflicts with what it itself produced. The productive lifecycle is create → work →
+export/apply → delete.
+
+Consequences, measured live on 2026-08-08:
+
+- Export and cleanup run through provider operations and MUST work on a workspace whose
+  sync connection is absent. A disconnected workspace remains fully usable for
+  review/apply/delete — a first-try clean deletion of a workspace with a dead sync
+  connection is verified behavior, not an accident.
+- Reconnecting sync after an application restart is **best-effort, not a lifecycle
+  requirement**. Live sync serves only in-workspace session continuation; upstream
+  provides no API to start sync for one existing workspace (the `workspace` query on
+  `sync/start` routes the call *into* the workspace, and the directory-only form starts
+  loops only for workspaces with recently active sessions), its `connectSSE` has no
+  connect timeout, and a wedged sync fiber is never replaced while its status is not
+  `error`. Products built on this reconnect at their own risk.
+- A restarted application therefore presents an existing workspace as *disconnected,
+  state preserved*, with review/apply/delete available, and offers session continuation
+  through a new workspace and the immutable handoff — never by promising a reconnect.
+- Reviewed upstream (`workspace/warp`, `sync/steal`, per-workspace `branch`,
+  `timeUsed`, discovery re-sync) is shaped toward persistent session-mobile
+  environments. This product intentionally diverges: with an immutable baseline and a
+  one-way change flow, persistent reuse has no value after apply, and depending on
+  upstream's sync lifecycle is the costliest part of riding that divergence.
+
 ## 22. Live Workspace State
 
 Bootstrap uses official sync-list, list, and status, but does not treat sync-list 204 as complete discovery. Plugin discovery diagnostics are reconciled separately. Startup also invokes sync start for persisted projects.

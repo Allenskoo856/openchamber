@@ -106,6 +106,15 @@ Keep entrypoints, routes, bridges, and UI thin. Security decisions belong in the
 These are decisions, not preferences. Each was reached by working the problem; reversing
 one needs a reason at least as concrete.
 
+- **A workspace is a task, not a home.** The snapshot flows in once at creation and
+  changes flow out only through export/review/apply, so after an apply the workspace is
+  stale relative to the project by construction — there is deliberately no way to bring
+  host changes back in. Create → work → export/apply → delete is the lifecycle. Export
+  and cleanup work on a disconnected workspace (verified live); sync reconnection after
+  an app restart is best-effort only, because upstream offers no per-workspace sync
+  start, no connect timeout, and no replacement of a wedged sync fiber. Never build a
+  flow that depends on reconnecting to an old workspace; offer a new workspace plus the
+  immutable handoff instead.
 - **Docker is the ordinary choice; Kubernetes means a cluster somebody else runs.** A
   cluster on the same computer is strictly worse here — same machine, more layers, a
   1.3 GB pull into the cluster, an extra port-forward hop — for isolation Docker enforces
