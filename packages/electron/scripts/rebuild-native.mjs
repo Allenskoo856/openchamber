@@ -84,6 +84,82 @@ const createWindowsRebuildPath = (target) => {
   return { buildPath: shortPath, cleanup: () => {} };
 };
 
+const getPythonVersion = () => {
+  const pythonCommand = process.env.npm_config_python || process.env.PYTHON || 'python3';
+  try {
+    const output = execFileSync(
+      pythonCommand,
+      ['-c', 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")'],
+      { encoding: 'utf8' },
+    ).trim();
+    const match = output.match(/^(\d+)\.(\d+)$/);
+    if (!match) return null;
+    return { command: pythonCommand, major: Number(match[1]), minor: Number(match[2]) };
+  } catch {
+    return null;
+  }
+};
+
+const patchElectronNodeGypForPython37 = async () => {
+  const python = getPythonVersion();
+  if (!python || python.major > 3 || (python.major === 3 && python.minor >= 8)) {
+    return async () => {};
+  }
+
+  let packageJsonPath;
+  try {
+    packageJsonPath = require.resolve('@electron/node-gyp/package.json');
+  } catch {
+    throw new Error(
+      `Python ${python.major}.${python.minor} is too old for @electron/node-gyp, and its package path could not be resolved. `
+      + 'Use Python 3.8+ for native Electron builds.',
+    );
+  }
+
+  const commonPath = path.join(path.dirname(packageJsonPath), 'gyp', 'pylib', 'gyp', 'common.py');
+  const original = await fsp.readFile(commonPath, 'utf8');
+  const python37Compatible = original.replace(
+    `    if CC := os.environ.get("CC_target") or os.environ.get("CC"):\n`
+      + `        cmd += shlex.split(replace_sep(CC))\n`
+      + `        if CFLAGS := os.environ.get("CFLAGS"):\n`
+      + `            cmd += shlex.split(replace_sep(CFLAGS))\n`
+      + `    elif CXX := os.environ.get("CXX_target") or os.environ.get("CXX"):\n`
+      + `        cmd += shlex.split(replace_sep(CXX))\n`
+      + `        if CXXFLAGS := os.environ.get("CXXFLAGS"):\n`
+      + `            cmd += shlex.split(replace_sep(CXXFLAGS))\n`
+      + `    else:\n`
+      + `        return {}\n`,
+    `    CC = os.environ.get("CC_target") or os.environ.get("CC")\n`
+      + `    if CC:\n`
+      + `        cmd += shlex.split(replace_sep(CC))\n`
+      + `        CFLAGS = os.environ.get("CFLAGS")\n`
+      + `        if CFLAGS:\n`
+      + `            cmd += shlex.split(replace_sep(CFLAGS))\n`
+      + `    else:\n`
+      + `        CXX = os.environ.get("CXX_target") or os.environ.get("CXX")\n`
+      + `        if CXX:\n`
+      + `            cmd += shlex.split(replace_sep(CXX))\n`
+      + `            CXXFLAGS = os.environ.get("CXXFLAGS")\n`
+      + `            if CXXFLAGS:\n`
+      + `                cmd += shlex.split(replace_sep(CXXFLAGS))\n`
+      + `        else:\n`
+      + `            return {}\n`,
+  );
+
+  if (python37Compatible === original) {
+    throw new Error(
+      `Python ${python.major}.${python.minor} is too old for this @electron/node-gyp version, `
+      + 'but the known Python 3.7 compatibility block was not found. Use Python 3.8+ for native Electron builds.',
+    );
+  }
+
+  await fsp.writeFile(commonPath, python37Compatible, 'utf8');
+  console.log(`[electron] patched @electron/node-gyp for Python ${python.major}.${python.minor}`);
+  return async () => {
+    await fsp.writeFile(commonPath, original, 'utf8');
+  };
+};
+
 const writeWindowsNodeAddonApiIndex = async (nodeAddonApiDir, exportedNodeAddonApiDir) => {
   if (process.platform !== 'win32') return;
 
@@ -138,7 +214,9 @@ console.log(`[electron] rebuilding native modules against Electron ${electronVer
 // bypassed by @electron/rebuild in favor of direct node-gyp builds.
 const rebuildPath = createWindowsRebuildPath(repoRoot);
 let cleanupNodeAddonApi = async () => {};
+let restorePython37Patch = async () => {};
 try {
+  restorePython37Patch = await patchElectronNodeGypForPython37();
   cleanupNodeAddonApi = await ensureWindowsNodeAddonApiForNodePty(rebuildPath.buildPath);
   await rebuild({
     buildPath: rebuildPath.buildPath,
@@ -149,9 +227,13 @@ try {
   });
 } finally {
   try {
-    await cleanupNodeAddonApi();
+    await restorePython37Patch();
   } finally {
-    rebuildPath.cleanup();
+    try {
+      await cleanupNodeAddonApi();
+    } finally {
+      rebuildPath.cleanup();
+    }
   }
 }
 
