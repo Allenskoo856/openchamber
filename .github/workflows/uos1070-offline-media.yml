@@ -45,7 +45,7 @@ jobs:
               set -euo pipefail
               export DEBIAN_FRONTEND=noninteractive
               rm -f /etc/apt/sources.list.d/debian.sources
-              printf '%s\n' \
+              printf "%s\n" \
                 "deb http://archive.debian.org/debian buster main contrib non-free" \
                 "deb http://archive.debian.org/debian buster-updates main contrib non-free" \
                 "deb http://archive.debian.org/debian-security buster/updates main contrib non-free" \
@@ -102,7 +102,7 @@ jobs:
           docker exec "$SMOKE_CONTAINER" /bin/bash -c '
             set -euo pipefail
             export DEBIAN_FRONTEND=noninteractive
-            printf '%s\n' \
+            printf "%s\n" \
               "deb http://archive.debian.org/debian buster main contrib non-free" \
               "deb http://archive.debian.org/debian buster-updates main contrib non-free" \
               "deb http://archive.debian.org/debian-security buster/updates main contrib non-free" \
