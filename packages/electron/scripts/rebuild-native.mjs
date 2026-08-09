@@ -100,6 +100,70 @@ const getPythonVersion = () => {
   }
 };
 
+const patchCompilerForGnuCpp20 = async () => {
+  if (process.platform !== 'linux') return async () => {};
+
+  const compilerCommand = (process.env.CXX || 'g++').trim();
+  if (!compilerCommand || /\s/.test(compilerCommand)) return async () => {};
+
+  let compilerPath;
+  try {
+    compilerPath = path.isAbsolute(compilerCommand)
+      ? compilerCommand
+      : execFileSync('sh', ['-c', 'command -v "$1"', 'openchamber', compilerCommand], { encoding: 'utf8' }).trim();
+  } catch {
+    return async () => {};
+  }
+  if (!compilerPath) return async () => {};
+
+  const testObjectPath = path.join(repoRoot, `.openchamber-cxx20-test-${process.pid}.o`);
+  let supportsGnuCpp20 = true;
+  try {
+    execFileSync(
+      compilerPath,
+      ['-std=gnu++20', '-x', 'c++', '-c', '-o', testObjectPath, '-'],
+      {
+        input: 'int main() { return 0; }\n',
+        stdio: ['pipe', 'ignore', 'ignore'],
+      },
+    );
+  } catch {
+    supportsGnuCpp20 = false;
+  } finally {
+    await fsp.rm(testObjectPath, { force: true });
+  }
+
+  if (supportsGnuCpp20) return async () => {};
+
+  const wrapperPath = path.join(repoRoot, `.openchamber-cxx20-wrapper-${process.pid}.mjs`);
+  const wrapper = `#!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
+
+const compiler = ${JSON.stringify(compilerPath)};
+const args = process.argv.slice(2).map((value) => value === '-std=gnu++20' ? '-std=gnu++2a' : value);
+const result = spawnSync(compiler, args, { stdio: 'inherit' });
+if (result.error) {
+  console.error(result.error.message);
+  process.exit(1);
+}
+process.exit(result.status ?? 1);
+`;
+  await fsp.writeFile(wrapperPath, wrapper, 'utf8');
+  await fsp.chmod(wrapperPath, 0o755);
+  const originalCxx = process.env.CXX;
+  process.env.CXX = wrapperPath;
+  console.log(`[electron] ${compilerPath} lacks gnu++20 flag support; using gnu++2a compatibility wrapper`);
+
+  return async () => {
+    if (originalCxx === undefined) {
+      delete process.env.CXX;
+    } else {
+      process.env.CXX = originalCxx;
+    }
+    await fsp.rm(wrapperPath, { force: true });
+  };
+};
+
 const resolveElectronNodeGypPackageJson = () => {
   const lookupPaths = [];
   try {
@@ -237,7 +301,9 @@ console.log(`[electron] rebuilding native modules against Electron ${electronVer
 const rebuildPath = createWindowsRebuildPath(repoRoot);
 let cleanupNodeAddonApi = async () => {};
 let restorePython37Patch = async () => {};
+let restoreCompilerCompatibility = async () => {};
 try {
+  restoreCompilerCompatibility = await patchCompilerForGnuCpp20();
   restorePython37Patch = await patchElectronNodeGypForPython37();
   cleanupNodeAddonApi = await ensureWindowsNodeAddonApiForNodePty(rebuildPath.buildPath);
   await rebuild({
@@ -249,12 +315,16 @@ try {
   });
 } finally {
   try {
-    await restorePython37Patch();
+    await restoreCompilerCompatibility();
   } finally {
     try {
-      await cleanupNodeAddonApi();
+      await restorePython37Patch();
     } finally {
-      rebuildPath.cleanup();
+      try {
+        await cleanupNodeAddonApi();
+      } finally {
+        rebuildPath.cleanup();
+      }
     }
   }
 }
