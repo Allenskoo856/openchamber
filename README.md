@@ -134,6 +134,8 @@ Go deeper with the OpenChamber guides:
 
 For self-hosting details, see the [reverse proxy guide](docs/REVERSE_PROXY.md). For custom theme authoring, see the [custom themes guide](docs/CUSTOM_THEMES.md).
 
+For a Chinese operational guide covering installation, providers, Docker, remote access, GitHub, and troubleshooting, see [OpenChamber 中文详细使用手册](docs/OPENCHAMBER_USAGE_GUIDE_ZH.md).
+
 ## Why OpenCode?
 
 OpenChamber uses [OpenCode](https://opencode.ai) to power its coding agents. We chose it because we believe it provides the best open-source agentic coding experience today: capable, extensible, and open by design.
