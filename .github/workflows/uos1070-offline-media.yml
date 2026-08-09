@@ -137,17 +137,39 @@ jobs:
               MEDIA_DIR="$(find /media -mindepth 1 -maxdepth 1 -type d -name "openchamber-uos1070-*" -print -quit)"
               cd "$MEDIA_DIR"
               ./install.sh
-              timeout 30s xvfb-run -a "$HOME/.local/bin/openchamber" --disable-gpu --no-sandbox
+              xvfb-run -a "$HOME/.local/bin/openchamber" --disable-gpu --no-sandbox > "$HOME/openchamber.log" 2>&1 &
+              APP_PID="$!"
+              sleep 12
+              if ! kill -0 "$APP_PID" 2>/dev/null; then
+                set +e
+                wait "$APP_PID"
+                APP_STATUS="$?"
+                set -e
+                cat "$HOME/openchamber.log"
+                echo "OpenChamber exited before the no-network startup hold (status $APP_STATUS)." >&2
+                exit 1
+              fi
+              echo "OpenChamber stayed alive for the no-network startup hold."
+              kill -TERM "$APP_PID" 2>/dev/null || true
+              set +e
+              wait "$APP_PID"
+              APP_STATUS="$?"
+              set -e
+              cat "$HOME/openchamber.log"
+              if [ "$APP_STATUS" -ne 0 ] && [ "$APP_STATUS" -ne 1 ] && [ "$APP_STATUS" -ne 143 ]; then
+                echo "Unexpected OpenChamber shutdown status: $APP_STATUS." >&2
+                exit "$APP_STATUS"
+              fi
+              if ! grep -q "Starting OpenChamber on port" "$HOME/openchamber.log"; then
+                echo "Desktop startup marker was not found in the no-network smoke log." >&2
+                exit 1
+              fi
             ' > "$LOG_PATH" 2>&1
           SMOKE_STATUS=$?
           cat "$LOG_PATH"
-          if [ "$SMOKE_STATUS" -ne 124 ]; then
-            echo "Expected the desktop process to stay alive until timeout (124), got $SMOKE_STATUS." >&2
+          if [ "$SMOKE_STATUS" -ne 0 ]; then
+            echo "No-network desktop smoke failed with status $SMOKE_STATUS." >&2
             exit "$SMOKE_STATUS"
-          fi
-          if ! grep -q "Starting OpenChamber on port" "$LOG_PATH"; then
-            echo "Desktop startup marker was not found in the no-network smoke log." >&2
-            exit 1
           fi
 
       - name: Upload UOS 1070 offline media

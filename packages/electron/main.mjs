@@ -6,7 +6,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import updaterPkg from 'electron-updater';
 import { ElectronSshManager } from './ssh-manager.mjs';
@@ -137,7 +137,7 @@ try {
 log.initialize();
 log.transports.file.maxSize = 5 * 1024 * 1024;
 log.transports.file.level = 'info';
-log.transports.console.level = isDev ? 'debug' : 'warn';
+log.transports.console.level = isDev || process.env.ELECTRON_ENABLE_LOGGING === '1' ? 'debug' : 'warn';
 
 // The in-process web server runs in this same Node process and uses plain
 // `console.log/warn/error`. Without piping console through electron-log,
@@ -1120,6 +1120,28 @@ const shouldUsePackagedUi = () => {
 };
 const packagedUiOrigin = () => `${UI_PROTOCOL}://app`;
 const buildPackagedUiUrl = (pathname = '/index.html') => new URL(pathname, `${packagedUiOrigin()}/`).toString();
+const PACKAGED_UI_CONTENT_TYPES = {
+  '.css': 'text/css; charset=utf-8',
+  '.gif': 'image/gif',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
+const getPackagedUiContentType = (filePath) => {
+  const extension = path.extname(filePath).toLowerCase();
+  return PACKAGED_UI_CONTENT_TYPES[extension] || 'application/octet-stream';
+};
 
 const injectRuntimeConfigIntoHtml = (html) => {
   const apiBaseUrl = state.apiBaseUrl || state.sidecarUrl || '';
@@ -1154,7 +1176,10 @@ const registerPackagedUiProtocol = () => {
           const body = injectRuntimeConfigIntoHtml(html);
           return new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
         }
-        return electronNet.fetch(pathToFileURL(filePath).toString());
+        const body = await fsp.readFile(filePath);
+        return new Response(body, {
+          headers: { 'Content-Type': getPackagedUiContentType(filePath) },
+        });
       }
     } catch {
     }
