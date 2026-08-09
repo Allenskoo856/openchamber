@@ -16,6 +16,8 @@ import { getClientPlatform, isCapacitorApp } from '@/lib/platform';
 
 declare const __APP_VERSION__: string | undefined;
 
+const OFFLINE_MODE = import.meta.env.VITE_OPENCHAMBER_OFFLINE_MODE === '1';
+
 type UpdateState = {
   checking: boolean;
   available: boolean;
@@ -102,8 +104,9 @@ function detectPlatform(): 'macos' | 'windows' | 'linux' | 'web' | 'android' | '
 }
 
 function mapRuntimeParams(runtime: ClientRuntime): URLSearchParams {
-  // Check if user has opted out of usage reporting (default: true/enabled from UI store)
-  const shouldReportUsage = useUIStore.getState().reportUsage;
+  // Usage reporting is opt-in; offline builds force the flag off regardless of
+  // an older persisted UI setting.
+  const shouldReportUsage = !OFFLINE_MODE && useUIStore.getState().reportUsage;
   
   const params = new URLSearchParams({ reportUsage: shouldReportUsage ? 'true' : 'false' });
   params.set('deviceClass', detectDeviceClass());
@@ -137,6 +140,7 @@ function mapRuntimeParams(runtime: ClientRuntime): URLSearchParams {
 }
 
 async function checkForWebUpdates(runtime: ClientRuntime, currentVersion?: string): Promise<UpdateInfo | null> {
+  if (OFFLINE_MODE) return null;
   try {
     const params = mapRuntimeParams(runtime);
     const vscodeVersion = typeof window !== 'undefined'
@@ -208,6 +212,19 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
     const runtime = detectRuntimeType();
     if (!runtime) return null;
 
+    if (OFFLINE_MODE) {
+      set({
+        checking: false,
+        available: false,
+        info: null,
+        error: null,
+        runtimeType: runtime,
+        lastChecked: Date.now(),
+        nextCheckInSec: null,
+      });
+      return null;
+    }
+
     set({ checking: true, error: null, runtimeType: runtime });
 
     try {
@@ -263,6 +280,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
   },
 
   downloadUpdate: async () => {
+    if (OFFLINE_MODE) return;
     const { available, runtimeType } = get();
 
     // For web runtime, there's no download - user uses in-app update or CLI
@@ -308,6 +326,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
   },
 
   restartToUpdate: async () => {
+    if (OFFLINE_MODE) return;
     const { downloaded, runtimeType } = get();
 
     if (runtimeType !== 'desktop' || !downloaded) {

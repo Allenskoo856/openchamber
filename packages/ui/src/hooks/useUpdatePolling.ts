@@ -2,6 +2,8 @@ import React from 'react';
 
 import { useUpdateStore } from '@/stores/useUpdateStore';
 
+const OFFLINE_MODE = import.meta.env.VITE_OPENCHAMBER_OFFLINE_MODE === '1';
+
 export function useUpdatePolling() {
   const checkForUpdates = useUpdateStore((state) => state.checkForUpdates);
   const checkForUpdatesRef = React.useRef(checkForUpdates);
@@ -11,6 +13,7 @@ export function useUpdatePolling() {
   }, [checkForUpdates]);
 
   React.useEffect(() => {
+    if (OFFLINE_MODE) return;
     const initialDelayMs = 3000;
     const defaultIntervalMs = 60 * 60 * 1000;
     const minIntervalMs = 5 * 60 * 1000;

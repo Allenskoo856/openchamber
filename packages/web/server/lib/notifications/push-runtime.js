@@ -1,3 +1,5 @@
+import { isOfflineModeEnabled } from '../offline-mode.js';
+
 const PUSH_SUBSCRIPTIONS_VERSION = 1;
 const UI_VISIBILITY_TTL_MS = 30_000;
 
@@ -198,6 +200,7 @@ export const createPushRuntime = (deps) => {
   };
 
   const sendPushToSubscription = async (sub, payload) => {
+    if (isOfflineModeEnabled()) return;
     await ensurePushInitialized();
     const body = JSON.stringify(payload);
 
@@ -222,6 +225,7 @@ export const createPushRuntime = (deps) => {
   };
 
   const sendPushToAllUiSessions = async (payload, options = {}) => {
+    if (isOfflineModeEnabled()) return;
     const requireNoSse = options.requireNoSse === true;
     const store = await readPushSubscriptionsFromDisk();
     const sessions = store.subscriptionsBySession || {};

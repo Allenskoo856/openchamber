@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect } from 'react';
 
 type LogoSource = 'local' | 'remote' | 'none';
 
+const OFFLINE_MODE = import.meta.env.VITE_OPENCHAMBER_OFFLINE_MODE === '1';
+
 interface UseProviderLogoReturn {
     src: string | null;
     onError: () => void;
@@ -60,7 +62,7 @@ const resolveProviderLogoSrc = (providerId: string | null | undefined): string |
     }
 
     const remoteResolvedId = candidates[0] ?? null;
-    return remoteResolvedId ? `https://models.dev/logos/${remoteResolvedId}.svg` : null;
+    return !OFFLINE_MODE && remoteResolvedId ? `https://models.dev/logos/${remoteResolvedId}.svg` : null;
 };
 
 const preloadProviderLogo = (providerId: string | null | undefined): void => {
@@ -94,7 +96,7 @@ for (const [path, url] of Object.entries(localLogoModules)) {
 export function useProviderLogo(providerId: string | null | undefined): UseProviderLogoReturn {
     const candidates = buildLogoCandidates(providerId);
     const localResolvedId = candidates.find((candidate) => LOCAL_PROVIDER_LOGO_MAP.has(candidate)) ?? null;
-    const remoteResolvedId = candidates[0] ?? null;
+    const remoteResolvedId = OFFLINE_MODE ? null : (candidates[0] ?? null);
     const hasLocalLogo = Boolean(localResolvedId);
     const localLogoSrc = localResolvedId ? LOCAL_PROVIDER_LOGO_MAP.get(localResolvedId) ?? null : null;
 

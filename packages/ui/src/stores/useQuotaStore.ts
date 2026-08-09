@@ -10,6 +10,7 @@ import { updateDesktopSettings } from '@/lib/persistence';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
 const DEFAULT_REFRESH_INTERVAL_MS = 60000;
+const OFFLINE_MODE = import.meta.env.VITE_OPENCHAMBER_OFFLINE_MODE === '1';
 
 interface QuotaSettingsState {
   autoRefresh: boolean;
@@ -162,6 +163,10 @@ export const useQuotaStore = create<QuotaStore>()(
       },
 
       fetchAllQuotas: async () => {
+        if (OFFLINE_MODE) {
+          set({ isLoading: false, error: null, lastUpdated: Date.now() });
+          return;
+        }
         set({ isLoading: true, error: null });
         const providerIds = QUOTA_PROVIDERS.map((provider) => provider.id);
         try {
@@ -179,6 +184,7 @@ export const useQuotaStore = create<QuotaStore>()(
       },
 
       fetchProviderQuota: async (providerId) => {
+        if (OFFLINE_MODE) return;
         set((state) => ({
           isFetchingProvider: { ...state.isFetchingProvider, [providerId]: true }
         }));
@@ -295,7 +301,7 @@ export const useQuotaAutoRefresh = () => {
   const fetchAllQuotas = useQuotaStore((state) => state.fetchAllQuotas);
 
   React.useEffect(() => {
-    if (!autoRefresh) {
+    if (OFFLINE_MODE || !autoRefresh) {
       return;
     }
 

@@ -788,7 +788,7 @@ export const createSettingsHelpers = (dependencies) => {
       }
     }
 
-    // Usage reporting opt-out (default: true/enabled)
+    // Usage reporting is opt-in; only an explicit boolean is persisted.
     if (typeof candidate.reportUsage === 'boolean') {
       result.reportUsage = candidate.reportUsage;
     }

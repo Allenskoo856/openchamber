@@ -61,6 +61,8 @@ import { useAppFontEffects } from '@/apps/useAppFontEffects';
 import { OpenCodeUpdateToast } from '@/components/update/OpenCodeUpdateToast';
 import { markStartupTrace, startupTraceEnabled } from '@/lib/startupTrace';
 
+const OFFLINE_MODE = import.meta.env.VITE_OPENCHAMBER_OFFLINE_MODE === '1';
+
 // Lazy-loaded heavy views — loaded on demand to reduce initial bundle size.
 const OnboardingScreen = lazyWithChunkRecovery(() =>
   import('@/components/onboarding/OnboardingScreen').then((m) => ({ default: m.OnboardingScreen })),
@@ -285,7 +287,7 @@ function App({ apis }: AppProps) {
   });
 
   React.useEffect(() => {
-    if (embeddedSessionChat) {
+    if (embeddedSessionChat || OFFLINE_MODE) {
       return;
     }
 

@@ -15,6 +15,7 @@ import express from 'express';
 
 import { createRelayIdentityRuntime } from './identity.js';
 import { startRelayHost } from './host-client.js';
+import { createOfflineNetworkError, isOfflineModeEnabled } from '../offline-mode.js';
 
 export const DEFAULT_RELAY_URL = 'wss://relay.openchamber.dev/ws';
 
@@ -152,6 +153,10 @@ export const createRelayService = ({
   };
 
   const start = async (relayUrl, { claim = 'try' } = {}) => {
+    if (isOfflineModeEnabled()) {
+      status = { state: 'disabled', lastError: createOfflineNetworkError('relay connection').message, connectedClients: 0 };
+      return;
+    }
     if (hostClient) return;
     if (hostLock) {
       const claimed = claim === 'force' ? hostLock.forceClaim() : hostLock.tryClaim();
@@ -183,6 +188,10 @@ export const createRelayService = ({
   };
 
   const startIfEnabled = async () => {
+    if (isOfflineModeEnabled()) {
+      stop();
+      return;
+    }
     try {
       const config = await readConfig();
       if (config.enabled) {
@@ -197,6 +206,10 @@ export const createRelayService = ({
   // session uses the relay, stop it when none remain. Called on startup and after
   // pairing/device changes, so the operator never toggles it manually.
   const reconcile = async () => {
+    if (isOfflineModeEnabled()) {
+      stop();
+      return;
+    }
     try {
       const demand = await hasRelayDemand();
       const config = await readConfig();
@@ -260,6 +273,7 @@ export const createRelayService = ({
   };
 
   const getPairingCandidate = async () => {
+    if (isOfflineModeEnabled()) return null;
     const config = await readConfig();
     if (!config.enabled) return null;
     return buildPairingCandidate();
@@ -270,6 +284,9 @@ export const createRelayService = ({
   // rather than requiring a separate manual toggle. Idempotent: a no-op when the
   // relay is already enabled and running.
   const ensureEnabledForPairing = async () => {
+    if (isOfflineModeEnabled()) {
+      throw createOfflineNetworkError('relay pairing');
+    }
     const config = await readConfig();
     if (!config.enabled) {
       await writeConfig({ enabled: true, relayUrl: config.relayUrl });
@@ -296,6 +313,12 @@ export const createRelayService = ({
 
     app.post('/api/openchamber/relay/enable', express.json({ limit: '16kb' }), async (req, res) => {
       try {
+        if (isOfflineModeEnabled()) {
+          return res.status(503).json({
+            error: 'Relay is disabled in OpenChamber offline mode',
+            code: 'OPENCHAMBER_OFFLINE_MODE',
+          });
+        }
         const current = await readConfig();
         const relayUrl = typeof req.body?.relayUrl === 'string' ? normalizeRelayUrl(req.body.relayUrl) : current.relayUrl;
         await writeConfig({ enabled: true, relayUrl });

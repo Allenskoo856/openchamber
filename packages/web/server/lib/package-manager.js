@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createOfflineNetworkError, isOfflineModeEnabled } from './offline-mode.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -128,7 +129,7 @@ async function checkForUpdatesFromApi(currentVersion, options = {}) {
     const shouldTrustClientPlatform = appType === 'desktop-electron' || appType === 'vscode' || appType === 'mobile-capacitor';
     const platform = shouldTrustClientPlatform ? normalizePlatform(options.platform) : hostPlatform;
     const arch = shouldTrustClientPlatform ? normalizeArch(options.arch) : hostArch;
-    const reportUsage = options.reportUsage !== false;
+    const reportUsage = options.reportUsage === true;
     const payload = {
       appType,
       deviceClass: normalizeDeviceClass(options.deviceClass),
@@ -773,6 +774,17 @@ export async function checkForUpdates(options = {}) {
   const appType = normalizeAppType(options.appType);
   const platform = normalizePlatform(options.platform);
 
+  if (isOfflineModeEnabled()) {
+    return {
+      available: false,
+      currentVersion,
+      packageManager: pm,
+      updateCommand: 'openchamber update',
+      offline: true,
+      error: createOfflineNetworkError('update check').message,
+    };
+  }
+
   if (currentVersion !== 'unknown') {
     const remote = await checkForUpdatesFromApi(currentVersion, options);
     if (remote) {
@@ -827,6 +839,13 @@ export async function checkForUpdates(options = {}) {
  * Execute the update (used by CLI)
  */
 export function executeUpdate(pm = detectPackageManager(), options = {}) {
+  if (isOfflineModeEnabled()) {
+    return {
+      success: false,
+      exitCode: null,
+      error: createOfflineNetworkError('update installation').message,
+    };
+  }
   const command = getUpdateCommand(pm);
   if (!options?.silent) {
     console.log(`Updating ${PACKAGE_NAME} using ${pm}...`);

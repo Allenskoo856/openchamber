@@ -25,6 +25,7 @@ import { getRuntimeKey } from "@/lib/runtime-switch";
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const MODELS_DEV_PROXY_URL = "/api/openchamber/models-metadata";
+const OFFLINE_MODE = import.meta.env.VITE_OPENCHAMBER_OFFLINE_MODE === '1';
 
 const FALLBACK_PROVIDER_ID = "opencode";
 const FALLBACK_MODEL_ID = "big-pickle";
@@ -604,6 +605,9 @@ const transformModelsDevResponse = (payload: unknown): Map<string, ModelMetadata
 };
 
 const fetchModelsDevMetadata = async (): Promise<Map<string, ModelMetadata>> => {
+    if (OFFLINE_MODE) {
+        return new Map();
+    }
     if (typeof fetch !== 'function') {
         return new Map();
     }

@@ -13,6 +13,7 @@ import {
   getOrCreateRelaySigningKeypair,
   signRelayMessage as signRelayMessageShared,
 } from '../relay/signing-key.js';
+import { isOfflineModeEnabled } from '../offline-mode.js';
 
 const APNS_TOKENS_VERSION = 1;
 const APNS_HOST_PRODUCTION = 'https://api.push.apple.com';
@@ -77,6 +78,7 @@ export const createApnsRuntime = (deps) => {
   });
 
   const registerTokenWithRelay = async (token, platform = 'ios') => {
+    if (isOfflineModeEnabled()) return;
     const relay = resolveRelayConfig();
     if (!relay) return; // direct mode — no relay binding needed
     try {
@@ -491,6 +493,7 @@ export const createApnsRuntime = (deps) => {
   // display the alert while the app is foreground (presentationOptions: [] in
   // capacitor.config) — so there is no notification when the app is active, with no race.
   const sendApnsToAllUiSessions = async (payload, _options = {}) => {
+    if (isOfflineModeEnabled()) return;
     const store = await readTokensFromDisk();
     // Tokens are grouped by their registered APNs environment so each batch goes to the
     // endpoint that actually knows the token (Xcode builds → sandbox, TestFlight/App Store

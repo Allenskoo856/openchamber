@@ -5,6 +5,7 @@ import path from 'path';
 import {
   buildDeferredRestartResponse,
 } from './config-mutation-response.js';
+import { createOfflineNetworkError, isOfflineModeEnabled } from '../offline-mode.js';
 
 export const registerOpenCodeRoutes = (app, dependencies) => {
   const {
@@ -154,6 +155,13 @@ export const registerOpenCodeRoutes = (app, dependencies) => {
   let openCodeUpgradePromise = null;
 
   app.post('/api/opencode/upgrade', async (req, res) => {
+    if (isOfflineModeEnabled()) {
+      return res.status(503).json({
+        success: false,
+        code: 'OPENCHAMBER_OFFLINE_MODE',
+        error: createOfflineNetworkError('OpenCode upgrade').message,
+      });
+    }
     try {
       const capability = getOpenCodeUpgradeCapability();
       if (!capability.supported) {
@@ -239,6 +247,14 @@ export const registerOpenCodeRoutes = (app, dependencies) => {
   });
 
   app.get('/api/opencode/upgrade-status', async (_req, res) => {
+    if (isOfflineModeEnabled()) {
+      return res.status(503).json({
+        available: false,
+        latestVersion: null,
+        offline: true,
+        error: createOfflineNetworkError('OpenCode upgrade check').message,
+      });
+    }
     try {
       const capability = getOpenCodeUpgradeCapability();
       if (!capability.supported) {

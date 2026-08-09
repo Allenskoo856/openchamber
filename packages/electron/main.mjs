@@ -1,7 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net as electronNet, Notification, powerMonitor, powerSaveBlocker, protocol, screen, session, shell, webContents } from 'electron';
 import contextMenu from 'electron-context-menu';
 import log from 'electron-log/main.js';
-import dgram from 'node:dgram';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -32,8 +31,21 @@ import {
 } from './linux-autostart.mjs';
 import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
 import { mintOutsideFileGrant } from '@openchamber/web/server/lib/fs/routes.js';
+import {
+  createOfflineNetworkError,
+  installOfflineFetchGuard,
+  isOfflineModeEnabled,
+  shouldBlockExternalNetworkUrl,
+} from '@openchamber/web/server/lib/offline-mode.js';
 
 const execFileAsync = promisify(execFile);
+
+const OFFLINE_BUILD = typeof __OPENCHAMBER_OFFLINE_BUILD__ !== 'undefined'
+  && __OPENCHAMBER_OFFLINE_BUILD__ === true;
+if (OFFLINE_BUILD) {
+  process.env.OPENCHAMBER_OFFLINE_MODE = '1';
+}
+installOfflineFetchGuard();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -239,6 +251,18 @@ const INSTALLED_APPS_CACHE_FILE = 'discovered-apps.json';
 const LINUX_DESKTOP_ENTRIES_CACHE_TTL_MS = 30_000;
 const OPENCODE_SHUTDOWN_GRACE_MS = 100;
 const { autoUpdater } = updaterPkg;
+
+const openExternalUrl = async (rawUrl) => {
+  const url = new URL(String(rawUrl));
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Only HTTP URLs can be opened externally');
+  }
+  if (shouldBlockExternalNetworkUrl(url)) {
+    log.warn(`[electron] blocked external URL in offline mode: ${url.origin}`);
+    throw createOfflineNetworkError(`external URL ${url.origin}`);
+  }
+  return shell.openExternal(url.toString());
+};
 
 const state = {
   serverHandle: null,
@@ -928,6 +952,9 @@ const classifyVersionPayload = (payload) => {
 };
 
 const fetchVersionPayload = async (versionUrl, { headers, timeoutMs }) => {
+  if (shouldBlockExternalNetworkUrl(versionUrl)) {
+    throw createOfflineNetworkError(`remote host probe ${versionUrl}`);
+  }
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   try {
     return await fetch(versionUrl, { signal: timeoutSignal, headers });
@@ -1069,35 +1096,9 @@ const isPortFree = async (port, host = '127.0.0.1') => {
   });
 };
 
-// Return the LAN IPv4 of the interface that routes to the public internet.
-// UDP "connect" is a kernel-side route lookup — no packet actually goes out —
-// and it picks the same interface as a real outbound connection, which is what
-// a phone on the same Wi-Fi needs to reach us. Falls back to scanning
-// os.networkInterfaces() if the socket trick fails (e.g. no default route).
+// Return a non-loopback LAN IPv4 without probing a public address. The desktop
+// offline build must not create even a route-lookup socket for 8.8.8.8.
 const detectLanIPv4Address = async () => {
-  const ip = await new Promise((resolve) => {
-    const socket = dgram.createSocket('udp4');
-    const finish = (value) => {
-      try { socket.close(); } catch {}
-      resolve(value);
-    };
-    socket.once('error', () => finish(null));
-    try {
-      socket.connect(80, '8.8.8.8', (error) => {
-        if (error) return finish(null);
-        try {
-          const addr = socket.address();
-          finish(addr && typeof addr.address === 'string' ? addr.address : null);
-        } catch {
-          finish(null);
-        }
-      });
-    } catch {
-      finish(null);
-    }
-  });
-  if (ip && ip !== '0.0.0.0' && !ip.startsWith('127.')) return ip;
-
   for (const entries of Object.values(os.networkInterfaces() || {})) {
     for (const entry of entries || []) {
       if (entry.family === 'IPv4' && !entry.internal && entry.address) {
@@ -2548,14 +2549,14 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
     if (isAllowedNavigationUrl(url)) {
       return { action: 'allow' };
     }
-    void shell.openExternal(url).catch(() => {});
+    void openExternalUrl(url).catch(() => {});
     return { action: 'deny' };
   });
 
   browserWindow.webContents.on('will-navigate', (event, url) => {
     if (isAllowedNavigationUrl(url)) return;
     event.preventDefault();
-    void shell.openExternal(url).catch(() => {});
+    void openExternalUrl(url).catch(() => {});
   });
 
   browserWindow.webContents.setZoomFactor(1);
@@ -2841,7 +2842,7 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
   });
 
   browserWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url).catch(() => {});
+    void openExternalUrl(url).catch(() => {});
     return { action: 'deny' };
   });
   browserWindow.webContents.on('will-navigate', (event, url) => {
@@ -2852,7 +2853,7 @@ const createMiniChatWindow = async ({ mode, sessionId = '', directory = '', proj
     } catch {
     }
     event.preventDefault();
-    void shell.openExternal(url).catch(() => {});
+    void openExternalUrl(url).catch(() => {});
   });
   browserWindow.webContents.on('dom-ready', () => {
     const initScript = browserWindow.__ocInitScript;
@@ -2996,7 +2997,7 @@ const compareSemver = (left, right) => {
 };
 
 const setupAutoUpdater = () => {
-  if (!app.isPackaged) {
+  if (!app.isPackaged || isOfflineModeEnabled()) {
     return;
   }
   autoUpdater.autoDownload = false;
@@ -3051,6 +3052,7 @@ const setupAutoUpdater = () => {
 };
 
 const parseRelevantChangelogNotes = async (fromVersion, toVersion) => {
+  if (isOfflineModeEnabled()) return null;
   try {
     const response = await fetch(CHANGELOG_URL, { signal: AbortSignal.timeout(10_000) });
     if (!response.ok) return null;
@@ -3940,7 +3942,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         throw new Error('Only HTTP URLs can be opened externally');
       }
 
-      await shell.openExternal(parsed.toString());
+      await openExternalUrl(parsed.toString());
       return null;
     }
 
@@ -4193,6 +4195,16 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
     }
 
     case 'desktop_check_for_updates': {
+      if (isOfflineModeEnabled()) {
+        return {
+          available: false,
+          offline: true,
+          currentVersion: APP_VERSION,
+          version: null,
+          body: null,
+          date: null,
+        };
+      }
       assertUpdaterCapability({ packaged: app.isPackaged });
       const currentVersion = APP_VERSION;
       const { available, updateInfo, updateResult, nextVersion, pendingUpdate } = await checkForDesktopUpdate({
@@ -4217,6 +4229,9 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
     }
 
     case 'desktop_download_and_install_update':
+      if (isOfflineModeEnabled()) {
+        throw createOfflineNetworkError('desktop update installation');
+      }
       assertUpdaterCapability({ packaged: app.isPackaged });
       if (!state.pendingUpdate) {
         throw new Error('No pending update');
@@ -4613,10 +4628,10 @@ const buildMacMenu = () => {
         { type: 'separator' },
         { label: 'Clear Cache', click: () => void handleInvoke(null, 'desktop_clear_cache') },
         { type: 'separator' },
-        { label: 'Report a Bug', click: () => shell.openExternal(GITHUB_BUG_REPORT_URL) },
-        { label: 'Request a Feature', click: () => shell.openExternal(GITHUB_FEATURE_REQUEST_URL) },
+        { label: 'Report a Bug', click: () => void openExternalUrl(GITHUB_BUG_REPORT_URL).catch(() => {}) },
+        { label: 'Request a Feature', click: () => void openExternalUrl(GITHUB_FEATURE_REQUEST_URL).catch(() => {}) },
         { type: 'separator' },
-        { label: 'Join Discord', click: () => shell.openExternal(DISCORD_INVITE_URL) },
+        { label: 'Join Discord', click: () => void openExternalUrl(DISCORD_INVITE_URL).catch(() => {}) },
       ],
     },
   ]);
@@ -4727,10 +4742,10 @@ const buildAutoHiddenMenu = () => {
         { type: 'separator' },
         { label: 'Clear Cache', click: () => void handleInvoke(null, 'desktop_clear_cache') },
         { type: 'separator' },
-        { label: 'Report a Bug', click: () => shell.openExternal(GITHUB_BUG_REPORT_URL) },
-        { label: 'Request a Feature', click: () => shell.openExternal(GITHUB_FEATURE_REQUEST_URL) },
+        { label: 'Report a Bug', click: () => void openExternalUrl(GITHUB_BUG_REPORT_URL).catch(() => {}) },
+        { label: 'Request a Feature', click: () => void openExternalUrl(GITHUB_FEATURE_REQUEST_URL).catch(() => {}) },
         { type: 'separator' },
-        { label: 'Join Discord', click: () => shell.openExternal(DISCORD_INVITE_URL) },
+        { label: 'Join Discord', click: () => void openExternalUrl(DISCORD_INVITE_URL).catch(() => {}) },
       ],
     },
   ]);
@@ -4747,6 +4762,7 @@ const loadUrlInsideWebContents = (contents, rawUrl) => {
   try {
     const url = new URL(rawUrl);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    if (shouldBlockExternalNetworkUrl(url)) return false;
     if (contents.isDestroyed()) return false;
     void contents.loadURL(url.toString()).catch((error) => {
       log.warn('[webview] failed to load popup URL in place:', error);
@@ -4765,6 +4781,18 @@ app.on('web-contents-created', (_event, contents) => {
     return { action: 'deny' };
   });
 });
+
+const setupOfflineSessionNetworkGuard = () => {
+  if (!isOfflineModeEnabled()) return;
+  session.defaultSession.webRequest.onBeforeRequest(
+    { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
+    (details, callback) => {
+      const blocked = shouldBlockExternalNetworkUrl(details.url);
+      if (blocked) log.warn(`[electron] blocked renderer network request in offline mode: ${details.url}`);
+      callback({ cancel: blocked });
+    },
+  );
+};
 
 // All desktop_* IPC and dialog:open run with full Electron main privileges
 // (fs access, shell.openPath, spawn, app.relaunch, …). The preload shim is
@@ -5196,6 +5224,7 @@ app.whenReady().then(async () => {
   });
   nativeTheme.themeSource = readThemeSource();
   registerPackagedUiProtocol();
+  setupOfflineSessionNetworkGuard();
   setupAutoUpdater();
 
   if (process.platform === 'darwin') {

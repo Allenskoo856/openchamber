@@ -17,6 +17,7 @@ const GITMOJI_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const GITMOJI_CACHE_VERSION = '1';
 const GITMOJI_SOURCE_URL =
   'https://raw.githubusercontent.com/carloscuesta/gitmoji/master/packages/gitmojis/src/gitmojis.json';
+const OFFLINE_MODE = import.meta.env.VITE_OPENCHAMBER_OFFLINE_MODE === '1';
 
 const isGitmojiEntry = (value: unknown): value is GitmojiEntry => {
   if (!value || typeof value !== 'object') return false;
@@ -117,16 +118,17 @@ export type UseGitmojiListResult = {
  *   they need the list synchronously (e.g. auto-suggest on commit subject).
  */
 export const useGitmojiList = (enabled: boolean): UseGitmojiListResult => {
+  const effectiveEnabled = enabled && !OFFLINE_MODE;
   const [gitmojis, setGitmojis] = React.useState<GitmojiEntry[]>(() => {
-    if (!enabled) return [];
+    if (!effectiveEnabled) return [];
     return readGitmojiCache()?.gitmojis ?? [];
   });
   const [isLoading, setIsLoading] = React.useState(false);
-  const enabledRef = React.useRef(enabled);
-  enabledRef.current = enabled;
+  const enabledRef = React.useRef(effectiveEnabled);
+  enabledRef.current = effectiveEnabled;
 
   React.useEffect(() => {
-    if (!enabled) {
+    if (!effectiveEnabled) {
       subscribers.delete(setGitmojis);
       setGitmojis([]);
       setIsLoading(false);
@@ -154,7 +156,7 @@ export const useGitmojiList = (enabled: boolean): UseGitmojiListResult => {
       cancelled = true;
       subscribers.delete(setGitmojis);
     };
-  }, [enabled]);
+  }, [effectiveEnabled]);
 
   const ensureLoaded = React.useCallback(async (): Promise<GitmojiEntry[]> => {
     if (!enabledRef.current) return [];

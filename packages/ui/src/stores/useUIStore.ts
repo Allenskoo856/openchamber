@@ -1027,7 +1027,9 @@ export const useUIStore = create<UIStore>()(
         allowPromptingSubagentSessions: false,
         draftStartersVisible: true,
         isExpandedInput: false,
-        reportUsage: true,
+        // Usage reporting is opt-in. Offline desktop builds also block the
+        // update/usage endpoints at both the UI and server layers.
+        reportUsage: false,
         shortcutOverrides: {},
         fileEditorKeymap: 'default',
 

@@ -90,6 +90,8 @@ Windows packaging needs NSIS support through `electron-builder`. If no Windows s
 
 Linux AppImages must be built natively. Set `OPENCHAMBER_TARGET_ARCH=x64` or `OPENCHAMBER_TARGET_ARCH=arm64` when packaging; the build rejects a target that does not match the Linux host. The same target selects the bundled OpenCode CLI, native Electron rebuild, and Electron Builder architecture. Linux identity is stable across architectures: executable `openchamber`, desktop file `openchamber.desktop`, icon `openchamber`, and `StartupWMClass=openchamber`.
 
+The UOS 1070 offline workflow targets Debian 10/glibc 2.28 x86_64. Run `UOS 1070 Offline Desktop Media` to build the AppImage and a user-level tarball; it sets `OPENCHAMBER_OFFLINE_BUILD=1` and `VITE_OPENCHAMBER_OFFLINE_MODE=1`, disables update/telemetry-style public calls, and finishes with a Debian 10 `--network none` startup smoke. The generated media is documented in [`docs/UOS1070_OFFLINE_DESKTOP_GUIDE_ZH.md`](../../docs/UOS1070_OFFLINE_DESKTOP_GUIDE_ZH.md).
+
 After packaging, run `bun run --cwd packages/electron verify:linux-appimage`. The verifier extracts the final AppImage and checks its ELF architecture, desktop identity, Electron executable, pinned OpenCode CLI version and architecture, and all packaged native `.node` modules.
 
 Running a packaged Linux AppImage requires FUSE (`libfuse.so.2`, typically `libfuse2` / `libfuse2t64` on Debian/Ubuntu). Without FUSE, start with `APPIMAGE_EXTRACT_AND_RUN=1`. Keep the AppImage on a writable path so in-app updates can replace it.
@@ -136,6 +138,8 @@ Use an explicit override when testing a different OpenCode CLI build or when a u
 | `OPENCHAMBER_DESKTOP_NOTIFY=true` | Enables desktop notification flow in the web server |
 | `OPENCHAMBER_SKIP_API_COMPRESSION=true` | Defaulted by Desktop to reduce local CPU overhead |
 | `OPENCHAMBER_STARTUP_PERF=1` | Enables privacy-safe startup phase timings in Desktop/server logs; disabled by default |
+| `OPENCHAMBER_OFFLINE_MODE=1` / `OPENCHAMBER_DISABLE_EXTERNAL_NETWORK=1` | Blocks public HTTP(S)/WS(S) by default; loopback/private and explicit `OPENCHAMBER_OFFLINE_ALLOWED_HOSTS` destinations remain available |
+| `OPENCHAMBER_OFFLINE_ALLOWED_HOSTS` | Comma-separated internal hostnames/IPs explicitly allowed by offline policy |
 | `OPENCODE_HOST` / `OPENCODE_PORT` / `OPENCODE_SKIP_START` | Connect Desktop to an external OpenCode server instead of starting one locally |
 
 ## Native Features Owned Here

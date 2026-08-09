@@ -103,6 +103,13 @@ import { createScheduledTaskService } from './lib/scheduled-tasks/service.js';
 import { createOpenChamberControlService } from './lib/openchamber-control/service.js';
 import { createProxyMiddleware, responseInterceptor } from 'http-proxy-middleware';
 import webPush from 'web-push';
+import {
+  installOfflineFetchGuard,
+  isOfflineModeEnabled,
+  registerOfflineNetworkGuard,
+} from './lib/offline-mode.js';
+
+installOfflineFetchGuard();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1396,23 +1403,25 @@ async function main(options = {}) {
     || typeof options.tunnelConfigPath === 'string'
     || typeof options.tunnelToken === 'string'
     || typeof options.tunnelHostname === 'string';
-  const startupTunnelRequest = shouldUseCanonicalTunnelConfig
-    ? normalizeTunnelStartRequest({
-        provider: normalizeTunnelProvider(options.tunnelProvider),
-        mode: options.tunnelMode,
-        configPath: normalizeOptionalPath(options.tunnelConfigPath),
-        token: typeof options.tunnelToken === 'string' ? options.tunnelToken.trim() : '',
-        hostname: normalizeManagedRemoteTunnelHostname(options.tunnelHostname),
-      })
-    : (tryCfTunnel
-      ? {
-          provider: TUNNEL_PROVIDER_CLOUDFLARE,
-          mode: TUNNEL_MODE_QUICK,
-          configPath: undefined,
-          token: '',
-          hostname: undefined,
-        }
-      : null);
+  const startupTunnelRequest = isOfflineModeEnabled()
+    ? null
+    : (shouldUseCanonicalTunnelConfig
+      ? normalizeTunnelStartRequest({
+          provider: normalizeTunnelProvider(options.tunnelProvider),
+          mode: options.tunnelMode,
+          configPath: normalizeOptionalPath(options.tunnelConfigPath),
+          token: typeof options.tunnelToken === 'string' ? options.tunnelToken.trim() : '',
+          hostname: normalizeManagedRemoteTunnelHostname(options.tunnelHostname),
+        })
+      : (tryCfTunnel
+        ? {
+            provider: TUNNEL_PROVIDER_CLOUDFLARE,
+            mode: TUNNEL_MODE_QUICK,
+            configPath: undefined,
+            token: '',
+            hostname: undefined,
+          }
+        : null));
   const attachSignals = options.attachSignals !== false;
   const onTunnelReady = typeof options.onTunnelReady === 'function' ? options.onTunnelReady : null;
   if (typeof options.exitOnShutdown === 'boolean') {
@@ -1435,6 +1444,7 @@ async function main(options = {}) {
   const sayTTSCapability = detectSayTtsCapability(process);
 
   const app = express();
+  registerOfflineNetworkGuard(app);
   const serverStartedAt = new Date().toISOString();
   const packagedClientOrigins = new Set([
     'openchamber-ui://app',
@@ -1764,16 +1774,22 @@ async function main(options = {}) {
   // Only opens a relay control socket when the user opted in (config enabled).
   // Reconcile the relay lifecycle from demand on startup: run it if any relay
   // device/session exists, stop it (and clear a stale enabled flag) otherwise.
-  void relayService.reconcile();
+  if (isOfflineModeEnabled()) {
+    relayService.stop();
+  } else {
+    void relayService.reconcile();
+  }
 
   // Relay demand can change outside our routes: `openchamber connect-url
   // --relay` writes a pending relay session straight to the on-disk store, and
   // pending sessions expire without any request hitting us. Poll reconcile so a
   // headless instance picks the relay up (or drops it) within a minute.
-  const relayReconcileTimer = setInterval(() => {
-    void relayService.reconcile();
-  }, 60_000);
-  relayReconcileTimer.unref?.();
+  const relayReconcileTimer = isOfflineModeEnabled()
+    ? null
+    : setInterval(() => {
+        void relayService.reconcile();
+      }, 60_000);
+  relayReconcileTimer?.unref?.();
 
   return {
     expressApp: app,

@@ -1,3 +1,5 @@
+import { createOfflineNetworkError, isOfflineModeEnabled } from '../offline-mode.js';
+
 const SYSTEMD_SERVICE_UNIT_PATTERN = /^[A-Za-z0-9:_.@-]+\.service$/;
 
 function resolveSystemdServiceUnit(environment) {
@@ -31,15 +33,21 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
     getCachedZenModels,
   } = dependencies;
 
+  const offlineMode = () => isOfflineModeEnabled(process?.env || {});
+  const rejectOfflineRequest = (res, operation) => res.status(503).json({
+    error: createOfflineNetworkError(operation).message,
+    code: 'OPENCHAMBER_OFFLINE_MODE',
+  });
+
   app.get('/api/openchamber/update-check', async (req, res) => {
+    if (offlineMode()) return rejectOfflineRequest(res, 'update check');
     try {
       const { checkForUpdates } = await import('../package-manager.js');
       const parseString = (value) => (typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined);
       const parseReportUsage = (value) => {
-        if (typeof value !== 'string') return true;
+        if (typeof value !== 'string') return false;
         const normalized = value.trim().toLowerCase();
-        if (normalized === 'false' || normalized === '0' || normalized === 'no') return false;
-        return true;
+        return normalized === 'true' || normalized === '1' || normalized === 'yes';
       };
       const inferDeviceClass = (ua) => {
         const value = (ua || '').toLowerCase();
@@ -71,6 +79,7 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
   });
 
   app.post('/api/openchamber/update-install', async (_req, res) => {
+    if (offlineMode()) return rejectOfflineRequest(res, 'update installation');
     try {
       const { spawn: spawnChild, spawnSync } = await import('child_process');
       const {
@@ -319,6 +328,7 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
   });
 
   app.get('/api/openchamber/models-metadata', async (_req, res) => {
+    if (offlineMode()) return rejectOfflineRequest(res, 'model metadata request');
     try {
       const { getModelsMetadata } = await import('./models-metadata.js');
       const { metadata, fromCache, stale } = await getModelsMetadata({
@@ -335,6 +345,7 @@ export const registerOpenChamberRoutes = (app, dependencies) => {
   });
 
   app.get('/api/zen/models', async (_req, res) => {
+    if (offlineMode()) return rejectOfflineRequest(res, 'Zen model catalog request');
     try {
       const models = await fetchFreeZenModels();
       res.setHeader('Cache-Control', 'public, max-age=300');

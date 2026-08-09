@@ -136,6 +136,8 @@ For self-hosting details, see the [reverse proxy guide](docs/REVERSE_PROXY.md). 
 
 For a Chinese operational guide covering installation, providers, Docker, remote access, GitHub, and troubleshooting, see [OpenChamber 中文详细使用手册](docs/OPENCHAMBER_USAGE_GUIDE_ZH.md).
 
+For the UOS 1070/Debian 10 x86_64 offline desktop media, see [UOS 1070 离线桌面安装手册](docs/UOS1070_OFFLINE_DESKTOP_GUIDE_ZH.md).
+
 ## Why OpenCode?
 
 OpenChamber uses [OpenCode](https://opencode.ai) to power its coding agents. We chose it because we believe it provides the best open-source agentic coding experience today: capable, extensible, and open by design.
