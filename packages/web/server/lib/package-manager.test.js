@@ -135,6 +135,7 @@ describe('checkForUpdates', () => {
       appType: 'desktop-electron',
       currentVersion: '1.9.10',
       installId: '4f4dfead-9688-4c4f-97d7-4607fbbfc3ab',
+      reportUsage: true,
       platform: 'windows',
       arch: 'arm64',
     });
