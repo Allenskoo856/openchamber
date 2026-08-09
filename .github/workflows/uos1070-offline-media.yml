@@ -45,7 +45,11 @@ jobs:
               set -euo pipefail
               export DEBIAN_FRONTEND=noninteractive
               rm -f /etc/apt/sources.list.d/debian.sources
-              echo "deb http://archive.debian.org/debian buster main contrib non-free" > /etc/apt/sources.list
+              printf '%s\n' \
+                "deb http://archive.debian.org/debian buster main contrib non-free" \
+                "deb http://archive.debian.org/debian buster-updates main contrib non-free" \
+                "deb http://archive.debian.org/debian-security buster/updates main contrib non-free" \
+                > /etc/apt/sources.list
               apt-get -o Acquire::Check-Valid-Until=false update
               apt-get -y --no-install-recommends --allow-unauthenticated install \
                 ca-certificates curl git unzip xz-utils tar build-essential python3 make gcc g++ pkg-config \
@@ -98,7 +102,11 @@ jobs:
           docker exec "$SMOKE_CONTAINER" /bin/bash -c '
             set -euo pipefail
             export DEBIAN_FRONTEND=noninteractive
-            echo "deb http://archive.debian.org/debian buster main contrib non-free" > /etc/apt/sources.list
+            printf '%s\n' \
+              "deb http://archive.debian.org/debian buster main contrib non-free" \
+              "deb http://archive.debian.org/debian buster-updates main contrib non-free" \
+              "deb http://archive.debian.org/debian-security buster/updates main contrib non-free" \
+              > /etc/apt/sources.list
             apt-get -o Acquire::Check-Valid-Until=false update
             apt-get -y --no-install-recommends --allow-unauthenticated install \
               ca-certificates xvfb xauth coreutils \
