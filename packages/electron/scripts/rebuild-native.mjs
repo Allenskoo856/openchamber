@@ -100,16 +100,38 @@ const getPythonVersion = () => {
   }
 };
 
+const resolveElectronNodeGypPackageJson = () => {
+  const lookupPaths = [];
+  try {
+    lookupPaths.push(path.dirname(require.resolve('@electron/rebuild/package.json')));
+  } catch {
+    // Let the caller report the actionable Python compatibility error below.
+  }
+
+  for (const lookupPath of lookupPaths) {
+    try {
+      return require.resolve('@electron/node-gyp/package.json', { paths: [lookupPath] });
+    } catch {
+      try {
+        const entrypoint = require.resolve('@electron/node-gyp', { paths: [lookupPath] });
+        return path.resolve(path.dirname(entrypoint), '..', 'package.json');
+      } catch {
+        // Try the next known dependency root.
+      }
+    }
+  }
+
+  return null;
+};
+
 const patchElectronNodeGypForPython37 = async () => {
   const python = getPythonVersion();
   if (!python || python.major > 3 || (python.major === 3 && python.minor >= 8)) {
     return async () => {};
   }
 
-  let packageJsonPath;
-  try {
-    packageJsonPath = require.resolve('@electron/node-gyp/package.json');
-  } catch {
+  const packageJsonPath = resolveElectronNodeGypPackageJson();
+  if (!packageJsonPath) {
     throw new Error(
       `Python ${python.major}.${python.minor} is too old for @electron/node-gyp, and its package path could not be resolved. `
       + 'Use Python 3.8+ for native Electron builds.',
